@@ -1,0 +1,64 @@
+import streamlit as st
+import google.generativeai as genai
+GEMINI_API_KEY = "PASTE_KUNCI_DISINI"
+genai.configure(api_key=GEMINI_API_KEY)
+
+DAFTAR_SISWA = {
+    "FRISCHA BUNGA LESTARI": "Tahsin",
+    "ZALFATUSSYIFA RAMADANTI": "Tahfidz",
+    "ZAIN RAHMANITA": "Tahfidz",
+    "YUSUF IMAM MA'RUF": "Tahfidz",
+    "RAIHAN": "Tahsin",
+    "FEBRIANSYAH RACHMAT HIDAYAT": "Tahfidz",
+    "ANGGA FADILLAH": "Tahsin",
+    "MUHAMMAD HAFIDZ": "Tahfidz",
+    "ANDY RAMADANI ABDULLAH": "Tahsin",
+    "ANGGI RATU MAHADEWI": "Tahfidz",
+    "RIZQI RAMADHANY": "Tahfidz",
+    "KAWILUJEUNGAN RASYIDA RAIHANUN": "Tahfidz",
+    "MIFTAHUL JANNAH": "Tahfidz",
+    "MUHAMAD AZHAM FATAHILAH": "Tahfidz",
+    "ROSMALATI KHOLISHA": "Tahfidz",
+    "M. ARIF ZAKARIYA": "Tahfidz",
+    "MOCHAMMAD ALKAHFI MUBAROK": "Tahfidz",
+    "MUHAMAD HARTANTO": "Iqro Dasar",
+    "IMAM MANSYUR IBNU HULKARIM": "Tahfidz",
+    "DAFFAN OKTAFFIL HIDAYAT": "Iqro",
+}
+DAFTAR_DEWASA = {
+    "KENDAR SULTONI": "Admin Utama",
+    "MUHAMMAD SIDDIQ ASYHARI": "Dosen Pembimbing",
+    "SYAMSUL HADI": "Kepala MA Al-Barokah",
+    "ADE ROMLI": "Guru Al-Qur'an Hadits",
+    "MUHAMAD RAIS": "Guru Bahasa Arab",
+}
+SYSTEM_PROMPT = "Kamu Qori AI, Asisten Pengajian MA Al-Barokah Kelas 11. Jawab dulu Waalaikumsalam. Tanya nama lengkap. Jika nama tidak ada di daftar, tolak. Gaya lembut, jangan kata 'salah', ganti 'Yuk perbaiki sama-sama'. Tutup dengan Wassalamualaikum."
+
+st.set_page_config(page_title="QORI AI", page_icon="🕌")
+st.title("🕌 QORI AI - MA Al-Barokah Kelas 11")
+st.caption("Dibuat oleh Kendar Sultoni")
+
+if "chat" not in st.session_state:
+    st.session_state.chat = genai.GenerativeModel("gemini-2.0-flash", system_instruction=SYSTEM_PROMPT).start_chat(history=[])
+    st.session_state.login = False
+
+if not st.session_state.login:
+    nama = st.text_input("Nama lengkap sesuai absen:")
+    if st.button("Masuk"):
+        n = " ".join(nama.strip().upper().split())
+        if n in DAFTAR_SISWA:
+            st.session_state.login = True; st.session_state.nama = n; st.session_state.peran = DAFTAR_SISWA[n]; st.rerun()
+        elif n in DAFTAR_DEWASA:
+            st.session_state.login = True; st.session_state.nama = n; st.session_state.peran = DAFTAR_DEWASA[n]; st.rerun()
+        else:
+            st.error("Maaf, nama kamu tidak terdaftar. Hubungi Kendar Sultoni.")
+    st.stop()
+
+st.success(f"Selamat datang, {st.session_state.nama} - {st.session_state.peran}")
+for msg in st.session_state.chat.history:
+    with st.chat_message("user" if msg.role=="user" else "assistant"):
+        st.markdown(msg.parts[0].text)
+if prompt := st.chat_input("Ketik Assalamualaikum..."):
+    with st.chat_message("user"): st.markdown(prompt)
+    with st.chat_message("assistant"):
+        res = st.session_state.chat.send_message(prompt); st.markdown(res.text)
