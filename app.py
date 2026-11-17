@@ -18,6 +18,19 @@ def pasang_background(nama_file):
                 background-position: center;
                 background-attachment: fixed;
             }}
+                    header[data-testid="stHeader"] {{
+            background: transparent !important;
+        }}
+        [data-testid="stToolbar"] {{
+            background: transparent !important;
+        }}
+        [data-testid="stBottom"] {{
+            background: transparent !important;
+        }}
+        [data-testid="stBottom"] > div {{
+            background: rgba(255,255,255,0.85) !important;
+            border-radius: 15px !important;
+        }}
             .stApp::before {{
                 content: "";
                 position: fixed;
