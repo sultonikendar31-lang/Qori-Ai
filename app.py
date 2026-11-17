@@ -5,7 +5,7 @@ import base64
 st.set_page_config(page_title="QORI AI - Al Barokah", page_icon="🕌", layout="centered")
 
 # --- BACKGROUND FOTO ---
-def pasang_background(nama_file):
+pasang_background("background.jpeg")
     try:
         with open(nama_file, "rb") as f:
             data = base64.b64encode(f.read()).decode()
