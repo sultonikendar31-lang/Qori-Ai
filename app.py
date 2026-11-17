@@ -144,10 +144,10 @@ DATA_SISWA = {
 def tampilkan_daftar(kategori):
     daftar_html = ""
     for i, (nama, jk, nilai, ket) in enumerate(DATA_SISWA[kategori], 1):
-        daftar_html += f"<div style='padding:8px 0; border-bottom:1px solid #eee; color:#222; font-size:16px;'><b>{i}. {nama}</b></div>"
+        daftar_html += f"<div style='padding:6px 0; border-bottom:1px solid #eee; color:#222; font-size:14px;'><b>{i}. {nama}</b></div>"
     st.markdown(f"""
-    <div style="background:white; padding:18px; border-radius:16px; margin:10px 0; box-shadow:0 4px 12px rgba(0,0,0,0.15);">
-        <div style="color:#1a5c2a; font-size:18px; font-weight:bold; margin-bottom:10px;">Daftar Siswa {kategori} - {len(DATA_SISWA[kategori])} Siswa</div>
+    <div style="background:white; padding:14px; border-radius:12px; margin-top:8px; box-shadow:0 4px 12px rgba(0,0,0,0.15);">
+        <div style="color:#1a5c2a; font-size:15px; font-weight:bold; margin-bottom:8px;">Daftar {kategori} - {len(DATA_SISWA[kategori])} Siswa</div>
         {daftar_html}
     </div>
     """, unsafe_allow_html=True)
@@ -189,9 +189,18 @@ if klik_tahfidz:
         st.session_state["kategori_pilih"] = "Tahfidz"
         prompt_awal = "Bantu saya Tahfidz / menghafal Al-Qur'an, beri tips menghafal yang mudah dan ayat pendek untuk dihafal hari ini."
 
-# Tampilkan kalau lagi dipilih aja
+# Tampilkan lurus di bawah tombolnya
 if st.session_state["kategori_pilih"]:
-    tampilkan_daftar(st.session_state["kategori_pilih"])
+    c1, c2, c3 = st.columns(3)
+    if st.session_state["kategori_pilih"] == "Iqro":
+        with c1:
+            tampilkan_daftar("Iqro")
+    if st.session_state["kategori_pilih"] == "Tahsin":
+        with c2:
+            tampilkan_daftar("Tahsin")
+    if st.session_state["kategori_pilih"] == "Tahfidz":
+        with c3:
+            tampilkan_daftar("Tahfidz")
 
 prompt = st.chat_input("Tulis pertanyaanmu di sini...")
 if prompt_awal:
