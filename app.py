@@ -18,6 +18,27 @@ def pasang_background(nama_file):
                 background-position: center;
                 background-attachment: fixed;
             }}
+            .stApp::before {{
+                content: "";
+                position: fixed;
+                inset: 0;
+                background: rgba(0,0,0,0.55);
+                z-index: 0;
+            }}
+            .stApp > header, .stApp > div {{
+                position: relative;
+                z-index: 1;
+            }}
+            [data-testid="stChatMessage"] {{
+                background: white !important;
+                border-radius: 15px !important;
+                padding: 12px 15px !important;
+                color: black !important;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            }}
+            [data-testid="stChatMessage"] p {{
+                color: black !important;
+            }}
             </style>
             """,
             unsafe_allow_html=True
