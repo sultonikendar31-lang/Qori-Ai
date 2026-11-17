@@ -113,11 +113,11 @@ st.markdown("""
 # --- 3 TOMBOL ---
 col1, col2, col3 = st.columns(3)
 with col1:
-    klik_iqro = st.button("📖 Iqro")
+        klik_iqro = st.button("📖 Iqro", use_container_width=True)
 with col2:
-    klik_tahsin = st.button("📗 Tahsin")
+        klik_tahsin = st.button("📗 Tahsin", use_container_width=True)
 with col3:
-    klik_tahfidz = st.button("⭐ Tahfidz")
+        klik_tahfidz = st.button("⭐ Tahfidz", use_container_width=True)
 
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": "Assalamu'alaikum! 👋 Saya QORI AI. Silahkan tanya apa saja, saya siap membantu belajar dengan cara yang mudah dipahami."}]
