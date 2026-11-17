@@ -173,21 +173,18 @@ if klik_iqro:
         st.session_state["kategori_pilih"] = None
     else:
         st.session_state["kategori_pilih"] = "Iqro"
-        prompt_awal = "Ajari saya membaca Iqro dari dasar, dengan cara yang mudah untuk anak Madrasah. Mulai dari huruf hijaiyah."
 
 if klik_tahsin:
     if st.session_state["kategori_pilih"] == "Tahsin":
         st.session_state["kategori_pilih"] = None
     else:
         st.session_state["kategori_pilih"] = "Tahsin"
-        prompt_awal = "Ajari saya Tahsin Al-Qur'an, cara membaca dengan tajwid yang benar, makhraj huruf dan contohnya."
 
 if klik_tahfidz:
     if st.session_state["kategori_pilih"] == "Tahfidz":
         st.session_state["kategori_pilih"] = None
     else:
         st.session_state["kategori_pilih"] = "Tahfidz"
-        prompt_awal = "Bantu saya Tahfidz / menghafal Al-Qur'an, beri tips menghafal yang mudah dan ayat pendek untuk dihafal hari ini."
 
 # Tampilkan lurus di bawah tombolnya
 if st.session_state["kategori_pilih"]:
