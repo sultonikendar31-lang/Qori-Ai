@@ -212,7 +212,7 @@ if prompt:
         st.write(prompt)
     with st.chat_message("assistant"):
         try:
-            response = model.generate_content(f"Kamu adalah QORI AI, guru ngaji yang ramah untuk anak Madrasah Al Barokah. Jawab dengan bahasa Indonesia yang mudah, sopan, dan islami. Pertanyaan: {prompt}")
+            response = model.generate_content(f"Kamu adalah QORI AI, guru ngaji yang ramah untuk anak Madrasah Aliyah Al Barokah. Jawab dengan bahasa Indonesia yang mudah, sopan, dan islami. Pertanyaan: {prompt}")
             st.write(response.text)
             st.session_state.messages.append({"role": "assistant", "content": response.text})
         except Exception as e:
