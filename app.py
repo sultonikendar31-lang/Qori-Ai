@@ -46,6 +46,19 @@ def pasang_background(nama_file):
             color: #666666 !important;
         }}
         }}
+                [data-testid="stCaptionContainer"] {{
+            background: transparent !important;
+        }}
+        [data-testid="stCaptionContainer"] * {{
+            color: white !important;
+        }}
+        [data-testid="stAlert"] {{
+            background: transparent !important;
+            border: 1px solid rgba(255,255,255,0.6) !important;
+        }}
+        [data-testid="stAlert"] * {{
+            color: white !important;
+        }}
             .stApp::before {{
                 content: "";
                 position: fixed;
