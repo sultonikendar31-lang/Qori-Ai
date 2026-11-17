@@ -162,20 +162,35 @@ with col3:
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": "Assalamu'alaikum! 👋 Saya QORI AI. Silahkan tanya apa saja, saya siap membantu belajar dengan cara yang mudah dipahami."}]
 
-if klik_iqro:
-    st.session_state["kategori_pilih"] = "Iqro"
-    prompt_awal = "Ajari saya membaca Iqro dari dasar, dengan cara yang mudah untuk anak Madrasah. Mulai dari huruf hijaiyah."
-elif klik_tahsin:
-    st.session_state["kategori_pilih"] = "Tahsin"
-    prompt_awal = "Ajari saya Tahsin Al-Qur'an, cara membaca dengan tajwid yang benar, makhraj huruf dan contohnya."
-elif klik_tahfidz:
-    st.session_state["kategori_pilih"] = "Tahfidz"
-    prompt_awal = "Bantu saya Tahfidz / menghafal Al-Qur'an, beri tips menghafal yang mudah dan ayat pendek untuk dihafal hari ini."
-else:
-    prompt_awal = None
+# --- TOMBOL TOGGLE: 1 klik muncul, 1 klik lagi hilang ---
+if "kategori_pilih" not in st.session_state:
+    st.session_state["kategori_pilih"] = None
 
-# Tampilkan daftar biar tidak hilang
-if "kategori_pilih" in st.session_state:
+prompt_awal = None
+
+if klik_iqro:
+    if st.session_state["kategori_pilih"] == "Iqro":
+        st.session_state["kategori_pilih"] = None
+    else:
+        st.session_state["kategori_pilih"] = "Iqro"
+        prompt_awal = "Ajari saya membaca Iqro dari dasar, dengan cara yang mudah untuk anak Madrasah. Mulai dari huruf hijaiyah."
+
+if klik_tahsin:
+    if st.session_state["kategori_pilih"] == "Tahsin":
+        st.session_state["kategori_pilih"] = None
+    else:
+        st.session_state["kategori_pilih"] = "Tahsin"
+        prompt_awal = "Ajari saya Tahsin Al-Qur'an, cara membaca dengan tajwid yang benar, makhraj huruf dan contohnya."
+
+if klik_tahfidz:
+    if st.session_state["kategori_pilih"] == "Tahfidz":
+        st.session_state["kategori_pilih"] = None
+    else:
+        st.session_state["kategori_pilih"] = "Tahfidz"
+        prompt_awal = "Bantu saya Tahfidz / menghafal Al-Qur'an, beri tips menghafal yang mudah dan ayat pendek untuk dihafal hari ini."
+
+# Tampilkan kalau lagi dipilih aja
+if st.session_state["kategori_pilih"]:
     tampilkan_daftar(st.session_state["kategori_pilih"])
 
 prompt = st.chat_input("Tulis pertanyaanmu di sini...")
