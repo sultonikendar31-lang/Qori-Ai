@@ -142,9 +142,15 @@ DATA_SISWA = {
 }
 
 def tampilkan_daftar(kategori):
-    st.markdown(f"### Daftar Siswa {kategori} - {len(DATA_SISWA[kategori])} Siswa")
+    daftar_html = ""
     for i, (nama, jk, nilai, ket) in enumerate(DATA_SISWA[kategori], 1):
-        st.markdown(f"**{i}. {nama}** - {jk} - Nilai: {nilai} - {ket}")
+        daftar_html += f"<div style='padding:8px 0; border-bottom:1px solid #eee; color:#222; font-size:16px;'><b>{i}. {nama}</b></div>"
+    st.markdown(f"""
+    <div style="background:white; padding:18px; border-radius:16px; margin:10px 0; box-shadow:0 4px 12px rgba(0,0,0,0.15);">
+        <div style="color:#1a5c2a; font-size:18px; font-weight:bold; margin-bottom:10px;">Daftar Siswa {kategori} - {len(DATA_SISWA[kategori])} Siswa</div>
+        {daftar_html}
+    </div>
+    """, unsafe_allow_html=True)
 col1, col2, col3 = st.columns(3)
 with col1:
         klik_iqro = st.button("📖 Iqro", use_container_width=True)
