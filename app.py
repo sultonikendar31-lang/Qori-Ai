@@ -5,24 +5,27 @@ import base64
 st.set_page_config(page_title="QORI AI - Al Barokah", page_icon="🕌", layout="centered")
 
 # --- BACKGROUND FOTO ---
-pasang_background("background.jpeg")
+def pasang_background(nama_file):
     try:
         with open(nama_file, "rb") as f:
             data = base64.b64encode(f.read()).decode()
-        st.markdown(f"""
-        <style>
-        .stApp {{
-            background-image: url("data:image/jpg;base64,{data}");
-            background-size: cover;
-            background-position: center;
-            background-attachment: fixed;
-        }}
-        </style>
-        """, unsafe_allow_html=True)
+        st.markdown(
+            f"""
+            <style>
+            .stApp {{
+                background-image: url("data:image/jpeg;base64,{data}");
+                background-size: cover;
+                background-position: center;
+                background-attachment: fixed;
+            }}
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
     except:
         pass
 
-pasang_background("background.jpg")
+pasang_background("background.jpeg")
 
 # --- TEMA ---
 st.markdown("""
