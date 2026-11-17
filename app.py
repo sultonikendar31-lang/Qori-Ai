@@ -39,6 +39,26 @@ def pasang_background(nama_file):
             [data-testid="stChatMessage"] p {{
                 color: black !important;
             }}
+            div[data-testid="column"] {{
+    display: flex !important;
+    align-items: stretch !important;
+}}
+div[data-testid="column"] > div {{
+    width: 100% !important;
+}}
+.stButton {{
+    width: 100% !important;
+}}
+.stButton > button {{
+    width: 100% !important;
+    height: 50px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    margin-top: 0px !important;
+    padding-top: 0px !important;
+    padding-bottom: 0px !important;
+}}
             </style>
             """,
             unsafe_allow_html=True
