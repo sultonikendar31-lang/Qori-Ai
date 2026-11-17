@@ -27,9 +27,19 @@ def pasang_background(nama_file):
         [data-testid="stBottom"] {{
             background: transparent !important;
         }}
+                [data-testid="stBottom"] {{
+            background: transparent !important;
+        }}
         [data-testid="stBottom"] > div {{
-            background: rgba(255,255,255,0.85) !important;
+            background: transparent !important;
+        }}
+        [data-testid="stChatInput"] {{
+            background: rgba(0,0,0,0.45) !important;
+            border: 1px solid rgba(255,255,255,0.5) !important;
             border-radius: 15px !important;
+        }}
+        [data-testid="stChatInput"] textarea {{
+            color: white !important;
         }}
             .stApp::before {{
                 content: "";
