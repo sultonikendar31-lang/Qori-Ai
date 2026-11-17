@@ -2,7 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 import base64
 
-st.set_page_config(page_title="QORI AI  MA Al-Barokah", page_icon="🕌", layout="centered")
+st.set_page_config(page_title="QORI AI  Madrasah Aliyah Al-Barokah", page_icon="🕌", layout="centered")
 
 # --- BACKGROUND FOTO ---
 def pasang_background(nama_file):
@@ -105,7 +105,7 @@ if api_key:
 # --- HEADER BARU ---
 st.markdown("""
 <div class="header-box">
-<h1>🕌 QORI AI - Al Barokah</h1>
+<h1>🕌 QORI AI Madrasah Aliyah Al-Barokah</h1>
 <p>Assalamualaikum warahmatullahi wabarakatuh! Tanya apa saja tentang Iqro, Tahsin dan Tahfidz</p>
 </div>
 """, unsafe_allow_html=True)
