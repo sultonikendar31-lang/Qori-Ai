@@ -157,20 +157,20 @@ if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": "Assalamu'alaikum! 👋 Saya QORI AI. Silahkan tanya apa saja, saya siap membantu belajar dengan cara yang mudah dipahami."}]
 
 if klik_iqro:
-    tampilkan_daftar("Iqro")
+    st.session_state["kategori_pilih"] = "Iqro"
     prompt_awal = "Ajari saya membaca Iqro dari dasar, dengan cara yang mudah untuk anak Madrasah. Mulai dari huruf hijaiyah."
 elif klik_tahsin:
-    tampilkan_daftar("Tahsin")
+    st.session_state["kategori_pilih"] = "Tahsin"
     prompt_awal = "Ajari saya Tahsin Al-Qur'an, cara membaca dengan tajwid yang benar, makhraj huruf dan contohnya."
 elif klik_tahfidz:
-    tampilkan_daftar("Tahfidz")
+    st.session_state["kategori_pilih"] = "Tahfidz"
     prompt_awal = "Bantu saya Tahfidz / menghafal Al-Qur'an, beri tips menghafal yang mudah dan ayat pendek untuk dihafal hari ini."
 else:
     prompt_awal = None
 
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.write(msg["content"])
+# Tampilkan daftar biar tidak hilang
+if "kategori_pilih" in st.session_state:
+    tampilkan_daftar(st.session_state["kategori_pilih"])
 
 prompt = st.chat_input("Tulis pertanyaanmu di sini...")
 if prompt_awal:
