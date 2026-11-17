@@ -2,7 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 import base64
 
-st.set_page_config(page_title="QORI AI - Al Barokah", page_icon="🕌", layout="centered")
+st.set_page_config(page_title="QORI AI - MA Al Barokah", page_icon="🕌", layout="centered")
 
 # --- BACKGROUND FOTO ---
 def pasang_background(nama_file):
