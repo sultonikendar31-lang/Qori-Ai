@@ -144,10 +144,10 @@ DATA_SISWA = {
 def tampilkan_daftar(kategori):
     daftar_html = ""
     for i, (nama, jk, nilai, ket) in enumerate(DATA_SISWA[kategori], 1):
-        daftar_html += f"<div style='padding:6px 0; border-bottom:1px solid #eee; color:#222; font-size:14px;'><b>{i}. {nama}</b></div>"
+        daftar_html += f"<div style='padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.3); color:white; font-size:14px;'><b>{i}. {nama}</b></div>"
     st.markdown(f"""
-    <div style="background:white; padding:14px; border-radius:12px; margin-top:8px; box-shadow:0 4px 12px rgba(0,0,0,0.15);">
-        <div style="color:#1a5c2a; font-size:15px; font-weight:bold; margin-bottom:8px;">Daftar {kategori} - {len(DATA_SISWA[kategori])} Siswa</div>
+    <div style="background:transparent; padding:14px; border-radius:12px; margin-top:8px; border:1px solid rgba(255,255,255,0.4);">
+        <div style="color:white; font-size:15px; font-weight:bold; margin-bottom:8px;">Daftar {kategori} - {len(DATA_SISWA[kategori])} Siswa</div>
         {daftar_html}
     </div>
     """, unsafe_allow_html=True)
