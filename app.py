@@ -111,6 +111,40 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 3 TOMBOL ---
+# --- DATA SISWA ---
+DATA_SISWA = {
+    "Iqro": [
+        ("Muhamad Hartanto", "Laki-laki", 63, "Iqro Dasar"),
+        ("Daffan Oktaffil Hidayat", "Laki-laki", 62, "Iqro"),
+    ],
+    "Tahsin": [
+        ("Frischa Bunga Lestari", "Perempuan", 73, "Udah bisa baca, Tajwid masih salah"),
+        ("Raihan", "Laki-laki", 72, "Udah bisa baca, Tajwid masih salah"),
+        ("Angga Fadillah", "Laki-laki", 71, "Udah bisa baca, Tajwid masih salah"),
+        ("Andy Ramadani Abdullah", "Laki-laki", 76, "Udah bisa baca, Tajwid masih salah"),
+    ],
+    "Tahfidz": [
+        ("Zalfatussyifa Ramadanti", "Perempuan", 85, "Udah Lancar, Tinggal Hafalan"),
+        ("Zain Rahmanita", "Perempuan", 86, "Udah Lancar, Tinggal Hafalan"),
+        ("Yusuf Imam Ma'ruf", "Laki-laki", 85, "Udah Lancar, Tinggal Hafalan"),
+        ("Febriansyah Rachmat Hidayat", "Laki-laki", 85, "Udah Lancar, Tinggal Hafalan"),
+        ("Muhammad Hafidz", "Laki-laki", 89, "Udah Lancar, Tinggal Hafalan"),
+        ("Anggi Ratu Mahadewi", "Perempuan", 88, "Udah Lancar, Tinggal Hafalan"),
+        ("Rizqi Ramadhany", "Laki-laki", 85, "Udah Lancar, Tinggal Hafalan"),
+        ("Kawilujeungan Rasyida Raihanun", "Perempuan", 84, "Udah Lancar, Tinggal Hafalan"),
+        ("Miftahul Jannah", "Perempuan", 81, "Udah Lancar, Tinggal Hafalan"),
+        ("Muhamad Azham Fatahilah", "Laki-laki", 82, "Udah Lancar, Tinggal Hafalan"),
+        ("Rosmalati Kholisha", "Perempuan", 83, "Udah Lancar, Tinggal Hafalan"),
+        ("M. Arif Zakariya", "Laki-laki", 85, "Udah Lancar, Tinggal Hafalan"),
+        ("Mochammad Alkahfi Mubarok", "Laki-laki", 86, "Udah Lancar, Tinggal Hafalan"),
+        ("Imam Mansyur Ibnu Hulkarim", "Laki-laki", 80, "Udah Lancar, Tinggal Hafalan"),
+    ],
+}
+
+def tampilkan_daftar(kategori):
+    st.markdown(f"### Daftar Siswa {kategori} - {len(DATA_SISWA[kategori])} Siswa")
+    for i, (nama, jk, nilai, ket) in enumerate(DATA_SISWA[kategori], 1):
+        st.markdown(f"**{i}. {nama}** - {jk} - Nilai: {nilai} - {ket}")
 col1, col2, col3 = st.columns(3)
 with col1:
         klik_iqro = st.button("📖 Iqro", use_container_width=True)
@@ -123,10 +157,13 @@ if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": "Assalamu'alaikum! 👋 Saya QORI AI. Silahkan tanya apa saja, saya siap membantu belajar dengan cara yang mudah dipahami."}]
 
 if klik_iqro:
+    tampilkan_daftar("Iqro")
     prompt_awal = "Ajari saya membaca Iqro dari dasar, dengan cara yang mudah untuk anak Madrasah. Mulai dari huruf hijaiyah."
 elif klik_tahsin:
+    tampilkan_daftar("Tahsin")
     prompt_awal = "Ajari saya Tahsin Al-Qur'an, cara membaca dengan tajwid yang benar, makhraj huruf dan contohnya."
 elif klik_tahfidz:
+    tampilkan_daftar("Tahfidz")
     prompt_awal = "Bantu saya Tahfidz / menghafal Al-Qur'an, beri tips menghafal yang mudah dan ayat pendek untuk dihafal hari ini."
 else:
     prompt_awal = None
