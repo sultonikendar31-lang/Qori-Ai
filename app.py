@@ -39,7 +39,12 @@ def pasang_background(nama_file):
             border-radius: 15px !important;
         }}
         [data-testid="stChatInput"] textarea {{
-            color: white !important;
+                    [data-testid="stChatInput"] textarea {{
+            color: black !important;
+        }}
+        [data-testid="stChatInput"] textarea::placeholder {{
+            color: #666666 !important;
+        }}
         }}
             .stApp::before {{
                 content: "";
