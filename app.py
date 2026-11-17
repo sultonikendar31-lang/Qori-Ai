@@ -256,4 +256,4 @@ if prompt:
         except Exception as e:
             st.write("Maaf, sedang ada gangguan. Coba lagi ya.")
 
-st.markdown("<p style='text-align:center; font-size:12px; margin-top:20px; background-color:white; padding:8px; border-radius:10px;'>✨ ✨ QORI AI - Madrasah Al Barokah • خَيْرُكُمْ مَنْ تَعَلَّمَ الْقُرْآنَ وَعَلَّمَهُ • Sebaik-baik kalian adalah yang belajar Al-Qur'an dan mengajarkannya ✨ ✨</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center; font-size:12px; margin-top:20px; background-color:white; padding:8px; border-radius:10px;'>✨ QORI AI - Madrasah Al Barokah • خَيْرُكُمْ مَنْ تَعَلَّمَ الْقُرْآنَ وَعَلَّمَهُ • Sebaik-baik kalian adalah yang belajar Al-Qur'an dan mengajarkannya✨</p>", unsafe_allow_html=True)
