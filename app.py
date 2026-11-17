@@ -44,7 +44,7 @@ else:
 st.markdown("""
 <div class="header-box">
 <h1>🕌 QORI AI - Al Barokah</h1>
-<p>Assalamu'alaikum! Tanya apa saja tentang Islam, Al-Qur'an, Hadits dan Pelajaran Sekolah.</p>
+<p>Assalamualaikum warahmatullahi wabarakatuh! Tanya apa saja tentang Iqro, Tahsin dan Tahfidz</p>
 </div>
 """, unsafe_allow_html=True)
 
