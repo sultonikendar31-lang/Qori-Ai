@@ -1,12 +1,32 @@
 import streamlit as st
 import google.generativeai as genai
+import base64
 
 st.set_page_config(page_title="QORI AI - Al Barokah", page_icon="🕌", layout="centered")
+
+# --- BACKGROUND FOTO ---
+def pasang_background(nama_file):
+    try:
+        with open(nama_file, "rb") as f:
+            data = base64.b64encode(f.read()).decode()
+        st.markdown(f"""
+        <style>
+        .stApp {{
+            background-image: url("data:image/jpg;base64,{data}");
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+        }}
+        </style>
+        """, unsafe_allow_html=True)
+    except:
+        pass
+
+pasang_background("background.jpg")
 
 # --- TEMA ---
 st.markdown("""
 <style>
-.stApp { background-color: #F2F4F3; }
 .header-box {
     background-color: #1A3C34;
     padding: 25px 20px;
@@ -37,10 +57,8 @@ except:
 if api_key:
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel("gemini-1.5-flash")
-else:
-    st.error("API Key belum diisi di Secrets!")
 
-# --- HEADER - INI YANG DIBENERIN ---
+# --- HEADER BARU ---
 st.markdown("""
 <div class="header-box">
 <h1>🕌 QORI AI - Al Barokah</h1>
@@ -57,7 +75,6 @@ with col2:
 with col3:
     klik_tahfidz = st.button("⭐ Tahfidz")
 
-# --- CHAT ---
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": "Assalamu'alaikum! 👋 Saya QORI AI. Silahkan tanya apa saja, saya siap membantu belajar dengan cara yang mudah dipahami."}]
 
@@ -90,4 +107,4 @@ if prompt:
         except Exception as e:
             st.write("Maaf, sedang ada gangguan. Coba lagi ya.")
 
-st.markdown("<p style='text-align:center; font-size:12px; margin-top:20px;'>✨ QORI AI - Madrasah Al Barokah • Belajar Islam Jadi Lebih Menyenangkan ✨</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center; font-size:12px; margin-top:20px; background-color:white; padding:8px; border-radius:10px;'>✨ QORI AI - Madrasah Al Barokah • Belajar Islam Jadi Lebih Menyenangkan ✨</p>", unsafe_allow_html=True)
