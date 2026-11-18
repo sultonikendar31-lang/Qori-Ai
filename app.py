@@ -93,11 +93,15 @@ st.write("")
 
 def tampilkan_daftar(kategori):
     if kategori == "Iqro":
-        daftar = ["Iqro 1", "Iqro 2", "Iqro 3", "Iqro 4", "Iqro 5", "Iqro 6"]
+        daftar = ["MUHAMAD HARTANTO", "DAFFAN OKTAFFIL HIDAYAT"]
     elif kategori == "Tahsin":
-        daftar = ["Makhraj Huruf", "Tajwid Dasar", "Mad & Qalqalah", "Gharib"]
+        daftar = ["FRISCHA BUNGA LESTARI", "RABHAN", "ANGGA FADILLAH", "ANDY RAMADANI ABDULLAH"]
     else:
-        daftar = ["Juz 30 - An-Naba", "Juz 30 - An-Naziat", "Juz 30 - Abasa", "Surat Al-Fatihah"]
+        daftar = ["ZALFATUSSYIFA RAMADANTI", "ZAIN RAHMANITA", "YUSUF IMAM MA'RUF", "FEBRIANSYAH RACHMAT HIDAYAT", "MUHAMMAD HAFIDZ", "ANGGI RATU MAHADEWI", "RIZQI RAMADHANY", "KAWI LUJENGAN RASYIDA RAIHANUN", "MIFTAHUL JANNAH", "MUHAMAD AZHAM FATAHILAH", "ROSMALATI KHOLISHA", "M. ARIF ZAKARIYA", "MOCHAMMAD ALKAHFI MUBAROK", "IMAM MANSYUR IBNU HULKAN"]
+    for item in daftar:
+        if st.button(item, key=f"{kategori}-{item}"):
+            return f"Halo, saya {item} dari kelas {kategori}. Tolong ajarkan saya sesuai level saya ya."
+    return None
     for item in daftar:
         if st.button(item, key=f"{kategori}-{item}"):
             return f"Tolong ajarkan saya {item} dengan cara yang mudah untuk anak Madrasah Aliyah"
