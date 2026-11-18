@@ -75,6 +75,20 @@ if bg:
         background-color: white !important;
         border-radius: 20px !important;
     }}
+    /* === REVISI: TULISAN SOAL JADI PUTIH BIAR KELIATAN === */
+    .block-container p, .block-container span, .block-container label, .block-container h2, .block-container h3 {{
+        color: white !important;
+    }}
+    [data-testid="stRadio"] label {{
+        color: white !important;
+        font-weight: 600 !important;
+    }}
+    [data-testid="stRadio"] div {{
+        color: white !important;
+    }}
+    [data-testid="stRadio"] p {{
+        color: white !important;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -215,7 +229,6 @@ def tampilkan_daftar(kategori):
             st.session_state["siswa_pilih"] = item
             st.rerun()
 
-# ===== KETIK NAMA LANGSUNG CARI =====
 cari = st.text_input("🔍 Ketik nama siswa...", placeholder="Contoh: MUHAMAD HARTANTO")
 if cari:
     cari_besar = cari.upper().strip()
@@ -251,7 +264,7 @@ if st.session_state["kategori_pilih"]:
         with c3:
             tampilkan_daftar("Tahfidz")
 
-# ===== HALAMAN SOAL - MUNCUL KALAU UDAH PILIH / KETIK NAMA =====
+# ===== HALAMAN SOAL - SUDAH PUTIH =====
 if st.session_state["siswa_pilih"]:
     nama = st.session_state["siswa_pilih"]
     info = DATA_SISWA.get(nama, {"kategori": "Iqro", "level": "Pemula"})
@@ -262,11 +275,11 @@ if st.session_state["siswa_pilih"]:
         st.rerun()
     soal_list = SOAL_ALL[kat]
     kunci = KUNCI[kat]
-    st.subheader(f"📝 Soal {kat} - Kelas XI MA")
-    st.write("Jawab semua soal, lalu klik LIHAT NILAI di bawah.")
+    st.markdown(f"<h2 style='color:white; background-color: rgba(0,0,0,0.65); padding:10px; border-radius:10px; text-align:center;'>📝 Soal {kat} - Kelas XI MA</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='color:white; background-color: rgba(0,0,0,0.65); padding:8px; border-radius:10px; text-align:center;'>Jawab semua soal, lalu klik LIHAT NILAI di bawah.</p>", unsafe_allow_html=True)
     jawaban_siswa = []
     for i, (soal, opsi) in enumerate(soal_list):
-        st.write(f"**{soal}**")
+        st.markdown(f"<div style='background-color: rgba(0,0,0,0.65); padding:12px; border-radius:10px; margin-bottom:5px;'><p style='color:white; font-weight:bold; font-size:17px; margin:0;'>{soal}</p></div>", unsafe_allow_html=True)
         pilih = st.radio(f"Pilih jawaban No.{i+1}", opsi, key=f"soal_{kat}_{i}", index=None)
         jawaban_siswa.append(pilih)
     if st.button("✅ LIHAT NILAI SAYA", use_container_width=True):
@@ -276,22 +289,19 @@ if st.session_state["siswa_pilih"]:
                 benar += 1
         nilai = (benar / 25) * 100
         st.success(f"🎉 HASIL {nama} - Kelas {kat}")
-        st.markdown(f"<h1 style='text-align:center; color:#F9D423;'>Nilai: {int(nilai)}</h1>", unsafe_allow_html=True)
-        st.write(f"Jawaban Benar: **{benar} / 25** | Salah / Kosong: **{25-benar}**")
-        st.write(f"Perhitungan: ({benar} ÷ 25) × 100 = **{int(nilai)}**")
+        st.markdown(f"<div style='background-color: rgba(0,0,0,0.65); padding:15px; border-radius:10px; text-align:center;'><h1 style='color:#F9D423;'>Nilai: {int(nilai)}</h1><p style='color:white;'>Jawaban Benar: {benar} / 25 | Salah / Kosong: {25-benar}</p><p style='color:white;'>Perhitungan: ({benar} ÷ 25) × 100 = {int(nilai)}</p></div>", unsafe_allow_html=True)
         if nilai == 100:
             st.balloons()
-            st.write("MasyaAllah Sempurna! 🌟 Pertahankan ya!")
+            st.markdown("<p style='color:white;'>MasyaAllah Sempurna! 🌟 Pertahankan ya!</p>", unsafe_allow_html=True)
         elif nilai >= 80:
-            st.write("Bagus Sekali! Sedikit lagi sempurna. Semangat Muraja'ah! 💪")
+            st.markdown("<p style='color:white;'>Bagus Sekali! Sedikit lagi sempurna. Semangat Muraja'ah! 💪</p>", unsafe_allow_html=True)
         elif nilai >= 60:
-            st.write("Sudah Bagus! Ayo ulangi yang salah, kamu pasti bisa! 📖")
+            st.markdown("<p style='color:white;'>Sudah Bagus! Ayo ulangi yang salah, kamu pasti bisa! 📖</p>", unsafe_allow_html=True)
         else:
-            st.write("Jangan menyerah! Ayo belajar lagi bersama QORI AI, kamu pasti bisa! 🤲")
-        st.write("---")
-        st.write("**Pembahasan Kunci Jawaban:**")
+            st.markdown("<p style='color:white;'>Jangan menyerah! Ayo belajar lagi bersama QORI AI, kamu pasti bisa! 🤲</p>", unsafe_allow_html=True)
+        st.markdown("<div style='background-color: rgba(0,0,0,0.65); padding:10px; border-radius:10px;'><p style='color:white; font-weight:bold;'>Pembahasan Kunci Jawaban:</p></div>", unsafe_allow_html=True)
         for i in range(25):
-            st.write(f"No.{i+1} = {kunci[i]}")
+            st.markdown(f"<p style='color:white;'>No.{i+1} = {kunci[i]}</p>", unsafe_allow_html=True)
     st.stop()
 
 for m in st.session_state.messages:
