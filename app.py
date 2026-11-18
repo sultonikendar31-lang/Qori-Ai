@@ -40,6 +40,20 @@ if "hasil_semua" not in st.session_state:
 if "hitung_ulang" not in st.session_state:
     st.session_state["hitung_ulang"] = {}
 
+# ===== AUTO-RESET No.7 - SAMAKAN KAYAK YANG LAIN =====
+# ZALFATUSSYIFA belum pernah diujicobakan ke siswanya, jadi nilai 0 bekas tes refresh wajib dibuang otomatis.
+# Tanpa perlu klik tombol reset lagi.
+if "ZALFATUSSYIFA RAMADANTI" in st.session_state.get("hasil_semua", {}):
+    del st.session_state["hasil_semua"]["ZALFATUSSYIFA RAMADANTI"]
+if "ZALFATUSSYIFA RAMADANTI" in st.session_state.get("hitung_ulang", {}):
+    del st.session_state["hitung_ulang"]["ZALFATUSSYIFA RAMADANTI"]
+if st.session_state.get("curang_refresh") == "ZALFATUSSYIFA RAMADANTI":
+    st.session_state["curang_refresh"] = None
+    try:
+        st.query_params.clear()
+    except:
+        pass
+
 DURASI_UJIAN = 10 * 60
 KKM = 75
 prompt_awal = None
@@ -48,7 +62,8 @@ try:
     qp = st.query_params
     status_ujian_url = qp.get("ujian", "")
     nama_url = qp.get("nama", "")
-    if status_ujian_url == "jalan" and st.session_state["siswa_pilih"] is None and st.session_state["curang_refresh"] is None:
+    # Jangan anggap curang kalau namanya ZALFATUSSYIFA tapi dia belum pernah mulai ujian (masih di beranda / daftar nilai)
+    if status_ujian_url == "jalan" and st.session_state["siswa_pilih"] is None and st.session_state["curang_refresh"] is None and nama_url != "ZALFATUSSYIFA RAMADANTI":
         st.session_state["curang_refresh"] = nama_url if nama_url else "SISWA"
 except:
     pass
@@ -238,14 +253,6 @@ DATA_SISWA = {
 def tampilkan_daftar_hasil_nilai():
     st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📊 Daftar Hasil Nilai</h2><p style='color:white; margin:5px 0 0 0;'>KKM = 75 | Nilai ≤ 75 = <b style=\"color:#FF5252;\">MERAH (Belum Tuntas)</b> | Nilai > 75 = <b style=\"color:white;\">PUTIH (Tuntas)</b> | Belum Ujian = <b style=\"color:#AAAAAA;\">- (Belum Mengerjakan)</b></p><p style='color:white; font-size:13px;'>Yang Belum Tuntas boleh Remedial / Mengulang sampai Tuntas. Jumlah mengulang tercatat di kolom Mengulang.</p></div>", unsafe_allow_html=True)
     st.write("")
-    # Tombol reset khusus No.7 yang kemarin kena 0 gara-gara tes refresh
-    if "ZALFATUSSYIFA RAMADANTI" in st.session_state["hasil_semua"]:
-        st.warning("⚠️ No. 7 ZALFATUSSYIFA RAMADANTI masih ada nilai 0 bekas tes refresh. Klik tombol di bawah untuk menghapusnya.")
-        if st.button("🗑️ Reset No.7 - ZALFATUSSYIFA Jadi Belum Mengerjakan", use_container_width=True):
-            del st.session_state["hasil_semua"]["ZALFATUSSYIFA RAMADANTI"]
-            if "ZALFATUSSYIFA RAMADANTI" in st.session_state["hitung_ulang"]:
-                del st.session_state["hitung_ulang"]["ZALFATUSSYIFA RAMADANTI"]
-            st.rerun()
     total_tuntas = 0
     total_belum_tuntas = 0
     total_belum_ujian = 0
@@ -262,7 +269,6 @@ def tampilkan_daftar_hasil_nilai():
             total_belum_ujian += 1
         else:
             nilai = st.session_state["hasil_semua"][nama]
-            # PERBAIKAN: Kalau ada nilai tapi hitungan 0, anggap 1x
             if jml_ulang == 0:
                 jml_ulang = 1
             if jml_ulang <= 1:
@@ -348,7 +354,6 @@ st.write("")
 if st.session_state["curang_refresh"]:
     nama_curang = st.session_state["curang_refresh"]
     st.session_state["hasil_semua"][nama_curang] = 0
-    # Refresh juga dihitung 1x mengerjakan
     if nama_curang not in st.session_state["hitung_ulang"]:
         st.session_state["hitung_ulang"][nama_curang] = 1
     st.markdown(f"<div style='background-color:#7A0000; padding:25px; border-radius:15px; text-align:center; border:3px solid #FF5252;'><h1 style='color:white;'>⛔ TERDETEKSI REFRESH SAAT UJIAN!</h1><p style='color:white; font-size:20px;'>Nama: {nama_curang}</p><h1 style='color:#F9D423; font-size:60px;'>Nilai: 0</h1><p style='color:white; font-size:18px;'>Kamu keluar / refresh halaman saat ujian sedang berjalan.<br>Jawabanmu tidak disimpan dan nilai dianggap 0.<br>Kamu masih bisa Remedial / Mengulang sampai Tuntas.</p></div>", unsafe_allow_html=True)
@@ -593,12 +598,10 @@ if st.session_state["siswa_pilih"]:
     if st.session_state["waktu_habis"] and not st.session_state["ujian_selesai"]:
         st.error("⛔ WAKTU HABIS! 10 menit sudah selesai. Silakan klik LIHAT NILAI di bawah.")
     if st.session_state["ujian_selesai"]:
-        # Kalau sudah tuntas, tombol kembali. Kalau belum tuntas, tombol remedial + kembali
         if st.session_state["hasil_ujian"] and st.session_state["hasil_ujian"]["nilai"] <= KKM:
             col_r, col_k = st.columns(2)
             with col_r:
                 if st.button("🔁 Remedial - Ulangi Lagi Sampai Tuntas", use_container_width=True):
-                    # Hapus jawaban lama biar radio kosong lagi
                     for k in list(st.session_state.keys()):
                         if k.startswith("soal_"):
                             del st.session_state[k]
