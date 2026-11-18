@@ -24,9 +24,21 @@ bg = get_base64("background.jpeg")
 if bg:
     st.markdown(f"""
     <style>
-    /* CUMA 1 GAMBAR DI SINI, NGGAK ADA LAGI DI BAWAH */
-    [data-testid="stAppViewContainer"] {{
+        /* GAMBAR CUMA 1X DI PALING LUAR, BIAR FULL ATAS SAMPAI BAWAH */
+    .stApp, [data-testid="stApp"], html, body {{
         background-image: url("data:image/jpeg;base64,{bg}") !important;
+        background-size: cover !important;
+        background-position: center center !important;
+        background-repeat: no-repeat !important;
+        background-attachment: fixed !important;
+        background-color: #000 !important;
+    }}
+    /* TENGAH & BAWAH DIBIKIN TRANSPARAN, BIAR GAMBAR LUAR YANG KELIHATAN */
+    [data-testid="stAppViewContainer"], [data-testid="stMain"], [data-testid="stBottom"], [data-testid="stBottomBlockContainer"] {{
+        background: transparent !important;
+        background-image: none !important;
+        background-color: transparent !important;
+    }}
         background-size: cover !important;
         background-position: center center !important;
         background-repeat: no-repeat !important;
