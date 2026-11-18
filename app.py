@@ -49,11 +49,31 @@ if bg:
         padding-top: 20px !important;
         max-width: 900px !important;
     }}
-    /* BAWAH TRANSPARAN BIAR GAMBAR FULL SAMPAI BAWAH */
-    [data-testid="stBottom"], [data-testid="stBottomBlockContainer"] {{
+        /* BAWAH DIKASIH GAMBAR SAMA TAPI PAKAI FIXED BIAR NYATU, NGGAK DOBEL, NGGAK PUTIH */
+    [data-testid="stBottom"] {{
+        background-image: url("data:image/jpeg;base64,{bg}") !important;
+        background-size: cover !important;
+        background-position: center center !important;
+        background-repeat: no-repeat !important;
+        background-attachment: fixed !important;
+    }}
+    [data-testid="stBottomBlockContainer"], [data-testid="stChatInputContainer"] {{
         background: transparent !important;
         background-image: none !important;
         background-color: transparent !important;
+    }}
+    /* GELAPIN BAWAHNYA DIKIT BIAR SAMA KAYAK ATAS */
+    [data-testid="stBottom"]::before {{
+        content: "";
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.40);
+        pointer-events: none;
+    }}
+    [data-testid="stChatInput"] {{
+        position: relative;
+        z-index: 2;
+        background-color: white !important;
     }}
     [data-testid="stChatInput"] {{
         background-color: white !important;
