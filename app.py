@@ -24,7 +24,8 @@ bg = get_base64("background.jpeg")
 if bg:
     st.markdown(f"""
     <style>
-    html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {{
+    /* CUMA 1 GAMBAR DI SINI, NGGAK ADA LAGI DI BAWAH */
+    [data-testid="stAppViewContainer"] {{
         background-image: url("data:image/jpeg;base64,{bg}") !important;
         background-size: cover !important;
         background-position: center center !important;
@@ -35,6 +36,7 @@ if bg:
     [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"] {{
         background: transparent !important;
     }}
+    /* GELAPIN DIKIT BIAR TULISAN KEBACA */
     [data-testid="stAppViewContainer"]::before {{
         content: "";
         position: fixed;
@@ -50,50 +52,28 @@ if bg:
         padding-bottom: 20px !important;
         max-width: 900px !important;
     }}
-        [data-testid="stChatMessage"] {{
+    [data-testid="stChatMessage"] {{
         background-color: rgba(255,255,255,0.95) !important;
         border-radius: 12px !important;
     }}
-        /* KOTAK NGETIK JADI PENDEK, DI TENGAH */
+    /* BAWAH TRANSPARAN, JANGAN KASIH GAMBAR LAGI BIAR NGGAK DOBEL */
+    [data-testid="stBottom"], [data-testid="stBottomBlockContainer"] {{
+        background: transparent !important;
+        background-image: none !important;
+        background-color: transparent !important;
+    }}
+    /* KOTAK NGETIK PENDEK, DI TENGAH */
     [data-testid="stBottomBlockContainer"] {{
         max-width: 700px !important;
         margin: 0 auto !important;
-        padding-left: 20px !important;
-        padding-right: 20px !important;
-    }}
-    [data-testid="stChatInputContainer"] {{
-        max-width: 700px !important;
-        margin: 0 auto !important;
     }}
     [data-testid="stChatInput"] {{
-        max-width: 700px !important;
-        margin: 0 auto !important;
-    }}
-        /* PAKSA BAWAH PAKAI GAMBAR YANG SAMA BIAR NYATU */
-    [data-testid="stBottom"], [data-testid="stBottomBlockContainer"], [data-testid="stChatInputContainer"], [data-testid="stBottom"] > div, [data-testid="stBottom"] div {{
-        background-image: url("data:image/jpeg;base64,{bg}") !important;
-        background-size: cover !important;
-        background-position: center bottom !important;
-        background-repeat: no-repeat !important;
-        background-color: transparent !important;
-    }}
-    /* KOTAK NGETIK TETAP PUTIH BIAR KEBACA */
-    [data-testid="stChatInput"] {{
-        background-color: rgba(255,255,255,0.95) !important;
+        background-color: white !important;
         background-image: none !important;
-    }}
-    [data-testid="stChatInput"] * {{
-        background-image: none !important;
-    }}
-    [data-testid="stChatInput"] {{
-        background-color: rgba(255,255,255,0.95) !important;
         border-radius: 20px !important;
-        border: 1px solid #ddd !important;
+        max-width: 700px !important;
+        margin: 0 auto !important;
     }}
-    [data-testid="stChatInput"] textarea {{
-        background-color: transparent !important;
-    }}
-    /* FOOTER PUTIH DI BAWAH JUGA DIHILANGIN */
     footer {{
         background: transparent !important;
     }}
