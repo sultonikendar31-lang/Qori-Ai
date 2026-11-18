@@ -37,6 +37,8 @@ if "lihat_nilai" not in st.session_state:
     st.session_state["lihat_nilai"] = False
 if "hasil_semua" not in st.session_state:
     st.session_state["hasil_semua"] = {}
+if "hitung_ulang" not in st.session_state:
+    st.session_state["hitung_ulang"] = {}
 
 DURASI_UJIAN = 10 * 60
 KKM = 75
@@ -129,7 +131,6 @@ def get_base64(file):
     except:
         return ""
 
-# ===== FUNGSI TAMPILKAN TIM PEMBUAT =====
 def tampilkan_tim_pembuat():
     st.markdown("""
     <div style='background-color: rgba(255,255,255,0.12); border: 1.5px solid rgba(255,255,255,0.6); padding: 16px; border-radius: 15px; margin-top: 10px;'>
@@ -235,7 +236,7 @@ DATA_SISWA = {
 }
 
 def tampilkan_daftar_hasil_nilai():
-    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📊 Daftar Hasil Nilai</h2><p style='color:white; margin:5px 0 0 0;'>KKM = 75 | Nilai ≤ 75 = <b style=\"color:#FF5252;\">MERAH (Belum Tuntas)</b> | Nilai > 75 = <b style=\"color:white;\">PUTIH (Tuntas)</b> | Belum Ujian = <b style=\"color:#AAAAAA;\">- (Belum Mengerjakan)</b></p></div>", unsafe_allow_html=True)
+    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📊 Daftar Hasil Nilai</h2><p style='color:white; margin:5px 0 0 0;'>KKM = 75 | Nilai ≤ 75 = <b style=\"color:#FF5252;\">MERAH (Belum Tuntas)</b> | Nilai > 75 = <b style=\"color:white;\">PUTIH (Tuntas)</b> | Belum Ujian = <b style=\"color:#AAAAAA;\">- (Belum Mengerjakan)</b></p><p style='color:white; font-size:13px;'>Yang Belum Tuntas boleh Remedial / Mengulang sampai Tuntas. Jumlah mengulang tercatat di kolom Mengulang.</p></div>", unsafe_allow_html=True)
     st.write("")
     total_tuntas = 0
     total_belum_tuntas = 0
@@ -246,11 +247,17 @@ def tampilkan_daftar_hasil_nilai():
         info = DATA_SISWA[nama]
         jk = info["jk"]
         kat = info["kategori"]
+        jml_ulang = st.session_state["hitung_ulang"].get(nama, 0)
         if nama not in st.session_state["hasil_semua"]:
-            rows_html += f"<tr><td style='padding:10px; text-align:center; color:white;'>{no}</td><td style='padding:10px; color:white; font-weight:bold;'>{nama}</td><td style='padding:10px; text-align:center; color:white;'>{jk}</td><td style='padding:10px; text-align:center; color:white;'>{kat}</td><td style='padding:10px; text-align:center; color:#AAAAAA; font-weight:bold; font-size:20px;'>-</td><td style='padding:10px; text-align:center; color:#AAAAAA; font-weight:bold;'>⏳ Belum Mengerjakan</td></tr>"
+            teks_ulang = "-"
+            rows_html += f"<tr><td style='padding:10px; text-align:center; color:white;'>{no}</td><td style='padding:10px; color:white; font-weight:bold;'>{nama}</td><td style='padding:10px; text-align:center; color:white;'>{jk}</td><td style='padding:10px; text-align:center; color:white;'>{kat}</td><td style='padding:10px; text-align:center; color:#AAAAAA; font-weight:bold; font-size:20px;'>-</td><td style='padding:10px; text-align:center; color:#AAAAAA; font-weight:bold;'>⏳ Belum Mengerjakan</td><td style='padding:10px; text-align:center; color:#AAAAAA;'>{teks_ulang}</td></tr>"
             total_belum_ujian += 1
         else:
             nilai = st.session_state["hasil_semua"][nama]
+            if jml_ulang <= 1:
+                teks_ulang = f"{jml_ulang}x"
+            else:
+                teks_ulang = f"{jml_ulang}x 🔁"
             if nilai <= KKM:
                 warna_nilai = "#FF5252"
                 ket = "❌ Belum Tuntas"
@@ -261,7 +268,7 @@ def tampilkan_daftar_hasil_nilai():
                 ket = "✅ Tuntas"
                 warna_ket = "#4CAF50"
                 total_tuntas += 1
-            rows_html += f"<tr><td style='padding:10px; text-align:center; color:white;'>{no}</td><td style='padding:10px; color:white; font-weight:bold;'>{nama}</td><td style='padding:10px; text-align:center; color:white;'>{jk}</td><td style='padding:10px; text-align:center; color:white;'>{kat}</td><td style='padding:10px; text-align:center; color:{warna_nilai}; font-weight:bold; font-size:20px;'>{nilai}</td><td style='padding:10px; text-align:center; color:{warna_ket}; font-weight:bold;'>{ket}</td></tr>"
+            rows_html += f"<tr><td style='padding:10px; text-align:center; color:white;'>{no}</td><td style='padding:10px; color:white; font-weight:bold;'>{nama}</td><td style='padding:10px; text-align:center; color:white;'>{jk}</td><td style='padding:10px; text-align:center; color:white;'>{kat}</td><td style='padding:10px; text-align:center; color:{warna_nilai}; font-weight:bold; font-size:20px;'>{nilai}</td><td style='padding:10px; text-align:center; color:{warna_ket}; font-weight:bold;'>{ket}</td><td style='padding:10px; text-align:center; color:white; font-weight:bold;'>{teks_ulang}</td></tr>"
         no += 1
     st.markdown(f"""
     <div style='background-color: rgba(0,0,0,0.75); padding:15px; border-radius:15px;'>
@@ -274,6 +281,7 @@ def tampilkan_daftar_hasil_nilai():
         <th style='padding:10px; color:#000;'>Kategori</th>
         <th style='padding:10px; color:#000;'>Nilai</th>
         <th style='padding:10px; color:#000;'>Keterangan</th>
+        <th style='padding:10px; color:#000;'>Mengulang</th>
     </tr>
     {rows_html}
     </table>
@@ -321,7 +329,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ===== TIM PEMBUAT HANYA DI BERANDA, DISEMBUNYIKAN PAS UJIAN =====
 if st.session_state["siswa_pilih"] is None:
     tampilkan_tim_pembuat()
 
@@ -330,16 +337,37 @@ st.write("")
 if st.session_state["curang_refresh"]:
     nama_curang = st.session_state["curang_refresh"]
     st.session_state["hasil_semua"][nama_curang] = 0
-    st.markdown(f"<div style='background-color:#7A0000; padding:25px; border-radius:15px; text-align:center; border:3px solid #FF5252;'><h1 style='color:white;'>⛔ TERDETEKSI REFRESH SAAT UJIAN!</h1><p style='color:white; font-size:20px;'>Nama: {nama_curang}</p><h1 style='color:#F9D423; font-size:60px;'>Nilai: 0</h1><p style='color:white; font-size:18px;'>Kamu keluar / refresh halaman saat ujian sedang berjalan.<br>Jawabanmu tidak disimpan dan nilai dianggap 0.<br>Silakan lapor ke guru jika ada kendala jaringan.</p></div>", unsafe_allow_html=True)
+    # Refresh juga dihitung 1x mengerjakan
+    if nama_curang not in st.session_state["hitung_ulang"]:
+        st.session_state["hitung_ulang"][nama_curang] = 1
+    st.markdown(f"<div style='background-color:#7A0000; padding:25px; border-radius:15px; text-align:center; border:3px solid #FF5252;'><h1 style='color:white;'>⛔ TERDETEKSI REFRESH SAAT UJIAN!</h1><p style='color:white; font-size:20px;'>Nama: {nama_curang}</p><h1 style='color:#F9D423; font-size:60px;'>Nilai: 0</h1><p style='color:white; font-size:18px;'>Kamu keluar / refresh halaman saat ujian sedang berjalan.<br>Jawabanmu tidak disimpan dan nilai dianggap 0.<br>Kamu masih bisa Remedial / Mengulang sampai Tuntas.</p></div>", unsafe_allow_html=True)
     st.write("")
-    if st.button("🏠 Saya Mengerti - Kembali ke Beranda", use_container_width=True):
-        st.session_state["curang_refresh"] = None
-        st.session_state["siswa_pilih"] = None
-        try:
-            st.query_params.clear()
-        except:
-            pass
-        st.rerun()
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔁 Remedial - Ulangi Lagi", use_container_width=True):
+            st.session_state["curang_refresh"] = None
+            st.session_state["siswa_pilih"] = nama_curang
+            st.session_state["seed_acak"] = st.session_state["seed_acak"] + 1
+            st.session_state["soal_acak"] = None
+            st.session_state["waktu_mulai"] = time.time()
+            st.session_state["waktu_habis"] = False
+            st.session_state["ujian_selesai"] = False
+            st.session_state["hasil_ujian"] = None
+            try:
+                st.query_params["ujian"] = "jalan"
+                st.query_params["nama"] = nama_curang
+            except:
+                pass
+            st.rerun()
+    with col2:
+        if st.button("🏠 Saya Mengerti - Kembali ke Beranda", use_container_width=True):
+            st.session_state["curang_refresh"] = None
+            st.session_state["siswa_pilih"] = None
+            try:
+                st.query_params.clear()
+            except:
+                pass
+            st.rerun()
     st.stop()
 
 KUNCI = {
@@ -546,26 +574,63 @@ if st.session_state["siswa_pilih"]:
     if sisa_detik <= 0:
         sisa_detik = 0
         st.session_state["waktu_habis"] = True
-    st.markdown(f"<div style='background-color: rgba(20,50,35,0.92); padding:20px; border-radius:15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>Assalamualaikum, {nama} 👋</h2><p style='color:white;'>Kelas: {kat} | Level: {info['level']} | Soal: 25 Soal | Nilai: Benar x 4 | Waktu: 10 Menit | KKM: 75</p></div>", unsafe_allow_html=True)
+    jml_percobaan = st.session_state["hitung_ulang"].get(nama, 0)
+    st.markdown(f"<div style='background-color: rgba(20,50,35,0.92); padding:20px; border-radius:15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>Assalamualaikum, {nama} 👋</h2><p style='color:white;'>Kelas: {kat} | Level: {info['level']} | Soal: 25 Soal | Nilai: Benar x 4 | Waktu: 10 Menit | KKM: 75 | Percobaan ke-{jml_percobaan + 1 if not st.session_state['ujian_selesai'] else jml_percobaan}</p></div>", unsafe_allow_html=True)
     if not st.session_state["ujian_selesai"]:
         st.warning("🔒 UJIAN TERKUNCI - Jangan refresh / tutup tab / pencet back! Kalau refresh, nilai langsung jadi 0!")
     tampilkan_timer(sisa_detik)
     if st.session_state["waktu_habis"] and not st.session_state["ujian_selesai"]:
         st.error("⛔ WAKTU HABIS! 10 menit sudah selesai. Silakan klik LIHAT NILAI di bawah.")
     if st.session_state["ujian_selesai"]:
-        if st.button("🏠 Selesai - Kembali ke Beranda", use_container_width=True):
-            st.session_state["siswa_pilih"] = None
-            st.session_state["soal_acak"] = None
-            st.session_state["waktu_mulai"] = None
-            st.session_state["waktu_habis"] = False
-            st.session_state["ujian_selesai"] = False
-            st.session_state["hasil_ujian"] = None
-            st.session_state["kategori_pilih"] = None
-            try:
-                st.query_params.clear()
-            except:
-                pass
-            st.rerun()
+        # Kalau sudah tuntas, tombol kembali. Kalau belum tuntas, tombol remedial + kembali
+        if st.session_state["hasil_ujian"] and st.session_state["hasil_ujian"]["nilai"] <= KKM:
+            col_r, col_k = st.columns(2)
+            with col_r:
+                if st.button("🔁 Remedial - Ulangi Lagi Sampai Tuntas", use_container_width=True):
+                    # Hapus jawaban lama biar radio kosong lagi
+                    for k in list(st.session_state.keys()):
+                        if k.startswith("soal_"):
+                            del st.session_state[k]
+                    st.session_state["seed_acak"] = st.session_state["seed_acak"] + 1
+                    st.session_state["soal_acak"] = None
+                    st.session_state["waktu_mulai"] = time.time()
+                    st.session_state["waktu_habis"] = False
+                    st.session_state["ujian_selesai"] = False
+                    st.session_state["hasil_ujian"] = None
+                    try:
+                        st.query_params["ujian"] = "jalan"
+                        st.query_params["nama"] = nama
+                    except:
+                        pass
+                    st.rerun()
+            with col_k:
+                if st.button("🏠 Kembali ke Beranda", use_container_width=True):
+                    st.session_state["siswa_pilih"] = None
+                    st.session_state["soal_acak"] = None
+                    st.session_state["waktu_mulai"] = None
+                    st.session_state["waktu_habis"] = False
+                    st.session_state["ujian_selesai"] = False
+                    st.session_state["hasil_ujian"] = None
+                    st.session_state["kategori_pilih"] = None
+                    try:
+                        st.query_params.clear()
+                    except:
+                        pass
+                    st.rerun()
+        else:
+            if st.button("🏠 Selesai - Kembali ke Beranda", use_container_width=True):
+                st.session_state["siswa_pilih"] = None
+                st.session_state["soal_acak"] = None
+                st.session_state["waktu_mulai"] = None
+                st.session_state["waktu_habis"] = False
+                st.session_state["ujian_selesai"] = False
+                st.session_state["hasil_ujian"] = None
+                st.session_state["kategori_pilih"] = None
+                try:
+                    st.query_params.clear()
+                except:
+                    pass
+                st.rerun()
     if st.session_state["soal_acak"] is None or st.session_state["kat_acak"] != kat:
         soal_list, kunci = buat_soal_acak(kat, st.session_state["seed_acak"])
         st.session_state["soal_acak"] = soal_list
@@ -593,6 +658,7 @@ if st.session_state["siswa_pilih"]:
             st.session_state["ujian_selesai"] = True
             st.session_state["hasil_ujian"] = {"benar": benar, "nilai": int(nilai)}
             st.session_state["hasil_semua"][nama] = int(nilai)
+            st.session_state["hitung_ulang"][nama] = st.session_state["hitung_ulang"].get(nama, 0) + 1
             try:
                 st.query_params.clear()
             except:
@@ -602,9 +668,10 @@ if st.session_state["siswa_pilih"]:
         hasil = st.session_state["hasil_ujian"]
         benar = hasil["benar"]
         nilai = hasil["nilai"]
+        percobaan = st.session_state["hitung_ulang"].get(nama, 1)
         warna_n = "#FF5252" if nilai <= KKM else "#FFFFFF"
         st.success(f"🎉 HASIL {nama} - Kelas {kat}")
-        st.markdown(f"<div style='background-color: rgba(0,0,0,0.65); padding:15px; border-radius:10px; text-align:center;'><h1 style='color:{warna_n};'>Nilai: {nilai}</h1><p style='color:white;'>Jawaban Benar: {benar} / 25 | Salah / Kosong: {25-benar} | KKM: 75 | {'❌ Belum Tuntas - Remedial ya!' if nilai <= KKM else '✅ Tuntas!'}</p><p style='color:white;'>Perhitungan: ({benar} ÷ 25) × 100 = {nilai}</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='background-color: rgba(0,0,0,0.65); padding:15px; border-radius:10px; text-align:center;'><h1 style='color:{warna_n};'>Nilai: {nilai}</h1><p style='color:white;'>Jawaban Benar: {benar} / 25 | Salah / Kosong: {25-benar} | KKM: 75 | Percobaan ke-{percobaan} | {'❌ Belum Tuntas - Silakan klik Remedial di atas untuk mengulang!' if nilai <= KKM else '✅ Tuntas!'}</p><p style='color:white;'>Perhitungan: ({benar} ÷ 25) × 100 = {nilai}</p></div>", unsafe_allow_html=True)
         if nilai == 100:
             st.balloons()
             st.markdown("<p style='color:white;'>MasyaAllah Sempurna! 🌟 Pertahankan ya!</p>", unsafe_allow_html=True)
