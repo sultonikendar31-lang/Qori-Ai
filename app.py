@@ -50,9 +50,26 @@ if bg:
         padding-bottom: 20px !important;
         max-width: 900px !important;
     }}
-    [data-testid="stChatMessage"] {{
+        [data-testid="stChatMessage"] {{
         background-color: rgba(255,255,255,0.95) !important;
         border-radius: 12px !important;
+    }}
+    /* HILANGIN PUTIH DI BAWAH - TEMPAT NGETIK */
+    [data-testid="stBottom"], [data-testid="stBottomBlockContainer"], [data-testid="stChatInputContainer"] {{
+        background: transparent !important;
+        background-color: transparent !important;
+    }}
+    [data-testid="stChatInput"] {{
+        background-color: rgba(255,255,255,0.95) !important;
+        border-radius: 20px !important;
+        border: 1px solid #ddd !important;
+    }}
+    [data-testid="stChatInput"] textarea {{
+        background-color: transparent !important;
+    }}
+    /* FOOTER PUTIH DI BAWAH JUGA DIHILANGIN */
+    footer {{
+        background: transparent !important;
     }}
     </style>
     """, unsafe_allow_html=True)
