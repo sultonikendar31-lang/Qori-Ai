@@ -112,6 +112,7 @@ if bg:
     [data-testid="stChatMessage"] p, [data-testid="stChatMessage"] span {{
         color: white !important;
     }}
+    /* KOTAK PUTIH PALING BAWAH DIHILANGKAN - BIAR FOTO KELIATAN */
     </style>
     """, unsafe_allow_html=True)
 
@@ -354,4 +355,4 @@ if prompt:
             except Exception as e:
                 st.write(f"Maaf, sedang ada gangguan. Coba lagi ya. ({e})")
 
-st.markdown("<p style='text-align:center; font-size:12px; margin-top:20px; background-color:white; padding:8px; border-radius:10px;'> QORI AI - Madrasah Aliyah Al Barokah</p>", unsafe_allow_html=True)
+# KOTAK PUTIH PALING BAWAH SUDAH DIHAPUS - TIDAK ADA FOOTER LAGI
