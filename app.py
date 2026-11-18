@@ -42,10 +42,10 @@ if prompt:
         st.write(prompt)
     with st.chat_message("assistant"):
         try:
-response = client.models.generate_content(model=model, contents=f"Kamu adalah QORI AI, guru ngaji yang ramah untuk anak Madrasah Aliyah Al Barokah. Jawab dengan bahasa Indonesia yang mudah, sopan, dan islami. Pertanyaan: {prompt}")
+            response = client.models.generate_content(model=model, contents=f"Kamu adalah QORI AI, guru ngaji yang ramah untuk anak Madrasah Aliyah Al Barokah. Jawab dengan bahasa Indonesia yang mudah, sopan, dan islami. Pertanyaan: {prompt}")
             st.write(response.text)
             st.session_state.messages.append({"role": "assistant", "content": response.text})
-        except Exception as e:
+            except Exception as e:
             st.write("Maaf, sedang ada gangguan. Coba lagi ya.")
 
 st.markdown("<p style='text-align:center; font-size:12px; margin-top:20px; background-color:white; padding:8px; border-radius:10px;'> QORI AI - Madrasah Aliyah Al Barokah ✨ خَيْرُكُمْ مَنْ تَعَلَّمَ الْقُرْآنَ وَعَلَّمَهُ ✨ Sebaik-baik kalian adalah yang belajar Al-Qur'an dan mengajarkannya</p>", unsafe_allow_html=True)
