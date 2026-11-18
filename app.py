@@ -262,13 +262,10 @@ DATA_SISWA = {
 def tampilkan_daftar_hasil_nilai():
     st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📊 Daftar Hasil Nilai</h2><p style='color:white; margin:5px 0 0 0;'>KKM = 75 | Nilai ≤ 75 = <b style=\"color:#FF5252;\">MERAH (Belum Tuntas)</b> | Nilai > 75 = <b style=\"color:white;\">PUTIH (Tuntas)</b> | Belum Ujian = <b style=\"color:#AAAAAA;\">- (Belum Mengerjakan)</b></p></div>", unsafe_allow_html=True)
     st.write("")
-    # Siswa hanya boleh lihat nilainya sendiri, Tim Penyusun bebas lihat semua
     if st.session_state["login_role"] == "siswa":
         daftar_tampil = [st.session_state["login_nama"]] if st.session_state["login_nama"] in DATA_SISWA else []
-        st.info(f"👤 Kamu login sebagai Siswa: {st.session_state['login_nama']} - Hanya bisa melihat nilaimu sendiri.")
     else:
         daftar_tampil = list(DATA_SISWA.keys())
-        st.success(f"👨‍🎓 Mode Tim Penyusun - {st.session_state['login_nama']} ({st.session_state['login_jabatan']}) - Bebas melihat semua nilai.")
     total_tuntas = 0
     total_belum_tuntas = 0
     total_belum_ujian = 0
@@ -363,43 +360,38 @@ st.markdown("""
 if st.session_state["login_nama"] is None:
     st.markdown("""
     <div style='background-color: rgba(255,255,255,0.12); border: 1.5px solid #F9D423; padding: 20px; border-radius: 15px; margin-top: 15px; text-align:center;'>
-        <h2 style='color:#F9D423; margin:0;'>🔐 Kunci Masuk - Sebutkan Nama Lengkap Dulu</h2>
-        <p style='color:white; margin-top:8px;'>Tulis nama lengkapmu sesuai daftar. Nama lengkap ini jadi kuncinya.</p>
-        <p style='color:white; font-size:13px;'>Tim Penyusun bebas masuk sebagai Admin. Siswa hanya bisa ujian atas nama sendiri.</p>
+        <h2 style='color:#F9D423; margin:0;'>🔐 Silakan Masukkan Nama Lengkap</h2>
+        <p style='color:white; margin-top:8px;'>Untuk masuk ke QORI AI</p>
     </div>
     """, unsafe_allow_html=True)
     st.write("")
-    nama_input = st.text_input("✍️ Nama Lengkap:", placeholder="Contoh: ZALFATUSSYIFA RAMADANTI / Kendar Sultoni / Muhamad Rais", key="input_nama_login")
+    nama_input = st.text_input("✍️ Nama Lengkap:", placeholder="Tulis nama lengkapmu di sini...", key="input_nama_login")
     if st.button("🚪 Masuk ke QORI AI", use_container_width=True):
         nama_bersih = nama_input.strip().upper()
         if not nama_bersih:
-            st.warning("⚠️ Nama belum diisi! Tulis nama lengkap dulu ya.")
+            st.warning("⚠️ Nama belum diisi!")
         elif nama_bersih in TIM_PENYUSUN:
             st.session_state["login_nama"] = nama_bersih
             st.session_state["login_role"] = "tim"
             st.session_state["login_jabatan"] = TIM_PENYUSUN[nama_bersih]
-            st.success(f"✅ Selamat datang, {nama_bersih} - {TIM_PENYUSUN[nama_bersih]} (Mode Bebas / Admin)")
+            st.success(f"✅ Selamat datang, {nama_bersih}")
             time.sleep(0.5)
             st.rerun()
         elif nama_bersih in DATA_SISWA:
             st.session_state["login_nama"] = nama_bersih
             st.session_state["login_role"] = "siswa"
             st.session_state["login_jabatan"] = f"Siswa {DATA_SISWA[nama_bersih]['kategori']}"
-            st.success(f"✅ Selamat datang, {nama_bersih} - Siswa {DATA_SISWA[nama_bersih]['kategori']}")
+            st.success(f"✅ Selamat datang, {nama_bersih}")
             time.sleep(0.5)
             st.rerun()
         else:
-            st.error("❌ Nama tidak ditemukan! Cek lagi ejaan nama lengkapnya. Harus sama persis dengan daftar siswa / tim penyusun. Contoh: ZALFATUSSYIFA RAMADANTI")
-            st.info("Daftar Siswa: MUHAMAD HARTANTO, DAFFAN OKTAFFIL HIDAYAT, FRISCHA BUNGA LESTARI, RAIHAN, ANGGA FADILLAH, ANDY RAMADANI ABDULLAH, ZALFATUSSYIFA RAMADANTI, ZAIN RAHMANITA, YUSUF IMAM MA'RUF, FEBRIANSYAH RACHMAT HIDAYAT, MUHAMMAD HAFIDZ, ANGGI RATU MAHADEWI, RIZQI RAMADHANY, KAWI LUJENGAN RASYIDA RAIHANUN, MIFTAHUL JANNAH, MUHAMAD AZHAM FATAHILAH, ROSMALATI KHOLISHA, M. ARIF ZAKARIYA, MOCHAMMAD ALKAHFI MUBAROK, IMAM MANSYUR IBNU HULKAN")
+            st.error("❌ Nama tidak ditemukan! Cek lagi ejaannya, atau tanya ke guru.")
     st.write("")
     tampilkan_tim_pembuat()
     st.stop()
 
-# ===== SUDAH LOGIN - TAMPILKAN INFO LOGIN + TOMBOL KELUAR =====
-if st.session_state["login_role"] == "tim":
-    st.markdown(f"<div style='background-color: rgba(249,212,35,0.9); padding:10px; border-radius:10px; text-align:center; margin-top:10px;'><b style='color:#000;'>👨‍🎓 Login sebagai Tim Penyusun: {st.session_state['login_nama']} - {st.session_state['login_jabatan']} | Mode Bebas / Admin</b></div>", unsafe_allow_html=True)
-else:
-    st.markdown(f"<div style='background-color: rgba(0,0,0,0.6); padding:10px; border-radius:10px; text-align:center; margin-top:10px;'><b style='color:white;'>👤 Login sebagai Siswa: {st.session_state['login_nama']} - {st.session_state['login_jabatan']}</b></div>", unsafe_allow_html=True)
+# ===== SUDAH LOGIN - INFO SINGKAT SAJA, TANPA SEBUT ADMIN / SISWA =====
+st.markdown(f"<div style='background-color: rgba(0,0,0,0.6); padding:10px; border-radius:10px; text-align:center; margin-top:10px;'><b style='color:white;'>👤 Selamat datang, {st.session_state['login_nama']}</b></div>", unsafe_allow_html=True)
 col_out1, col_out2 = st.columns([3,1])
 with col_out2:
     if st.button("🚪 Keluar / Ganti Nama", use_container_width=True):
@@ -587,11 +579,9 @@ def buat_soal_acak(kat, seed):
     return soal_baru, kunci_baru
 
 def tampilkan_daftar(kategori):
-    # Tim bebas pilih siapa aja, Siswa hanya bisa pilih namanya sendiri
     if st.session_state["login_role"] == "siswa":
         nama_login = st.session_state["login_nama"]
         if DATA_SISWA.get(nama_login, {}).get("kategori") != kategori:
-            st.info(f"Kamu kategori {DATA_SISWA.get(nama_login, {}).get('kategori')}, jadi tidak bisa buka {kategori}.")
             return
         daftar = [nama_login]
     else:
@@ -660,7 +650,6 @@ if st.session_state["lihat_nilai"] and st.session_state["siswa_pilih"] is None:
 
 if st.session_state["siswa_pilih"]:
     nama = st.session_state["siswa_pilih"]
-    # Pengaman: Siswa tidak boleh buka ujian atas nama orang lain
     if st.session_state["login_role"] == "siswa" and nama != st.session_state["login_nama"]:
         st.error("⛔ Kamu hanya boleh ujian atas nama sendiri!")
         if st.button("Kembali"):
