@@ -129,6 +129,33 @@ def get_base64(file):
     except:
         return ""
 
+# ===== FUNGSI TAMPILKAN TIM PEMBUAT =====
+def tampilkan_tim_pembuat():
+    st.markdown("""
+    <div style='background-color: rgba(255,255,255,0.12); border: 1.5px solid rgba(255,255,255,0.6); padding: 16px; border-radius: 15px; margin-top: 10px;'>
+        <p style='color:#F9D423; font-weight:bold; font-size:18px; text-align:center; margin:0 0 12px 0;'>👨‍🎓 Tim Penyusun QORI AI</p>
+        <div style='display:flex; flex-wrap:wrap; justify-content:center; gap:10px;'>
+            <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'>
+                <p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Kendar Sultoni</p>
+                <p style='color:white; margin:2px 0 0 0; font-size:13px;'>Mahasiswa / Pembuat Aplikasi</p>
+            </div>
+            <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'>
+                <p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Muhamad Siddiq Asyhari</p>
+                <p style='color:white; margin:2px 0 0 0; font-size:13px;'>Dosen Pembimbing</p>
+            </div>
+            <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'>
+                <p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Syamsul Hadi</p>
+                <p style='color:white; margin:2px 0 0 0; font-size:13px;'>Kepala MA Al-Barokah</p>
+            </div>
+            <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'>
+                <p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Muhamad Rais</p>
+                <p style='color:white; margin:2px 0 0 0; font-size:13px;'>Guru Pamong</p>
+            </div>
+        </div>
+        <p style='color:white; text-align:center; font-size:12px; margin:10px 0 0 0;'>QORI AI - Madrasah Aliyah Al-Barokah | Media Belajar Iqro, Tahsin & Tahfidz</p>
+    </div>
+    """, unsafe_allow_html=True)
+
 def tampilkan_timer(sisa_detik):
     if sisa_detik < 0:
         sisa_detik = 0
@@ -184,60 +211,61 @@ def tampilkan_timer(sisa_detik):
     """
     components.html(timer_html, height=130)
 
-# ===== DATA SISWA + JENIS KELAMIN + NILAI AWAL =====
 DATA_SISWA = {
-    "MUHAMAD HARTANTO": {"kategori": "Iqro", "level": "Iqro Dasar", "jk": "Laki-laki", "nilai_awal": 63},
-    "DAFFAN OKTAFFIL HIDAYAT": {"kategori": "Iqro", "level": "Iqro Dasar", "jk": "Laki-laki", "nilai_awal": 62},
-    "FRISCHA BUNGA LESTARI": {"kategori": "Tahsin", "level": "Tahsin", "jk": "Perempuan", "nilai_awal": 73},
-    "RABHAN": {"kategori": "Tahsin", "level": "Tahsin", "jk": "Laki-laki", "nilai_awal": 72},
-    "ANGGA FADILLAH": {"kategori": "Tahsin", "level": "Tahsin", "jk": "Laki-laki", "nilai_awal": 71},
-    "ANDY RAMADANI ABDULLAH": {"kategori": "Tahsin", "level": "Tahsin", "jk": "Laki-laki", "nilai_awal": 76},
-    "ZALFATUSSYIFA RAMADANTI": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Perempuan", "nilai_awal": 85},
-    "ZAIN RAHMANITA": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Perempuan", "nilai_awal": 86},
-    "YUSUF IMAM MA'RUF": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki", "nilai_awal": 85},
-    "FEBRIANSYAH RACHMAT HIDAYAT": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki", "nilai_awal": 85},
-    "MUHAMMAD HAFIDZ": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki", "nilai_awal": 89},
-    "ANGGI RATU MAHADEWI": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Perempuan", "nilai_awal": 88},
-    "RIZQI RAMADHANY": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki", "nilai_awal": 85},
-    "KAWI LUJENGAN RASYIDA RAIHANUN": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Perempuan", "nilai_awal": 84},
-    "MIFTAHUL JANNAH": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Perempuan", "nilai_awal": 81},
-    "MUHAMAD AZHAM FATAHILAH": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki", "nilai_awal": 82},
-    "ROSMALATI KHOLISHA": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Perempuan", "nilai_awal": 83},
-    "M. ARIF ZAKARIYA": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki", "nilai_awal": 85},
-    "MOCHAMMAD ALKAHFI MUBAROK": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki", "nilai_awal": 86},
-    "IMAM MANSYUR IBNU HULKAN": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki", "nilai_awal": 80},
+    "MUHAMAD HARTANTO": {"kategori": "Iqro", "level": "Iqro Dasar", "jk": "Laki-laki"},
+    "DAFFAN OKTAFFIL HIDAYAT": {"kategori": "Iqro", "level": "Iqro Dasar", "jk": "Laki-laki"},
+    "FRISCHA BUNGA LESTARI": {"kategori": "Tahsin", "level": "Tahsin", "jk": "Perempuan"},
+    "RABHAN": {"kategori": "Tahsin", "level": "Tahsin", "jk": "Laki-laki"},
+    "ANGGA FADILLAH": {"kategori": "Tahsin", "level": "Tahsin", "jk": "Laki-laki"},
+    "ANDY RAMADANI ABDULLAH": {"kategori": "Tahsin", "level": "Tahsin", "jk": "Laki-laki"},
+    "ZALFATUSSYIFA RAMADANTI": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Perempuan"},
+    "ZAIN RAHMANITA": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Perempuan"},
+    "YUSUF IMAM MA'RUF": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki"},
+    "FEBRIANSYAH RACHMAT HIDAYAT": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki"},
+    "MUHAMMAD HAFIDZ": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki"},
+    "ANGGI RATU MAHADEWI": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Perempuan"},
+    "RIZQI RAMADHANY": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki"},
+    "KAWI LUJENGAN RASYIDA RAIHANUN": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Perempuan"},
+    "MIFTAHUL JANNAH": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Perempuan"},
+    "MUHAMAD AZHAM FATAHILAH": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki"},
+    "ROSMALATI KHOLISHA": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Perempuan"},
+    "M. ARIF ZAKARIYA": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki"},
+    "MOCHAMMAD ALKAHFI MUBAROK": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki"},
+    "IMAM MANSYUR IBNU HULKAN": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki"},
 }
 
-# ===== FUNGSI TAMPILKAN DAFTAR HASIL NILAI =====
 def tampilkan_daftar_hasil_nilai():
-    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📊 Daftar Hasil Nilai</h2><p style='color:white; margin:5px 0 0 0;'>KKM = 75 | Nilai ≤ 75 = <b style=\"color:#FF5252;\">MERAH (Belum Tuntas)</b> | Nilai > 75 = <b style=\"color:white;\">PUTIH (Tuntas)</b></p></div>", unsafe_allow_html=True)
+    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📊 Daftar Hasil Nilai</h2><p style='color:white; margin:5px 0 0 0;'>KKM = 75 | Nilai ≤ 75 = <b style=\"color:#FF5252;\">MERAH (Belum Tuntas)</b> | Nilai > 75 = <b style=\"color:white;\">PUTIH (Tuntas)</b> | Belum Ujian = <b style=\"color:#AAAAAA;\">- (Belum Mengerjakan)</b></p></div>", unsafe_allow_html=True)
     st.write("")
-    # Hitung ringkasan
     total_tuntas = 0
-    total_belum = 0
+    total_belum_tuntas = 0
+    total_belum_ujian = 0
     rows_html = ""
     no = 1
     for nama in DATA_SISWA:
         info = DATA_SISWA[nama]
-        # Kalau sudah ujian baru, pakai nilai baru, kalau belum pakai nilai awal
-        nilai = st.session_state["hasil_semua"].get(nama, info["nilai_awal"])
         jk = info["jk"]
         kat = info["kategori"]
-        if nilai <= KKM:
-            warna_nilai = "#FF5252"
-            ket = "❌ Belum Tuntas"
-            warna_ket = "#FF5252"
-            total_belum += 1
+        if nama not in st.session_state["hasil_semua"]:
+            rows_html += f"<tr><td style='padding:10px; text-align:center; color:white;'>{no}</td><td style='padding:10px; color:white; font-weight:bold;'>{nama}</td><td style='padding:10px; text-align:center; color:white;'>{jk}</td><td style='padding:10px; text-align:center; color:white;'>{kat}</td><td style='padding:10px; text-align:center; color:#AAAAAA; font-weight:bold; font-size:20px;'>-</td><td style='padding:10px; text-align:center; color:#AAAAAA; font-weight:bold;'>⏳ Belum Mengerjakan</td></tr>"
+            total_belum_ujian += 1
         else:
-            warna_nilai = "#FFFFFF"
-            ket = "✅ Tuntas"
-            warna_ket = "#4CAF50"
-            total_tuntas += 1
-        rows_html += f"<tr><td style='padding:10px; text-align:center; color:white;'>{no}</td><td style='padding:10px; color:white; font-weight:bold;'>{nama}</td><td style='padding:10px; text-align:center; color:white;'>{jk}</td><td style='padding:10px; text-align:center; color:white;'>{kat}</td><td style='padding:10px; text-align:center; color:{warna_nilai}; font-weight:bold; font-size:20px;'>{nilai}</td><td style='padding:10px; text-align:center; color:{warna_ket}; font-weight:bold;'>{ket}</td></tr>"
+            nilai = st.session_state["hasil_semua"][nama]
+            if nilai <= KKM:
+                warna_nilai = "#FF5252"
+                ket = "❌ Belum Tuntas"
+                warna_ket = "#FF5252"
+                total_belum_tuntas += 1
+            else:
+                warna_nilai = "#FFFFFF"
+                ket = "✅ Tuntas"
+                warna_ket = "#4CAF50"
+                total_tuntas += 1
+            rows_html += f"<tr><td style='padding:10px; text-align:center; color:white;'>{no}</td><td style='padding:10px; color:white; font-weight:bold;'>{nama}</td><td style='padding:10px; text-align:center; color:white;'>{jk}</td><td style='padding:10px; text-align:center; color:white;'>{kat}</td><td style='padding:10px; text-align:center; color:{warna_nilai}; font-weight:bold; font-size:20px;'>{nilai}</td><td style='padding:10px; text-align:center; color:{warna_ket}; font-weight:bold;'>{ket}</td></tr>"
         no += 1
     st.markdown(f"""
     <div style='background-color: rgba(0,0,0,0.75); padding:15px; border-radius:15px;'>
-    <p style='color:white; text-align:center; font-size:16px;'>Total Siswa: <b>{len(DATA_SISWA)}</b> | <span style='color:#4CAF50; font-weight:bold;'>✅ Tuntas: {total_tuntas}</span> | <span style='color:#FF5252; font-weight:bold;'>❌ Belum Tuntas: {total_belum}</span></p>
+    <p style='color:white; text-align:center; font-size:16px;'>Total Siswa: <b>{len(DATA_SISWA)}</b> | <span style='color:#AAAAAA; font-weight:bold;'>⏳ Belum Mengerjakan: {total_belum_ujian}</span> | <span style='color:#4CAF50; font-weight:bold;'>✅ Tuntas: {total_tuntas}</span> | <span style='color:#FF5252; font-weight:bold;'>❌ Belum Tuntas: {total_belum_tuntas}</span></p>
     <table style='width:100%; border-collapse:collapse;'>
     <tr style='background-color:#F9D423;'>
         <th style='padding:10px; color:#000;'>No</th>
@@ -292,6 +320,11 @@ st.markdown("""
     <p style='color:white; margin-top:10px; font-size:16px;'>Assalamualaikum warahmatullahi wabarakatuh! Tanya apa saja tentang Iqro, Tahsin dan Tahfidz</p>
 </div>
 """, unsafe_allow_html=True)
+
+# ===== TIM PEMBUAT HANYA DI BERANDA, DISEMBUNYIKAN PAS UJIAN =====
+if st.session_state["siswa_pilih"] is None:
+    tampilkan_tim_pembuat()
+
 st.write("")
 
 if st.session_state["curang_refresh"]:
@@ -465,7 +498,6 @@ def tampilkan_daftar(kategori):
                 pass
             st.rerun()
 
-# ===== MENU UTAMA: 4 KOTAK =====
 if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai"]:
     c_btn1, c_btn2, c_btn3, c_btn4 = st.columns(4)
     with c_btn1:
@@ -500,14 +532,13 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
             with c3:
                 tampilkan_daftar("Tahfidz")
 
-# ===== HALAMAN DAFTAR NILAI =====
 if st.session_state["lihat_nilai"] and st.session_state["siswa_pilih"] is None:
     tampilkan_daftar_hasil_nilai()
     st.stop()
 
 if st.session_state["siswa_pilih"]:
     nama = st.session_state["siswa_pilih"]
-    info = DATA_SISWA.get(nama, {"kategori": "Iqro", "level": "Pemula", "jk": "-", "nilai_awal": 0})
+    info = DATA_SISWA.get(nama, {"kategori": "Iqro", "level": "Pemula", "jk": "-"})
     kat = info["kategori"]
     if st.session_state["waktu_mulai"] is None:
         st.session_state["waktu_mulai"] = time.time()
