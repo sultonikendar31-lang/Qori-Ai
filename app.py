@@ -13,7 +13,6 @@ if "messages" not in st.session_state:
 
 prompt_awal = None
 
-# --- BACKGROUND FOTO MADRASAH ---
 def get_base64(file):
     try:
         with open(file, "rb") as f:
@@ -45,7 +44,6 @@ if bg:
     </style>
     """, unsafe_allow_html=True)
 
-# --- HEADER ---
 st.markdown("""
 <div style='background-color: rgba(20, 50, 35, 0.92); padding: 25px; border-radius: 15px; text-align:center;'>
     <h1 style='color:#F9D423; margin:0; font-size:36px;'>🕌 QORI AI Madrasah Aliyah Al-Barokah</h1>
@@ -67,7 +65,6 @@ def tampilkan_daftar(kategori):
             return f"Tolong ajarkan saya {item} dengan cara yang mudah untuk anak Madrasah Aliyah"
     return None
 
-# --- TOMBOL UTAMA ---
 c_btn1, c_btn2, c_btn3 = st.columns(3)
 with c_btn1:
     klik_iqro = st.button("📖 Iqro", use_container_width=True)
@@ -98,7 +95,6 @@ if st.session_state["kategori_pilih"]:
             p = tampilkan_daftar("Tahfidz")
             if p: prompt_awal = p
 
-# --- CHAT HISTORY ---
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.write(m["content"])
