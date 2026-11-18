@@ -78,19 +78,11 @@ except:
     pass
 
 SYSTEM_PROMPT_KUNCI = """
-Kamu adalah QORI AI, guru ngaji yang ramah untuk anak Madrasah Aliyah Al-Barokah.
-Kamu HANYA boleh menjawab tentang 3 topik ini:
-1. IQRO - belajar membaca Al-Qur'an pemula, huruf hijaiyah, harakat, Iqro 1-6
-2. TAHSIN - memperbaiki bacaan, makhraj, tajwid, sifat huruf, ghunnah, qalqalah, mad, waqaf, ibtida', hukum bacaan
-3. TAHFIDZ - menghafal Al-Qur'an, muraja'ah, metode menghafal, surah-surah hafalan, Juz 30, Juz 29, adab menghafal. Semua nama surah termasuk Tahfidz, contoh: An-Naba, An-Naziat, Abasa, Al-Ikhlas, dll.
-ATURAN KUNCI - WAJIB DIPATUHI:
-- Jika pertanyaan di luar 3 topik di atas (misal: shalat, puasa, zakat, fikih, matematika, game, pacaran, politik, dll), kamu WAJIB menolak.
-- Jawaban penolakan: "Maaf, saya QORI AI hanya bisa membantu tentang Iqro, Tahsin, dan Tahfidz saja. Silakan tanya seputar membaca dan menghafal Al-Qur'an ya! 🕌"
-- Jawab dengan Bahasa Indonesia yang mudah, sopan, dan islami.
-ATURAN TAMPILAN HURUF HIJAIYAH - WAJIB:
-- Setiap menyebut huruf hijaiyah, WAJIB pakai format: 1. Alif (ا) - dibaca "A"
-- JANGAN PERNAH tulis huruf Arab saja tanpa nama Latin dan cara bacanya.
-- JANGAN tulis huruf Arab berderet-deret seperti "ا ب ت ث".
+Kamu adalah QORI AI, guru yang ramah dan pintar untuk anak Madrasah Aliyah Al-Barokah.
+Kamu BEBAS menjawab pertanyaan apa saja: Iqro, Tahsin, Tahfidz, pelajaran sekolah, agama, umum, dll.
+Keahlian utamamu tetap Iqro, Tahsin, dan Tahfidz, tapi kalau ditanya hal lain, jawab saja dengan baik, jangan menolak.
+Jawab dengan Bahasa Indonesia yang mudah, sopan, dan islami.
+Kalau menyebut huruf hijaiyah, WAJIB pakai format: 1. Alif (ا) - dibaca "A". Jangan tulis huruf Arab berderet-deret tanpa nama Latinnya.
 """
 
 HIJAIYAH_IQRO1 = [
@@ -130,23 +122,6 @@ def jawaban_an_naba():
 **2. Isi Pokok:** Tentang hari kiamat, bukti kekuasaan Allah, balasan neraka & surga.
 **3. Tips Menghafal:** Bagi 3 bagian: Ayat 1-16, 17-30, 31-40. Hafal 5 ayat per hari, muraja'ah tiap pagi.
 Mau lanjut hafalan ayat 1-5 dulu? Bilang saja "Hafal An-Naba ayat 1-5" ya! 🤲"""
-
-KATA_TERLARANG = [
-    "shalat", "sholat", "puasa", "zakat", "haji", "umroh", "fikih", "fiqih",
-    "matematika", "fisika", "kimia", "biologi", "sejarah", "geografi",
-    "game", "free fire", "ff", "mobile legend", "mlbb", "pubg", "roblox", "minecraft",
-    "pacaran", "pacar", "politik", "presiden", "pemilu",
-    "sepak bola", "bola", "musik", "lagu", "kpop",
-    "resep", "masak", "bisnis", "crypto", "bitcoin"
-]
-def cek_dilarang(teks):
-    t = teks.lower()
-    for k in KATA_TERLARANG:
-        if k in t:
-            return True
-    return False
-
-PESAN_TOLAK = "Maaf, saya QORI AI hanya bisa membantu tentang Iqro, Tahsin, dan Tahfidz saja. Silakan tanya seputar membaca dan menghafal Al-Qur'an ya! 🕌"
 
 def get_base64(file):
     try:
@@ -352,7 +327,7 @@ if bg:
 st.markdown("""
 <div style='background-color: rgba(20, 50, 35, 0.92); padding: 25px; border-radius: 15px; text-align:center;'>
     <h1 style='color:#F9D423; margin:0; font-size:36px;'>🕌 QORI AI Madrasah Aliyah Al-Barokah</h1>
-    <p style='color:white; margin-top:10px; font-size:16px;'>Assalamualaikum warahmatullahi wabarakatuh! Tanya apa saja tentang Iqro, Tahsin dan Tahfidz</p>
+    <p style='color:white; margin-top:10px; font-size:16px;'>Assalamualaikum warahmatullahi wabarakatuh! Tanya apa saja, QORI AI siap membantu</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -790,7 +765,7 @@ prompt = None
 if prompt_awal:
     prompt = prompt_awal
 else:
-    prompt = st.text_input("Tulis pertanyaanmu di sini...", placeholder="Tulis pertanyaanmu di sini... (Hanya Iqro, Tahsin, Tahfidz)", label_visibility="collapsed")
+    prompt = st.text_input("Tulis pertanyaanmu di sini...", placeholder="Tulis pertanyaanmu di sini... Tanya apa saja ya!", label_visibility="collapsed")
     kirim = st.button("Kirim ➤", use_container_width=True)
     if not kirim:
         prompt = None
@@ -813,9 +788,6 @@ if prompt:
             jawaban = jawaban_hijaiyah_iqro1()
             st.markdown(jawaban)
             st.session_state.messages.append({"role": "assistant", "content": jawaban})
-        elif cek_dilarang(prompt):
-            st.markdown(PESAN_TOLAK)
-            st.session_state.messages.append({"role": "assistant", "content": PESAN_TOLAK})
         elif not api_key:
             st.markdown("Maaf, API Key belum dipasang di Secrets Streamlit.")
         else:
