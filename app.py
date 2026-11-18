@@ -24,32 +24,18 @@ bg = get_base64("background.jpeg")
 if bg:
     st.markdown(f"""
     <style>
-        /* GAMBAR CUMA 1X DI PALING LUAR, BIAR FULL ATAS SAMPAI BAWAH */
-    .stApp, [data-testid="stApp"], html, body {{
+    /* INI YANG BAGUS KAYA FOTO PERTAMA - JANGAN DIUBAH LAGI */
+    .stApp, [data-testid="stApp"], [data-testid="stAppViewContainer"] {{
         background-image: url("data:image/jpeg;base64,{bg}") !important;
         background-size: cover !important;
         background-position: center center !important;
         background-repeat: no-repeat !important;
         background-attachment: fixed !important;
-        background-color: #000 !important;
-    }}
-    /* TENGAH & BAWAH DIBIKIN TRANSPARAN, BIAR GAMBAR LUAR YANG KELIHATAN */
-    [data-testid="stAppViewContainer"], [data-testid="stMain"], [data-testid="stBottom"], [data-testid="stBottomBlockContainer"] {{
-        background: transparent !important;
-        background-image: none !important;
-        background-color: transparent !important;
-    }}
-        background-size: cover !important;
-        background-position: center center !important;
-        background-repeat: no-repeat !important;
-        background-attachment: fixed !important;
-        background-color: #000 !important;
     }}
     [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"] {{
         background: transparent !important;
     }}
-    /* GELAPIN DIKIT BIAR TULISAN KEBACA */
-    [data-testid="stAppViewContainer"]::before {{
+    .stApp::before {{
         content: "";
         position: fixed;
         top: 0; left: 0; right: 0; bottom: 0;
@@ -61,33 +47,17 @@ if bg:
         position: relative;
         z-index: 1;
         padding-top: 20px !important;
-        padding-bottom: 20px !important;
         max-width: 900px !important;
     }}
-    [data-testid="stChatMessage"] {{
-        background-color: rgba(255,255,255,0.95) !important;
-        border-radius: 12px !important;
-    }}
-    /* BAWAH TRANSPARAN, JANGAN KASIH GAMBAR LAGI BIAR NGGAK DOBEL */
+    /* BAWAH TRANSPARAN BIAR GAMBAR FULL SAMPAI BAWAH */
     [data-testid="stBottom"], [data-testid="stBottomBlockContainer"] {{
         background: transparent !important;
         background-image: none !important;
         background-color: transparent !important;
     }}
-    /* KOTAK NGETIK PENDEK, DI TENGAH */
-    [data-testid="stBottomBlockContainer"] {{
-        max-width: 700px !important;
-        margin: 0 auto !important;
-    }}
     [data-testid="stChatInput"] {{
         background-color: white !important;
-        background-image: none !important;
         border-radius: 20px !important;
-        max-width: 700px !important;
-        margin: 0 auto !important;
-    }}
-    footer {{
-        background: transparent !important;
     }}
     </style>
     """, unsafe_allow_html=True)
