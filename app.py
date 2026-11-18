@@ -55,6 +55,14 @@ if "hitung_ulang" not in st.session_state:
     st.session_state["hitung_ulang"] = {}
 if "sudah_bersihkan_no7" not in st.session_state:
     st.session_state["sudah_bersihkan_no7"] = False
+if "riwayat_aktivitas" not in st.session_state:
+    st.session_state["riwayat_aktivitas"] = []
+if "waktu_login" not in st.session_state:
+    st.session_state["waktu_login"] = None
+if "lihat_riwayat" not in st.session_state:
+    st.session_state["lihat_riwayat"] = False
+if "sudah_catat_masuk" not in st.session_state:
+    st.session_state["sudah_catat_masuk"] = False
 
 # Bersihkan No.7 SEKALI aja di awal (nilai 0 bekas tes), setelah itu nilai asli ZALFATUSSYIFA tidak akan kehapus lagi
 if not st.session_state["sudah_bersihkan_no7"]:
@@ -234,6 +242,62 @@ DATA_SISWA = {
     "IMAM MANSYUR IBNU HULKAN": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki"},
 }
 
+# ===== RIWAYAT / STORY SISWA - KHUSUS TIM =====
+def catat_aktivitas(aktivitas):
+    if st.session_state.get("login_role") != "siswa":
+        return
+    if not st.session_state.get("login_nama"):
+        return
+    sekarang = time.time()
+    jam = time.strftime("%d/%m/%Y %H:%M:%S", time.localtime(sekarang))
+    lama_detik = int(sekarang - st.session_state["waktu_login"]) if st.session_state.get("waktu_login") else 0
+    menit = lama_detik // 60
+    detik = lama_detik % 60
+    lama = f"{menit} mnt {detik} dtk" if menit > 0 else f"{detik} dtk"
+    info = DATA_SISWA.get(st.session_state["login_nama"], {})
+    st.session_state["riwayat_aktivitas"].append({
+        "nama": st.session_state["login_nama"],
+        "kelas": info.get("kategori", "-"),
+        "aktivitas": aktivitas,
+        "jam": jam,
+        "lama": lama,
+    })
+
+def tampilkan_riwayat_siswa():
+    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📋 Riwayat / Story Siswa</h2><p style='color:white; margin:5px 0 0 0;'>Khusus Tim Penyusun - Siswa TIDAK bisa lihat ini</p></div>", unsafe_allow_html=True)
+    st.write("")
+    if not st.session_state["riwayat_aktivitas"]:
+        st.info("Belum ada siswa yang pakai aplikasi di sesi ini.")
+    else:
+        rows = ""
+        for i, r in enumerate(reversed(st.session_state["riwayat_aktivitas"]), 1):
+            rows += f"<tr><td style='padding:10px; text-align:center; color:white;'>{i}</td><td style='padding:10px; color:white; font-weight:bold;'>{r['nama']}</td><td style='padding:10px; text-align:center; color:white;'>{r['kelas']}</td><td style='padding:10px; color:white;'>{r['aktivitas']}</td><td style='padding:10px; text-align:center; color:white;'>{r['jam']}</td><td style='padding:10px; text-align:center; color:#F9D423; font-weight:bold;'>{r['lama']}</td></tr>"
+        st.markdown(f"""
+        <div style='background-color: rgba(0,0,0,0.75); padding:15px; border-radius:15px;'>
+        <table style='width:100%; border-collapse:collapse;'>
+        <tr style='background-color:#F9D423;'>
+            <th style='padding:10px; color:#000;'>No</th>
+            <th style='padding:10px; color:#000; text-align:left;'>Nama Siswa</th>
+            <th style='padding:10px; color:#000;'>Kelas</th>
+            <th style='padding:10px; color:#000; text-align:left;'>Buka Apa</th>
+            <th style='padding:10px; color:#000;'>Jam</th>
+            <th style='padding:10px; color:#000;'>Berapa Lama</th>
+        </tr>
+        {rows}
+        </table>
+        </div>
+        """, unsafe_allow_html=True)
+    st.write("")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("⬅️ Tutup Riwayat", use_container_width=True):
+            st.session_state["lihat_riwayat"] = False
+            st.rerun()
+    with c2:
+        if st.button("🗑️ Hapus Riwayat", use_container_width=True):
+            st.session_state["riwayat_aktivitas"] = []
+            st.rerun()
+
 def tampilkan_daftar_hasil_nilai():
     st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📊 Daftar Hasil Nilai</h2><p style='color:white; margin:5px 0 0 0;'>KKM = 75 | Nilai ≤ 75 = <b style=\"color:#FF5252;\">MERAH (Belum Tuntas)</b> | Nilai > 75 = <b style=\"color:white;\">PUTIH (Tuntas)</b> | Belum Ujian = <b style=\"color:#AAAAAA;\">- (Belum Mengerjakan)</b></p></div>", unsafe_allow_html=True)
     st.write("")
@@ -349,6 +413,8 @@ if st.session_state["login_nama"] is None:
             st.session_state["login_nama"] = nama_bersih
             st.session_state["login_role"] = "tim"
             st.session_state["login_jabatan"] = TIM_PENYUSUN[nama_bersih]
+            st.session_state["waktu_login"] = time.time()
+            st.session_state["sudah_catat_masuk"] = False
             st.success(f"✅ Selamat datang, {nama_bersih}")
             time.sleep(0.5)
             st.rerun()
@@ -356,6 +422,8 @@ if st.session_state["login_nama"] is None:
             st.session_state["login_nama"] = nama_bersih
             st.session_state["login_role"] = "siswa"
             st.session_state["login_jabatan"] = f"Siswa {DATA_SISWA[nama_bersih]['kategori']}"
+            st.session_state["waktu_login"] = time.time()
+            st.session_state["sudah_catat_masuk"] = False
             st.success(f"✅ Selamat datang, {nama_bersih}")
             time.sleep(0.5)
             st.rerun()
@@ -372,15 +440,26 @@ if st.session_state["login_role"] == "siswa":
 else:
     teks_selamat = f"👤 Selamat datang, {st.session_state['login_nama']}"
 st.markdown(f"<div style='background-color: rgba(0,0,0,0.6); padding:10px; border-radius:10px; text-align:center; margin-top:10px;'><b style='color:white;'>{teks_selamat}</b></div>", unsafe_allow_html=True)
+
+# Catat Masuk Aplikasi SEKALI aja, biar tidak double
+if st.session_state["login_role"] == "siswa" and not st.session_state["sudah_catat_masuk"]:
+    st.session_state["sudah_catat_masuk"] = True
+    catat_aktivitas("Masuk Aplikasi")
+
 col_out1, col_out2 = st.columns([3,1])
 with col_out2:
     if st.button("🚪 Keluar / Ganti Nama", use_container_width=True):
+        if st.session_state["login_role"] == "siswa":
+            catat_aktivitas("Keluar Aplikasi")
         st.session_state["login_nama"] = None
         st.session_state["login_role"] = None
         st.session_state["login_jabatan"] = None
         st.session_state["siswa_pilih"] = None
         st.session_state["kategori_pilih"] = None
         st.session_state["lihat_nilai"] = False
+        st.session_state["lihat_riwayat"] = False
+        st.session_state["sudah_catat_masuk"] = False
+        st.session_state["waktu_login"] = None
         try:
             st.query_params.clear()
         except:
@@ -584,6 +663,8 @@ def tampilkan_daftar(kategori):
             st.session_state["hasil_ujian"] = None
             st.session_state["curang_refresh"] = None
             st.session_state["lihat_nilai"] = False
+            st.session_state["lihat_riwayat"] = False
+            catat_aktivitas(f"Mulai Ujian - {kategori}")
             try:
                 st.query_params["ujian"] = "jalan"
                 st.query_params["nama"] = item
@@ -604,15 +685,23 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
     if klik_iqro:
         st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Iqro" else "Iqro"
         st.session_state["lihat_nilai"] = False
+        st.session_state["lihat_riwayat"] = False
+        catat_aktivitas("Buka Kelas Iqro")
     if klik_tahsin:
         st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Tahsin" else "Tahsin"
         st.session_state["lihat_nilai"] = False
+        st.session_state["lihat_riwayat"] = False
+        catat_aktivitas("Buka Kelas Tahsin")
     if klik_tahfidz:
         st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Tahfidz" else "Tahfidz"
         st.session_state["lihat_nilai"] = False
+        st.session_state["lihat_riwayat"] = False
+        catat_aktivitas("Buka Kelas Tahfidz")
     if klik_nilai:
         st.session_state["lihat_nilai"] = True
         st.session_state["kategori_pilih"] = None
+        st.session_state["lihat_riwayat"] = False
+        catat_aktivitas("Buka Daftar Hasil Nilai")
     if st.session_state["kategori_pilih"]:
         c1, c2, c3 = st.columns(3)
         if st.session_state["kategori_pilih"] == "Iqro":
@@ -624,6 +713,18 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
         if st.session_state["kategori_pilih"] == "Tahfidz":
             with c3:
                 tampilkan_daftar("Tahfidz")
+
+# Tombol Riwayat HANYA untuk Tim
+if st.session_state["login_role"] == "tim" and st.session_state["siswa_pilih"] is None:
+    if st.button("📋 Riwayat / Story Siswa (Khusus Tim)", use_container_width=True):
+        st.session_state["lihat_riwayat"] = True
+        st.session_state["kategori_pilih"] = None
+        st.session_state["lihat_nilai"] = False
+        st.rerun()
+
+if st.session_state.get("lihat_riwayat") and st.session_state["siswa_pilih"] is None:
+    tampilkan_riwayat_siswa()
+    st.stop()
 
 if st.session_state["lihat_nilai"] and st.session_state["siswa_pilih"] is None:
     tampilkan_daftar_hasil_nilai()
@@ -728,6 +829,7 @@ if st.session_state["siswa_pilih"]:
             st.session_state["hasil_ujian"] = {"benar": benar, "nilai": int(nilai)}
             st.session_state["hasil_semua"][nama] = int(nilai)
             st.session_state["hitung_ulang"][nama] = st.session_state["hitung_ulang"].get(nama, 0) + 1
+            catat_aktivitas(f"Selesai Ujian - Nilai {int(nilai)}")
             try:
                 st.query_params.clear()
             except:
@@ -778,6 +880,7 @@ else:
 
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
+    catat_aktivitas(f"Tanya AI: {prompt[:40]}")
     with st.chat_message("user"):
         st.markdown(prompt)
     with st.chat_message("assistant"):
