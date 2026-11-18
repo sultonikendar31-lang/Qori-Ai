@@ -54,10 +54,21 @@ if bg:
         background-color: rgba(255,255,255,0.95) !important;
         border-radius: 12px !important;
     }}
-    /* HILANGIN PUTIH DI BAWAH - TEMPAT NGETIK */
-    [data-testid="stBottom"], [data-testid="stBottomBlockContainer"], [data-testid="stChatInputContainer"] {{
-        background: transparent !important;
+        /* PAKSA BAWAH PAKAI GAMBAR YANG SAMA BIAR NYATU */
+    [data-testid="stBottom"], [data-testid="stBottomBlockContainer"], [data-testid="stChatInputContainer"], [data-testid="stBottom"] > div, [data-testid="stBottom"] div {{
+        background-image: url("data:image/jpeg;base64,{bg}") !important;
+        background-size: cover !important;
+        background-position: center bottom !important;
+        background-repeat: no-repeat !important;
         background-color: transparent !important;
+    }}
+    /* KOTAK NGETIK TETAP PUTIH BIAR KEBACA */
+    [data-testid="stChatInput"] {{
+        background-color: rgba(255,255,255,0.95) !important;
+        background-image: none !important;
+    }}
+    [data-testid="stChatInput"] * {{
+        background-image: none !important;
     }}
     [data-testid="stChatInput"] {{
         background-color: rgba(255,255,255,0.95) !important;
