@@ -24,6 +24,42 @@ if "kat_acak" not in st.session_state:
 
 prompt_awal = None
 
+# ===== KUNCI TOPIK QORI AI - HANYA IQRO, TAHSIN, TAHFIDZ =====
+SYSTEM_PROMPT_KUNCI = """
+Kamu adalah QORI AI, guru ngaji yang ramah untuk anak Madrasah Aliyah Al-Barokah.
+Kamu HANYA boleh menjawab tentang 3 topik ini:
+1. IQRO - belajar membaca Al-Qur'an pemula, huruf hijaiyah, harakat, Iqro 1-6
+2. TAHSIN - memperbaiki bacaan, makhraj, tajwid, sifat huruf, ghunnah, qalqalah, mad, waqaf, ibtida'
+3. TAHFIDZ - menghafal Al-Qur'an, muraja'ah, metode menghafal, surah-surah hafalan, adab menghafal
+
+ATURAN KUNCI - WAJIB DIPATUHI:
+- Jika pertanyaan di luar 3 topik di atas (misal: shalat, puasa, zakat, fikih, matematika, game, pacaran, politik, dll), kamu WAJIB menolak.
+- Jawaban penolakan: "Maaf, saya QORI AI hanya bisa membantu tentang Iqro, Tahsin, dan Tahfidz saja. Silakan tanya seputar membaca dan menghafal Al-Qur'an ya! 🕌"
+- Jangan jawab pertanyaan lain walau sedikit pun, jangan beri penjelasan tentang topik lain.
+- Jawab dengan Bahasa Indonesia yang mudah, sopan, dan islami.
+"""
+
+# Kata kunci yang diizinkan - untuk hemat saldo, ditolak sebelum panggil API
+KATA_KUNCI_QORI = [
+    "iqro", "iqra", "tahsin", "tahfidz", "tahfiz", "tahfid",
+    "hijaiyah", "harakat", "fathah", "kasrah", "dhammah", "tanwin", "sukun", "tasydid", "mad ",
+    "tajwid", "makhraj", "makharij", "ghunnah", "qalqalah", "ikhfa", "idgham", "idzhar", "iqlab",
+    "waqaf", "waqf", "ibtida", "tartil", "tilawah",
+    "hafal", "hafalan", "murajaah", "muraja'ah", "sima'i", "kitabah",
+    "quran", "qur'an", "al-quran", "al quran", "surah", "surat", "ayat", "juz", "hafiz",
+    "al-ikhlas", "al-falaq", "an-nas", "al-kautsar", "al-asr", "al-maun",
+    "assalamualaikum", "halo", "hai", "selamat", "apa kabar"
+]
+
+def cek_topik_qori(teks):
+    t = teks.lower()
+    for k in KATA_KUNCI_QORI:
+        if k in t:
+            return True
+    return False
+
+PESAN_TOLAK = "Maaf, saya QORI AI hanya bisa membantu tentang Iqro, Tahsin, dan Tahfidz saja. Silakan tanya seputar membaca dan menghafal Al-Qur'an ya! 🕌"
+
 def get_base64(file):
     try:
         with open(file, "rb") as f:
@@ -399,7 +435,7 @@ prompt = None
 if prompt_awal:
     prompt = prompt_awal
 else:
-    prompt = st.text_input("Tulis pertanyaanmu di sini...", placeholder="Tulis pertanyaanmu di sini...", label_visibility="collapsed")
+    prompt = st.text_input("Tulis pertanyaanmu di sini...", placeholder="Tulis pertanyaanmu di sini... (Hanya Iqro, Tahsin, Tahfidz)", label_visibility="collapsed")
     kirim = st.button("Kirim ➤", use_container_width=True)
     if not kirim:
         prompt = None
@@ -409,7 +445,11 @@ if prompt:
     with st.chat_message("user"):
         st.write(prompt)
     with st.chat_message("assistant"):
-        if not api_key:
+        # KUNCI 1: Filter lokal - tolak sebelum panggil API biar hemat saldo
+        if not cek_topik_qori(prompt):
+            st.write(PESAN_TOLAK)
+            st.session_state.messages.append({"role": "assistant", "content": PESAN_TOLAK})
+        elif not api_key:
             st.write("Maaf, API Key belum dipasang di Secrets Streamlit.")
         else:
             try:
@@ -417,7 +457,7 @@ if prompt:
                 response = client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[
-                        {"role": "system", "content": "Kamu adalah QORI AI, guru ngaji yang ramah untuk anak Madrasah Aliyah Al Barokah. Jawab dengan bahasa Indonesia yang mudah, sopan, dan islami."},
+                        {"role": "system", "content": SYSTEM_PROMPT_KUNCI},
                         {"role": "user", "content": prompt}
                     ],
                     temperature=0.7,
