@@ -1,11 +1,11 @@
 import streamlit as st
 import base64
 import random
-from google import genai
+from openai import OpenAI
 
 st.set_page_config(page_title="QORI AI", page_icon="🕌", layout="wide")
 
-api_key = st.secrets.get("GEMINI_API_KEY", "")
+api_key = st.secrets.get("OPENAI_API_KEY", "")
 
 if "kategori_pilih" not in st.session_state:
     st.session_state["kategori_pilih"] = None
@@ -338,7 +338,6 @@ if st.session_state["siswa_pilih"]:
     nama = st.session_state["siswa_pilih"]
     info = DATA_SISWA.get(nama, {"kategori": "Iqro", "level": "Pemula"})
     kat = info["kategori"]
-    # TULISAN ACAK SUDAH DIHAPUS - CUMA TAMPIL BIASA
     st.markdown(f"<div style='background-color: rgba(20,50,35,0.92); padding:20px; border-radius:15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>Assalamualaikum, {nama} 👋</h2><p style='color:white;'>Kelas: {kat} | Level: {info['level']} | Soal: 25 Soal (15 PG + 10 Benar/Salah) | Nilai: Benar x 4</p></div>", unsafe_allow_html=True)
     if st.button("⬅️ Kembali ke Daftar Nama"):
         st.session_state["siswa_pilih"] = None
@@ -354,9 +353,6 @@ if st.session_state["siswa_pilih"]:
         soal_list = st.session_state["soal_acak"]
         kunci = st.session_state["kunci_acak"]
 
-    # TOMBOL ACAK SOAL LAGI SUDAH DIHAPUS - SISWA TIDAK TAU
-
-    # JUDUL CUMA "Soal Iqro - Kelas XI MA" - TIDAK ADA KATA ACAK
     st.markdown(f"<h2 style='color:white; background-color: rgba(0,0,0,0.65); padding:10px; border-radius:10px; text-align:center;'>📝 Soal {kat} - Kelas XI MA</h2>", unsafe_allow_html=True)
     st.markdown("<p style='color:white; background-color: rgba(0,0,0,0.65); padding:8px; border-radius:10px; text-align:center;'>Jawab semua soal, lalu klik LIHAT NILAI di bawah.</p>", unsafe_allow_html=True)
     jawaban_siswa = []
@@ -385,7 +381,6 @@ if st.session_state["siswa_pilih"]:
         st.markdown("<div style='background-color: rgba(0,0,0,0.65); padding:10px; border-radius:10px;'><p style='color:white; font-weight:bold;'>Pembahasan Kunci Jawaban:</p></div>", unsafe_allow_html=True)
         for i in range(25):
             st.markdown(f"<p style='color:white;'>No.{i+1} = {kunci[i]}</p>", unsafe_allow_html=True)
-        # TOMBOL ULANGI ACAK DI BAWAH NILAI JUGA DIHAPUS
     st.stop()
 
 if st.session_state["messages"]:
@@ -418,9 +413,18 @@ if prompt:
             st.write("Maaf, API Key belum dipasang di Secrets Streamlit.")
         else:
             try:
-                client = genai.Client(api_key=api_key)
-                response = client.models.generate_content(model="gemini-2.5-flash", contents=f"Kamu adalah QORI AI, guru ngaji yang ramah untuk anak Madrasah Aliyah Al Barokah. Jawab dengan bahasa Indonesia yang mudah, sopan, dan islami. Pertanyaan: {prompt}")
-                st.write(response.text)
-                st.session_state.messages.append({"role": "assistant", "content": response.text})
+                client = OpenAI(api_key=api_key)
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": "Kamu adalah QORI AI, guru ngaji yang ramah untuk anak Madrasah Aliyah Al Barokah. Jawab dengan bahasa Indonesia yang mudah, sopan, dan islami."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=800
+                )
+                jawaban = response.choices[0].message.content
+                st.write(jawaban)
+                st.session_state.messages.append({"role": "assistant", "content": jawaban})
             except Exception as e:
-                st.write(f"Maaf, sedang ada gangguan. Coba lagi ya. ({e})")
+                st.write(f"Maaf, sedang ada gangguan. Coba lagi ya. Cek saldo OpenAI, mungkin habis. ({e})")
