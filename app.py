@@ -33,16 +33,19 @@ if "hasil_ujian" not in st.session_state:
     st.session_state["hasil_ujian"] = None
 if "curang_refresh" not in st.session_state:
     st.session_state["curang_refresh"] = None
+if "lihat_nilai" not in st.session_state:
+    st.session_state["lihat_nilai"] = False
+if "hasil_semua" not in st.session_state:
+    st.session_state["hasil_semua"] = {}
 
 DURASI_UJIAN = 10 * 60
+KKM = 75
 prompt_awal = None
 
-# ===== ANTI REFRESH: CEK URL - KALAU UJIAN JALAN TAPI SESSION HILANG = HABIS REFRESH =====
 try:
     qp = st.query_params
     status_ujian_url = qp.get("ujian", "")
     nama_url = qp.get("nama", "")
-    # Kalau di URL masih "jalan" tapi siswa_pilih hilang (habis refresh) -> curang
     if status_ujian_url == "jalan" and st.session_state["siswa_pilih"] is None and st.session_state["curang_refresh"] is None:
         st.session_state["curang_refresh"] = nama_url if nama_url else "SISWA"
 except:
@@ -143,7 +146,6 @@ def tampilkan_timer(sisa_detik):
     <script>
     let sisa = {int(sisa_detik)};
     let sudahBunyi = {{}};
-    // Peringatan kalau mau refresh / tutup tab
     window.onbeforeunload = function() {{ return "Yakin mau keluar? Nilai ujian akan jadi 0!"; }};
     function bunyiTit(panjang) {{
         try {{
@@ -181,6 +183,78 @@ def tampilkan_timer(sisa_detik):
     </script>
     """
     components.html(timer_html, height=130)
+
+# ===== DATA SISWA + JENIS KELAMIN + NILAI AWAL =====
+DATA_SISWA = {
+    "MUHAMAD HARTANTO": {"kategori": "Iqro", "level": "Iqro Dasar", "jk": "Laki-laki", "nilai_awal": 63},
+    "DAFFAN OKTAFFIL HIDAYAT": {"kategori": "Iqro", "level": "Iqro Dasar", "jk": "Laki-laki", "nilai_awal": 62},
+    "FRISCHA BUNGA LESTARI": {"kategori": "Tahsin", "level": "Tahsin", "jk": "Perempuan", "nilai_awal": 73},
+    "RABHAN": {"kategori": "Tahsin", "level": "Tahsin", "jk": "Laki-laki", "nilai_awal": 72},
+    "ANGGA FADILLAH": {"kategori": "Tahsin", "level": "Tahsin", "jk": "Laki-laki", "nilai_awal": 71},
+    "ANDY RAMADANI ABDULLAH": {"kategori": "Tahsin", "level": "Tahsin", "jk": "Laki-laki", "nilai_awal": 76},
+    "ZALFATUSSYIFA RAMADANTI": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Perempuan", "nilai_awal": 85},
+    "ZAIN RAHMANITA": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Perempuan", "nilai_awal": 86},
+    "YUSUF IMAM MA'RUF": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki", "nilai_awal": 85},
+    "FEBRIANSYAH RACHMAT HIDAYAT": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki", "nilai_awal": 85},
+    "MUHAMMAD HAFIDZ": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki", "nilai_awal": 89},
+    "ANGGI RATU MAHADEWI": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Perempuan", "nilai_awal": 88},
+    "RIZQI RAMADHANY": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki", "nilai_awal": 85},
+    "KAWI LUJENGAN RASYIDA RAIHANUN": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Perempuan", "nilai_awal": 84},
+    "MIFTAHUL JANNAH": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Perempuan", "nilai_awal": 81},
+    "MUHAMAD AZHAM FATAHILAH": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki", "nilai_awal": 82},
+    "ROSMALATI KHOLISHA": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Perempuan", "nilai_awal": 83},
+    "M. ARIF ZAKARIYA": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki", "nilai_awal": 85},
+    "MOCHAMMAD ALKAHFI MUBAROK": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki", "nilai_awal": 86},
+    "IMAM MANSYUR IBNU HULKAN": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki", "nilai_awal": 80},
+}
+
+# ===== FUNGSI TAMPILKAN DAFTAR HASIL NILAI =====
+def tampilkan_daftar_hasil_nilai():
+    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📊 Daftar Hasil Nilai</h2><p style='color:white; margin:5px 0 0 0;'>KKM = 75 | Nilai ≤ 75 = <b style=\"color:#FF5252;\">MERAH (Belum Tuntas)</b> | Nilai > 75 = <b style=\"color:white;\">PUTIH (Tuntas)</b></p></div>", unsafe_allow_html=True)
+    st.write("")
+    # Hitung ringkasan
+    total_tuntas = 0
+    total_belum = 0
+    rows_html = ""
+    no = 1
+    for nama in DATA_SISWA:
+        info = DATA_SISWA[nama]
+        # Kalau sudah ujian baru, pakai nilai baru, kalau belum pakai nilai awal
+        nilai = st.session_state["hasil_semua"].get(nama, info["nilai_awal"])
+        jk = info["jk"]
+        kat = info["kategori"]
+        if nilai <= KKM:
+            warna_nilai = "#FF5252"
+            ket = "❌ Belum Tuntas"
+            warna_ket = "#FF5252"
+            total_belum += 1
+        else:
+            warna_nilai = "#FFFFFF"
+            ket = "✅ Tuntas"
+            warna_ket = "#4CAF50"
+            total_tuntas += 1
+        rows_html += f"<tr><td style='padding:10px; text-align:center; color:white;'>{no}</td><td style='padding:10px; color:white; font-weight:bold;'>{nama}</td><td style='padding:10px; text-align:center; color:white;'>{jk}</td><td style='padding:10px; text-align:center; color:white;'>{kat}</td><td style='padding:10px; text-align:center; color:{warna_nilai}; font-weight:bold; font-size:20px;'>{nilai}</td><td style='padding:10px; text-align:center; color:{warna_ket}; font-weight:bold;'>{ket}</td></tr>"
+        no += 1
+    st.markdown(f"""
+    <div style='background-color: rgba(0,0,0,0.75); padding:15px; border-radius:15px;'>
+    <p style='color:white; text-align:center; font-size:16px;'>Total Siswa: <b>{len(DATA_SISWA)}</b> | <span style='color:#4CAF50; font-weight:bold;'>✅ Tuntas: {total_tuntas}</span> | <span style='color:#FF5252; font-weight:bold;'>❌ Belum Tuntas: {total_belum}</span></p>
+    <table style='width:100%; border-collapse:collapse;'>
+    <tr style='background-color:#F9D423;'>
+        <th style='padding:10px; color:#000;'>No</th>
+        <th style='padding:10px; color:#000; text-align:left;'>Nama Lengkap</th>
+        <th style='padding:10px; color:#000;'>Jenis Kelamin</th>
+        <th style='padding:10px; color:#000;'>Kategori</th>
+        <th style='padding:10px; color:#000;'>Nilai</th>
+        <th style='padding:10px; color:#000;'>Keterangan</th>
+    </tr>
+    {rows_html}
+    </table>
+    </div>
+    """, unsafe_allow_html=True)
+    st.write("")
+    if st.button("⬅️ Tutup Daftar Nilai", use_container_width=True):
+        st.session_state["lihat_nilai"] = False
+        st.rerun()
 
 bg = get_base64("background.jpeg")
 if bg:
@@ -220,9 +294,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 st.write("")
 
-# ===== LAYAR HUKUMAN REFRESH = NILAI 0 =====
 if st.session_state["curang_refresh"]:
     nama_curang = st.session_state["curang_refresh"]
+    st.session_state["hasil_semua"][nama_curang] = 0
     st.markdown(f"<div style='background-color:#7A0000; padding:25px; border-radius:15px; text-align:center; border:3px solid #FF5252;'><h1 style='color:white;'>⛔ TERDETEKSI REFRESH SAAT UJIAN!</h1><p style='color:white; font-size:20px;'>Nama: {nama_curang}</p><h1 style='color:#F9D423; font-size:60px;'>Nilai: 0</h1><p style='color:white; font-size:18px;'>Kamu keluar / refresh halaman saat ujian sedang berjalan.<br>Jawabanmu tidak disimpan dan nilai dianggap 0.<br>Silakan lapor ke guru jika ada kendala jaringan.</p></div>", unsafe_allow_html=True)
     st.write("")
     if st.button("🏠 Saya Mengerti - Kembali ke Beranda", use_container_width=True):
@@ -235,28 +309,6 @@ if st.session_state["curang_refresh"]:
         st.rerun()
     st.stop()
 
-DATA_SISWA = {
-    "MUHAMAD HARTANTO": {"kategori": "Iqro", "level": "Iqro Dasar, nilai 63"},
-    "DAFFAN OKTAFFIL HIDAYAT": {"kategori": "Iqro", "level": "Iqro Dasar, nilai 62"},
-    "FRISCHA BUNGA LESTARI": {"kategori": "Tahsin", "level": "Tahsin, nilai 73"},
-    "RABHAN": {"kategori": "Tahsin", "level": "Tahsin, nilai 72"},
-    "ANGGA FADILLAH": {"kategori": "Tahsin", "level": "Tahsin, nilai 71"},
-    "ANDY RAMADANI ABDULLAH": {"kategori": "Tahsin", "level": "Tahsin, nilai 76"},
-    "ZALFATUSSYIFA RAMADANTI": {"kategori": "Tahfidz", "level": "Tahfidz, nilai 85"},
-    "ZAIN RAHMANITA": {"kategori": "Tahfidz", "level": "Tahfidz, nilai 86"},
-    "YUSUF IMAM MA'RUF": {"kategori": "Tahfidz", "level": "Tahfidz, nilai 85"},
-    "FEBRIANSYAH RACHMAT HIDAYAT": {"kategori": "Tahfidz", "level": "Tahfidz, nilai 85"},
-    "MUHAMMAD HAFIDZ": {"kategori": "Tahfidz", "level": "Tahfidz, nilai 89"},
-    "ANGGI RATU MAHADEWI": {"kategori": "Tahfidz", "level": "Tahfidz, nilai 88"},
-    "RIZQI RAMADHANY": {"kategori": "Tahfidz", "level": "Tahfidz, nilai 85"},
-    "KAWI LUJENGAN RASYIDA RAIHANUN": {"kategori": "Tahfidz", "level": "Tahfidz, nilai 84"},
-    "MIFTAHUL JANNAH": {"kategori": "Tahfidz", "level": "Tahfidz, nilai 81"},
-    "MUHAMAD AZHAM FATAHILAH": {"kategori": "Tahfidz", "level": "Tahfidz, nilai 82"},
-    "ROSMALATI KHOLISHA": {"kategori": "Tahfidz", "level": "Tahfidz, nilai 83"},
-    "M. ARIF ZAKARIYA": {"kategori": "Tahfidz", "level": "Tahfidz, nilai 85"},
-    "MOCHAMMAD ALKAHFI MUBAROK": {"kategori": "Tahfidz", "level": "Tahfidz, nilai 86"},
-    "IMAM MANSYUR IBNU HULKAN": {"kategori": "Tahfidz", "level": "Tahfidz, nilai 80"},
-}
 KUNCI = {
     "Iqro": ["C","C","B","A","C","B","A","B","C","C","B","C","C","C","B","B","S","B","B","B","B","S","B","S","B"],
     "Tahsin": ["C","C","B","D","D","B","C","B","B","A","B","C","B","C","C","B","B","S","B","B","B","S","B","B","S"],
@@ -405,6 +457,7 @@ def tampilkan_daftar(kategori):
             st.session_state["ujian_selesai"] = False
             st.session_state["hasil_ujian"] = None
             st.session_state["curang_refresh"] = None
+            st.session_state["lihat_nilai"] = False
             try:
                 st.query_params["ujian"] = "jalan"
                 st.query_params["nama"] = item
@@ -412,20 +465,29 @@ def tampilkan_daftar(kategori):
                 pass
             st.rerun()
 
-if st.session_state["siswa_pilih"] is None:
-    c_btn1, c_btn2, c_btn3 = st.columns(3)
+# ===== MENU UTAMA: 4 KOTAK =====
+if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai"]:
+    c_btn1, c_btn2, c_btn3, c_btn4 = st.columns(4)
     with c_btn1:
         klik_iqro = st.button("📖 Iqro", use_container_width=True)
     with c_btn2:
         klik_tahsin = st.button("📗 Tahsin", use_container_width=True)
     with c_btn3:
         klik_tahfidz = st.button("⭐ Tahfidz", use_container_width=True)
+    with c_btn4:
+        klik_nilai = st.button("📊 Daftar Hasil Nilai", use_container_width=True)
     if klik_iqro:
         st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Iqro" else "Iqro"
+        st.session_state["lihat_nilai"] = False
     if klik_tahsin:
         st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Tahsin" else "Tahsin"
+        st.session_state["lihat_nilai"] = False
     if klik_tahfidz:
         st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Tahfidz" else "Tahfidz"
+        st.session_state["lihat_nilai"] = False
+    if klik_nilai:
+        st.session_state["lihat_nilai"] = True
+        st.session_state["kategori_pilih"] = None
     if st.session_state["kategori_pilih"]:
         c1, c2, c3 = st.columns(3)
         if st.session_state["kategori_pilih"] == "Iqro":
@@ -438,9 +500,14 @@ if st.session_state["siswa_pilih"] is None:
             with c3:
                 tampilkan_daftar("Tahfidz")
 
+# ===== HALAMAN DAFTAR NILAI =====
+if st.session_state["lihat_nilai"] and st.session_state["siswa_pilih"] is None:
+    tampilkan_daftar_hasil_nilai()
+    st.stop()
+
 if st.session_state["siswa_pilih"]:
     nama = st.session_state["siswa_pilih"]
-    info = DATA_SISWA.get(nama, {"kategori": "Iqro", "level": "Pemula"})
+    info = DATA_SISWA.get(nama, {"kategori": "Iqro", "level": "Pemula", "jk": "-", "nilai_awal": 0})
     kat = info["kategori"]
     if st.session_state["waktu_mulai"] is None:
         st.session_state["waktu_mulai"] = time.time()
@@ -448,12 +515,12 @@ if st.session_state["siswa_pilih"]:
     if sisa_detik <= 0:
         sisa_detik = 0
         st.session_state["waktu_habis"] = True
-    st.markdown(f"<div style='background-color: rgba(20,50,35,0.92); padding:20px; border-radius:15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>Assalamualaikum, {nama} 👋</h2><p style='color:white;'>Kelas: {kat} | Level: {info['level']} | Soal: 25 Soal (15 PG + 10 Benar/Salah) | Nilai: Benar x 4 | Waktu: 10 Menit</p></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='background-color: rgba(20,50,35,0.92); padding:20px; border-radius:15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>Assalamualaikum, {nama} 👋</h2><p style='color:white;'>Kelas: {kat} | Level: {info['level']} | Soal: 25 Soal | Nilai: Benar x 4 | Waktu: 10 Menit | KKM: 75</p></div>", unsafe_allow_html=True)
     if not st.session_state["ujian_selesai"]:
-        st.warning("🔒 UJIAN TERKUNCI - Jangan refresh / tutup tab / pencet back! Kalau refresh, nilai langsung jadi 0! Kerjakan sampai klik LIHAT NILAI.")
+        st.warning("🔒 UJIAN TERKUNCI - Jangan refresh / tutup tab / pencet back! Kalau refresh, nilai langsung jadi 0!")
     tampilkan_timer(sisa_detik)
     if st.session_state["waktu_habis"] and not st.session_state["ujian_selesai"]:
-        st.error("⛔ WAKTU HABIS! 10 menit sudah selesai. Silakan klik LIHAT NILAI di bawah, jawaban yang belum diisi dianggap salah.")
+        st.error("⛔ WAKTU HABIS! 10 menit sudah selesai. Silakan klik LIHAT NILAI di bawah.")
     if st.session_state["ujian_selesai"]:
         if st.button("🏠 Selesai - Kembali ke Beranda", use_container_width=True):
             st.session_state["siswa_pilih"] = None
@@ -494,6 +561,7 @@ if st.session_state["siswa_pilih"]:
             nilai = (benar / 25) * 100
             st.session_state["ujian_selesai"] = True
             st.session_state["hasil_ujian"] = {"benar": benar, "nilai": int(nilai)}
+            st.session_state["hasil_semua"][nama] = int(nilai)
             try:
                 st.query_params.clear()
             except:
@@ -503,8 +571,9 @@ if st.session_state["siswa_pilih"]:
         hasil = st.session_state["hasil_ujian"]
         benar = hasil["benar"]
         nilai = hasil["nilai"]
+        warna_n = "#FF5252" if nilai <= KKM else "#FFFFFF"
         st.success(f"🎉 HASIL {nama} - Kelas {kat}")
-        st.markdown(f"<div style='background-color: rgba(0,0,0,0.65); padding:15px; border-radius:10px; text-align:center;'><h1 style='color:#F9D423;'>Nilai: {nilai}</h1><p style='color:white;'>Jawaban Benar: {benar} / 25 | Salah / Kosong: {25-benar}</p><p style='color:white;'>Perhitungan: ({benar} ÷ 25) × 100 = {nilai}</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='background-color: rgba(0,0,0,0.65); padding:15px; border-radius:10px; text-align:center;'><h1 style='color:{warna_n};'>Nilai: {nilai}</h1><p style='color:white;'>Jawaban Benar: {benar} / 25 | Salah / Kosong: {25-benar} | KKM: 75 | {'❌ Belum Tuntas - Remedial ya!' if nilai <= KKM else '✅ Tuntas!'}</p><p style='color:white;'>Perhitungan: ({benar} ÷ 25) × 100 = {nilai}</p></div>", unsafe_allow_html=True)
         if nilai == 100:
             st.balloons()
             st.markdown("<p style='color:white;'>MasyaAllah Sempurna! 🌟 Pertahankan ya!</p>", unsafe_allow_html=True)
