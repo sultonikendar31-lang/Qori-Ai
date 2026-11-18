@@ -75,7 +75,7 @@ if bg:
         background-color: white !important;
         border-radius: 20px !important;
     }}
-    /* === REVISI: TULISAN SOAL JADI PUTIH BIAR KELIATAN === */
+    /* TULISAN SOAL PUTIH */
     .block-container p, .block-container span, .block-container label, .block-container h2, .block-container h3 {{
         color: white !important;
     }}
@@ -83,12 +83,29 @@ if bg:
         color: white !important;
         font-weight: 600 !important;
     }}
-    [data-testid="stRadio"] div {{
+    [data-testid="stRadio"] div, [data-testid="stRadio"] p {{
         color: white !important;
     }}
-    [data-testid="stRadio"] p {{
+    /* === REVISI BARU: TOMBOL IQRO / TAHSIN / TAHFIDZ TRANSPARAN === */
+    div[data-testid="stButton"] > button {{
+        background-color: rgba(255,255,255,0.25) !important;
+        background: rgba(255,255,255,0.25) !important;
+        color: white !important;
+        border: 1.5px solid rgba(255,255,255,0.8) !important;
+        backdrop-filter: blur(4px) !important;
+        font-weight: bold !important;
+        font-size: 17px !important;
+        border-radius: 12px !important;
+    }}
+    div[data-testid="stButton"] > button:hover {{
+        background-color: rgba(255,255,255,0.45) !important;
+        color: white !important;
+        border: 1.5px solid white !important;
+    }}
+    div[data-testid="stButton"] > button p, div[data-testid="stButton"] > button span {{
         color: white !important;
     }}
+    /* Kotak text input ketik nama - DISEMBUNYIKAN */
     </style>
     """, unsafe_allow_html=True)
 
@@ -229,13 +246,7 @@ def tampilkan_daftar(kategori):
             st.session_state["siswa_pilih"] = item
             st.rerun()
 
-cari = st.text_input("🔍 Ketik nama siswa...", placeholder="Contoh: MUHAMAD HARTANTO")
-if cari:
-    cari_besar = cari.upper().strip()
-    for nama_siswa in DATA_SISWA.keys():
-        if cari_besar in nama_siswa:
-            st.session_state["siswa_pilih"] = nama_siswa
-            st.rerun()
+# KOTAK KETIK NAMA SUDAH DIHAPUS - LANGSUNG TOMBOL TRANSPARAN DI BAWAH
 
 c_btn1, c_btn2, c_btn3 = st.columns(3)
 with c_btn1:
@@ -264,7 +275,7 @@ if st.session_state["kategori_pilih"]:
         with c3:
             tampilkan_daftar("Tahfidz")
 
-# ===== HALAMAN SOAL - SUDAH PUTIH =====
+# ===== HALAMAN SOAL =====
 if st.session_state["siswa_pilih"]:
     nama = st.session_state["siswa_pilih"]
     info = DATA_SISWA.get(nama, {"kategori": "Iqro", "level": "Pemula"})
