@@ -216,7 +216,7 @@ DATA_SISWA = {
     "MUHAMAD HARTANTO": {"kategori": "Iqro", "level": "Iqro Dasar", "jk": "Laki-laki"},
     "DAFFAN OKTAFFIL HIDAYAT": {"kategori": "Iqro", "level": "Iqro Dasar", "jk": "Laki-laki"},
     "FRISCHA BUNGA LESTARI": {"kategori": "Tahsin", "level": "Tahsin", "jk": "Perempuan"},
-    "RABHAN": {"kategori": "Tahsin", "level": "Tahsin", "jk": "Laki-laki"},
+    "RAIHAN": {"kategori": "Tahsin", "level": "Tahsin", "jk": "Laki-laki"},
     "ANGGA FADILLAH": {"kategori": "Tahsin", "level": "Tahsin", "jk": "Laki-laki"},
     "ANDY RAMADANI ABDULLAH": {"kategori": "Tahsin", "level": "Tahsin", "jk": "Laki-laki"},
     "ZALFATUSSYIFA RAMADANTI": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Perempuan"},
@@ -238,6 +238,14 @@ DATA_SISWA = {
 def tampilkan_daftar_hasil_nilai():
     st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📊 Daftar Hasil Nilai</h2><p style='color:white; margin:5px 0 0 0;'>KKM = 75 | Nilai ≤ 75 = <b style=\"color:#FF5252;\">MERAH (Belum Tuntas)</b> | Nilai > 75 = <b style=\"color:white;\">PUTIH (Tuntas)</b> | Belum Ujian = <b style=\"color:#AAAAAA;\">- (Belum Mengerjakan)</b></p><p style='color:white; font-size:13px;'>Yang Belum Tuntas boleh Remedial / Mengulang sampai Tuntas. Jumlah mengulang tercatat di kolom Mengulang.</p></div>", unsafe_allow_html=True)
     st.write("")
+    # Tombol reset khusus No.7 yang kemarin kena 0 gara-gara tes refresh
+    if "ZALFATUSSYIFA RAMADANTI" in st.session_state["hasil_semua"]:
+        st.warning("⚠️ No. 7 ZALFATUSSYIFA RAMADANTI masih ada nilai 0 bekas tes refresh. Klik tombol di bawah untuk menghapusnya.")
+        if st.button("🗑️ Reset No.7 - ZALFATUSSYIFA Jadi Belum Mengerjakan", use_container_width=True):
+            del st.session_state["hasil_semua"]["ZALFATUSSYIFA RAMADANTI"]
+            if "ZALFATUSSYIFA RAMADANTI" in st.session_state["hitung_ulang"]:
+                del st.session_state["hitung_ulang"]["ZALFATUSSYIFA RAMADANTI"]
+            st.rerun()
     total_tuntas = 0
     total_belum_tuntas = 0
     total_belum_ujian = 0
@@ -254,6 +262,9 @@ def tampilkan_daftar_hasil_nilai():
             total_belum_ujian += 1
         else:
             nilai = st.session_state["hasil_semua"][nama]
+            # PERBAIKAN: Kalau ada nilai tapi hitungan 0, anggap 1x
+            if jml_ulang == 0:
+                jml_ulang = 1
             if jml_ulang <= 1:
                 teks_ulang = f"{jml_ulang}x"
             else:
@@ -505,7 +516,7 @@ def tampilkan_daftar(kategori):
     if kategori == "Iqro":
         daftar = ["MUHAMAD HARTANTO", "DAFFAN OKTAFFIL HIDAYAT"]
     elif kategori == "Tahsin":
-        daftar = ["FRISCHA BUNGA LESTARI", "RABHAN", "ANGGA FADILLAH", "ANDY RAMADANI ABDULLAH"]
+        daftar = ["FRISCHA BUNGA LESTARI", "RAIHAN", "ANGGA FADILLAH", "ANDY RAMADANI ABDULLAH"]
     else:
         daftar = ["ZALFATUSSYIFA RAMADANTI", "ZAIN RAHMANITA", "YUSUF IMAM MA'RUF", "FEBRIANSYAH RACHMAT HIDAYAT", "MUHAMMAD HAFIDZ", "ANGGI RATU MAHADEWI", "RIZQI RAMADHANY", "KAWI LUJENGAN RASYIDA RAIHANUN", "MIFTAHUL JANNAH", "MUHAMAD AZHAM FATAHILAH", "ROSMALATI KHOLISHA", "M. ARIF ZAKARIYA", "MOCHAMMAD ALKAHFI MUBAROK", "IMAM MANSYUR IBNU HULKAN"]
     for item in daftar:
