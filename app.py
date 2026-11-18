@@ -1,7 +1,8 @@
 import streamlit as st
+import base64
 from google import genai
 
-st.set_page_config(page_title="QORI AI", page_icon="🕌")
+st.set_page_config(page_title="QORI AI", page_icon="🕌", layout="centered")
 
 api_key = st.secrets.get("GEMINI_API_KEY", "")
 
@@ -12,8 +13,47 @@ if "messages" not in st.session_state:
 
 prompt_awal = None
 
-st.markdown("<h1 style='text-align:center;'>🕌 QORI AI</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align:center;'>Guru Ngaji - Madrasah Aliyah Al Barokah</p>", unsafe_allow_html=True)
+# --- BACKGROUND FOTO MADRASAH ---
+def get_base64(file):
+    try:
+        with open(file, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except:
+        return ""
+
+bg = get_base64("background.jpeg")
+if bg:
+    st.markdown(f"""
+    <style>
+    .stApp {{
+        background-image: url("data:image/jpeg;base64,{bg}");
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+    }}
+    .stApp::before {{
+        content: "";
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.45);
+        z-index: 0;
+    }}
+    .block-container {{
+        position: relative;
+        z-index: 1;
+    }}
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- HEADER ---
+st.markdown("""
+<div style='background-color: rgba(20, 50, 35, 0.92); padding: 25px; border-radius: 15px; text-align:center;'>
+    <h1 style='color:#F9D423; margin:0; font-size:36px;'>🕌 QORI AI Madrasah Aliyah Al-Barokah</h1>
+    <p style='color:white; margin-top:10px; font-size:16px;'>Assalamualaikum warahmatullahi wabarakatuh! Tanya apa saja tentang Iqro, Tahsin dan Tahfidz</p>
+</div>
+""", unsafe_allow_html=True)
+
+st.write("")
 
 def tampilkan_daftar(kategori):
     if kategori == "Iqro":
@@ -24,60 +64,41 @@ def tampilkan_daftar(kategori):
         daftar = ["Juz 30 - An-Naba", "Juz 30 - An-Naziat", "Juz 30 - Abasa", "Surat Al-Fatihah"]
     for item in daftar:
         if st.button(item, key=f"{kategori}-{item}"):
-            st.session_state["prompt_pilih"] = f"Tolong ajarkan saya {item} dengan cara yang mudah untuk anak Madrasah Aliyah"
-    if "prompt_pilih" in st.session_state:
-        return st.session_state.pop("prompt_pilih")
+            return f"Tolong ajarkan saya {item} dengan cara yang mudah untuk anak Madrasah Aliyah"
     return None
 
+# --- TOMBOL UTAMA ---
 c_btn1, c_btn2, c_btn3 = st.columns(3)
 with c_btn1:
     klik_iqro = st.button("📖 Iqro", use_container_width=True)
 with c_btn2:
-    klik_tahsin = st.button("🎙️ Tahsin", use_container_width=True)
+    klik_tahsin = st.button("📗 Tahsin", use_container_width=True)
 with c_btn3:
-    klik_tahfidz = st.button("🧠 Tahfidz", use_container_width=True)
-
-if api_key:
-    client = genai.Client(api_key=api_key)
-    model = "gemini-2.5-flash"
+    klik_tahfidz = st.button("⭐ Tahfidz", use_container_width=True)
 
 if klik_iqro:
-    if st.session_state["kategori_pilih"] == "Iqro":
-        st.session_state["kategori_pilih"] = None
-    else:
-        st.session_state["kategori_pilih"] = "Iqro"
-
+    st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Iqro" else "Iqro"
 if klik_tahsin:
-    if st.session_state["kategori_pilih"] == "Tahsin":
-        st.session_state["kategori_pilih"] = None
-    else:
-        st.session_state["kategori_pilih"] = "Tahsin"
-
+    st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Tahsin" else "Tahsin"
 if klik_tahfidz:
-    if st.session_state["kategori_pilih"] == "Tahfidz":
-        st.session_state["kategori_pilih"] = None
-    else:
-        st.session_state["kategori_pilih"] = "Tahfidz"
+    st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Tahfidz" else "Tahfidz"
 
-# Tampilkan lurus di bawah tombolnya
 if st.session_state["kategori_pilih"]:
     c1, c2, c3 = st.columns(3)
     if st.session_state["kategori_pilih"] == "Iqro":
         with c1:
             p = tampilkan_daftar("Iqro")
-            if p:
-                prompt_awal = p
+            if p: prompt_awal = p
     if st.session_state["kategori_pilih"] == "Tahsin":
         with c2:
             p = tampilkan_daftar("Tahsin")
-            if p:
-                prompt_awal = p
+            if p: prompt_awal = p
     if st.session_state["kategori_pilih"] == "Tahfidz":
         with c3:
             p = tampilkan_daftar("Tahfidz")
-            if p:
-                prompt_awal = p
+            if p: prompt_awal = p
 
+# --- CHAT HISTORY ---
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.write(m["content"])
@@ -91,11 +112,15 @@ if prompt:
     with st.chat_message("user"):
         st.write(prompt)
     with st.chat_message("assistant"):
-        try:
-            response = client.models.generate_content(model=model, contents=f"Kamu adalah QORI AI, guru ngaji yang ramah untuk anak Madrasah Aliyah Al Barokah. Jawab dengan bahasa Indonesia yang mudah, sopan, dan islami. Pertanyaan: {prompt}")
-            st.write(response.text)
-            st.session_state.messages.append({"role": "assistant", "content": response.text})
-        except Exception as e:
-            st.write("Maaf, sedang ada gangguan. Coba lagi ya.")
+        if not api_key:
+            st.write("Maaf, API Key belum dipasang di Secrets Streamlit. Minta tolong guru untuk pasang GEMINI_API_KEY dulu ya.")
+        else:
+            try:
+                client = genai.Client(api_key=api_key)
+                response = client.models.generate_content(model="gemini-2.5-flash", contents=f"Kamu adalah QORI AI, guru ngaji yang ramah untuk anak Madrasah Aliyah Al Barokah. Jawab dengan bahasa Indonesia yang mudah, sopan, dan islami. Pertanyaan: {prompt}")
+                st.write(response.text)
+                st.session_state.messages.append({"role": "assistant", "content": response.text})
+            except Exception as e:
+                st.write(f"Maaf, sedang ada gangguan. Coba lagi ya. ({e})")
 
 st.markdown("<p style='text-align:center; font-size:12px; margin-top:20px; background-color:white; padding:8px; border-radius:10px;'> QORI AI - Madrasah Aliyah Al Barokah ✨ خَيْرُكُمْ مَنْ تَعَلَّمَ الْقُرْآنَ وَعَلَّمَهُ ✨ Sebaik-baik kalian adalah yang belajar Al-Qur'an dan mengajarkannya</p>", unsafe_allow_html=True)
