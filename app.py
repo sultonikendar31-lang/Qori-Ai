@@ -27,10 +27,26 @@ if "waktu_mulai" not in st.session_state:
     st.session_state["waktu_mulai"] = None
 if "waktu_habis" not in st.session_state:
     st.session_state["waktu_habis"] = False
+if "ujian_selesai" not in st.session_state:
+    st.session_state["ujian_selesai"] = False
+if "hasil_ujian" not in st.session_state:
+    st.session_state["hasil_ujian"] = None
+if "curang_refresh" not in st.session_state:
+    st.session_state["curang_refresh"] = None
 
-DURASI_UJIAN = 10 * 60  # 10 menit = 600 detik
-
+DURASI_UJIAN = 10 * 60
 prompt_awal = None
+
+# ===== ANTI REFRESH: CEK URL - KALAU UJIAN JALAN TAPI SESSION HILANG = HABIS REFRESH =====
+try:
+    qp = st.query_params
+    status_ujian_url = qp.get("ujian", "")
+    nama_url = qp.get("nama", "")
+    # Kalau di URL masih "jalan" tapi siswa_pilih hilang (habis refresh) -> curang
+    if status_ujian_url == "jalan" and st.session_state["siswa_pilih"] is None and st.session_state["curang_refresh"] is None:
+        st.session_state["curang_refresh"] = nama_url if nama_url else "SISWA"
+except:
+    pass
 
 SYSTEM_PROMPT_KUNCI = """
 Kamu adalah QORI AI, guru ngaji yang ramah untuk anak Madrasah Aliyah Al-Barokah.
@@ -110,7 +126,6 @@ def get_base64(file):
     except:
         return ""
 
-# ===== FUNGSI TIMER 10 MENIT + BUNYI TIT TIT =====
 def tampilkan_timer(sisa_detik):
     if sisa_detik < 0:
         sisa_detik = 0
@@ -128,6 +143,8 @@ def tampilkan_timer(sisa_detik):
     <script>
     let sisa = {int(sisa_detik)};
     let sudahBunyi = {{}};
+    // Peringatan kalau mau refresh / tutup tab
+    window.onbeforeunload = function() {{ return "Yakin mau keluar? Nilai ujian akan jadi 0!"; }};
     function bunyiTit(panjang) {{
         try {{
             let ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -202,6 +219,21 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 st.write("")
+
+# ===== LAYAR HUKUMAN REFRESH = NILAI 0 =====
+if st.session_state["curang_refresh"]:
+    nama_curang = st.session_state["curang_refresh"]
+    st.markdown(f"<div style='background-color:#7A0000; padding:25px; border-radius:15px; text-align:center; border:3px solid #FF5252;'><h1 style='color:white;'>⛔ TERDETEKSI REFRESH SAAT UJIAN!</h1><p style='color:white; font-size:20px;'>Nama: {nama_curang}</p><h1 style='color:#F9D423; font-size:60px;'>Nilai: 0</h1><p style='color:white; font-size:18px;'>Kamu keluar / refresh halaman saat ujian sedang berjalan.<br>Jawabanmu tidak disimpan dan nilai dianggap 0.<br>Silakan lapor ke guru jika ada kendala jaringan.</p></div>", unsafe_allow_html=True)
+    st.write("")
+    if st.button("🏠 Saya Mengerti - Kembali ke Beranda", use_container_width=True):
+        st.session_state["curang_refresh"] = None
+        st.session_state["siswa_pilih"] = None
+        try:
+            st.query_params.clear()
+        except:
+            pass
+        st.rerun()
+    st.stop()
 
 DATA_SISWA = {
     "MUHAMAD HARTANTO": {"kategori": "Iqro", "level": "Iqro Dasar, nilai 63"},
@@ -370,34 +402,42 @@ def tampilkan_daftar(kategori):
             st.session_state["soal_acak"] = None
             st.session_state["waktu_mulai"] = time.time()
             st.session_state["waktu_habis"] = False
+            st.session_state["ujian_selesai"] = False
+            st.session_state["hasil_ujian"] = None
+            st.session_state["curang_refresh"] = None
+            try:
+                st.query_params["ujian"] = "jalan"
+                st.query_params["nama"] = item
+            except:
+                pass
             st.rerun()
 
-c_btn1, c_btn2, c_btn3 = st.columns(3)
-with c_btn1:
-    klik_iqro = st.button("📖 Iqro", use_container_width=True)
-with c_btn2:
-    klik_tahsin = st.button("📗 Tahsin", use_container_width=True)
-with c_btn3:
-    klik_tahfidz = st.button("⭐ Tahfidz", use_container_width=True)
-if klik_iqro:
-    st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Iqro" else "Iqro"
-if klik_tahsin:
-    st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Tahsin" else "Tahsin"
-if klik_tahfidz:
-    st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Tahfidz" else "Tahfidz"
-if st.session_state["kategori_pilih"]:
-    c1, c2, c3 = st.columns(3)
-    if st.session_state["kategori_pilih"] == "Iqro":
-        with c1:
-            tampilkan_daftar("Iqro")
-    if st.session_state["kategori_pilih"] == "Tahsin":
-        with c2:
-            tampilkan_daftar("Tahsin")
-    if st.session_state["kategori_pilih"] == "Tahfidz":
-        with c3:
-            tampilkan_daftar("Tahfidz")
+if st.session_state["siswa_pilih"] is None:
+    c_btn1, c_btn2, c_btn3 = st.columns(3)
+    with c_btn1:
+        klik_iqro = st.button("📖 Iqro", use_container_width=True)
+    with c_btn2:
+        klik_tahsin = st.button("📗 Tahsin", use_container_width=True)
+    with c_btn3:
+        klik_tahfidz = st.button("⭐ Tahfidz", use_container_width=True)
+    if klik_iqro:
+        st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Iqro" else "Iqro"
+    if klik_tahsin:
+        st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Tahsin" else "Tahsin"
+    if klik_tahfidz:
+        st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Tahfidz" else "Tahfidz"
+    if st.session_state["kategori_pilih"]:
+        c1, c2, c3 = st.columns(3)
+        if st.session_state["kategori_pilih"] == "Iqro":
+            with c1:
+                tampilkan_daftar("Iqro")
+        if st.session_state["kategori_pilih"] == "Tahsin":
+            with c2:
+                tampilkan_daftar("Tahsin")
+        if st.session_state["kategori_pilih"] == "Tahfidz":
+            with c3:
+                tampilkan_daftar("Tahfidz")
 
-# ===== HALAMAN SOAL + TIMER 10 MENIT =====
 if st.session_state["siswa_pilih"]:
     nama = st.session_state["siswa_pilih"]
     info = DATA_SISWA.get(nama, {"kategori": "Iqro", "level": "Pemula"})
@@ -408,21 +448,26 @@ if st.session_state["siswa_pilih"]:
     if sisa_detik <= 0:
         sisa_detik = 0
         st.session_state["waktu_habis"] = True
-
     st.markdown(f"<div style='background-color: rgba(20,50,35,0.92); padding:20px; border-radius:15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>Assalamualaikum, {nama} 👋</h2><p style='color:white;'>Kelas: {kat} | Level: {info['level']} | Soal: 25 Soal (15 PG + 10 Benar/Salah) | Nilai: Benar x 4 | Waktu: 10 Menit</p></div>", unsafe_allow_html=True)
-
+    if not st.session_state["ujian_selesai"]:
+        st.warning("🔒 UJIAN TERKUNCI - Jangan refresh / tutup tab / pencet back! Kalau refresh, nilai langsung jadi 0! Kerjakan sampai klik LIHAT NILAI.")
     tampilkan_timer(sisa_detik)
-
-    if st.session_state["waktu_habis"]:
+    if st.session_state["waktu_habis"] and not st.session_state["ujian_selesai"]:
         st.error("⛔ WAKTU HABIS! 10 menit sudah selesai. Silakan klik LIHAT NILAI di bawah, jawaban yang belum diisi dianggap salah.")
-
-    if st.button("⬅️ Kembali ke Daftar Nama"):
-        st.session_state["siswa_pilih"] = None
-        st.session_state["soal_acak"] = None
-        st.session_state["waktu_mulai"] = None
-        st.session_state["waktu_habis"] = False
-        st.rerun()
-
+    if st.session_state["ujian_selesai"]:
+        if st.button("🏠 Selesai - Kembali ke Beranda", use_container_width=True):
+            st.session_state["siswa_pilih"] = None
+            st.session_state["soal_acak"] = None
+            st.session_state["waktu_mulai"] = None
+            st.session_state["waktu_habis"] = False
+            st.session_state["ujian_selesai"] = False
+            st.session_state["hasil_ujian"] = None
+            st.session_state["kategori_pilih"] = None
+            try:
+                st.query_params.clear()
+            except:
+                pass
+            st.rerun()
     if st.session_state["soal_acak"] is None or st.session_state["kat_acak"] != kat:
         soal_list, kunci = buat_soal_acak(kat, st.session_state["seed_acak"])
         st.session_state["soal_acak"] = soal_list
@@ -431,23 +476,35 @@ if st.session_state["siswa_pilih"]:
     else:
         soal_list = st.session_state["soal_acak"]
         kunci = st.session_state["kunci_acak"]
-
     st.markdown(f"<h2 style='color:white; background-color: rgba(0,0,0,0.65); padding:10px; border-radius:10px; text-align:center;'>📝 Soal {kat} - Kelas XI MA</h2>", unsafe_allow_html=True)
     st.markdown("<p style='color:white; background-color: rgba(0,0,0,0.65); padding:8px; border-radius:10px; text-align:center;'>Jawab semua soal, lalu klik LIHAT NILAI di bawah.</p>", unsafe_allow_html=True)
     jawaban_siswa = []
     seed = st.session_state["seed_acak"]
+    kunci_input = st.session_state["ujian_selesai"]
     for i, (soal, opsi) in enumerate(soal_list):
         st.markdown(f"<div style='background-color: rgba(0,0,0,0.65); padding:12px; border-radius:10px; margin-bottom:5px;'><p style='color:white; font-weight:bold; font-size:17px; margin:0;'>{i+1}. {soal}</p></div>", unsafe_allow_html=True)
-        pilih = st.radio(f"Pilih jawaban No.{i+1}", opsi, key=f"soal_{kat}_{seed}_{i}", index=None)
+        pilih = st.radio(f"Pilih jawaban No.{i+1}", opsi, key=f"soal_{kat}_{seed}_{i}", index=None, disabled=kunci_input)
         jawaban_siswa.append(pilih)
-    if st.button("✅ LIHAT NILAI SAYA", use_container_width=True):
-        benar = 0
-        for i, pilih in enumerate(jawaban_siswa):
-            if pilih and pilih[0] == kunci[i]:
-                benar += 1
-        nilai = (benar / 25) * 100
+    if not st.session_state["ujian_selesai"]:
+        if st.button("✅ LIHAT NILAI SAYA - SELESAI", use_container_width=True):
+            benar = 0
+            for i, pilih in enumerate(jawaban_siswa):
+                if pilih and pilih[0] == kunci[i]:
+                    benar += 1
+            nilai = (benar / 25) * 100
+            st.session_state["ujian_selesai"] = True
+            st.session_state["hasil_ujian"] = {"benar": benar, "nilai": int(nilai)}
+            try:
+                st.query_params.clear()
+            except:
+                pass
+            st.rerun()
+    if st.session_state["ujian_selesai"] and st.session_state["hasil_ujian"]:
+        hasil = st.session_state["hasil_ujian"]
+        benar = hasil["benar"]
+        nilai = hasil["nilai"]
         st.success(f"🎉 HASIL {nama} - Kelas {kat}")
-        st.markdown(f"<div style='background-color: rgba(0,0,0,0.65); padding:15px; border-radius:10px; text-align:center;'><h1 style='color:#F9D423;'>Nilai: {int(nilai)}</h1><p style='color:white;'>Jawaban Benar: {benar} / 25 | Salah / Kosong: {25-benar}</p><p style='color:white;'>Perhitungan: ({benar} ÷ 25) × 100 = {int(nilai)}</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='background-color: rgba(0,0,0,0.65); padding:15px; border-radius:10px; text-align:center;'><h1 style='color:#F9D423;'>Nilai: {nilai}</h1><p style='color:white;'>Jawaban Benar: {benar} / 25 | Salah / Kosong: {25-benar}</p><p style='color:white;'>Perhitungan: ({benar} ÷ 25) × 100 = {nilai}</p></div>", unsafe_allow_html=True)
         if nilai == 100:
             st.balloons()
             st.markdown("<p style='color:white;'>MasyaAllah Sempurna! 🌟 Pertahankan ya!</p>", unsafe_allow_html=True)
