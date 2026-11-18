@@ -1,5 +1,8 @@
+if api_key:
     client = genai.Client(api_key=api_key)
     model = "gemini-2.5-flash"
+if klik_iqro:
+    if st.session_state["kategori_pilih"] == "Iqro":
         st.session_state["kategori_pilih"] = None
     else:
         st.session_state["kategori_pilih"] = "Iqro"
