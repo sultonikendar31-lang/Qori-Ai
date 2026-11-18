@@ -137,9 +137,14 @@ for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.write(m["content"])
 
-prompt = st.chat_input("Tulis pertanyaanmu di sini...")
+prompt = None
 if prompt_awal:
     prompt = prompt_awal
+else:
+    prompt = st.text_input("Tulis pertanyaanmu di sini...", placeholder="Tulis pertanyaanmu di sini...", label_visibility="collapsed")
+    kirim = st.button("Kirim ➤", use_container_width=True)
+    if not kirim:
+        prompt = None
 
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
