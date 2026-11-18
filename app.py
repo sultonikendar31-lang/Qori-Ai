@@ -2,7 +2,7 @@ import streamlit as st
 import base64
 from google import genai
 
-st.set_page_config(page_title="QORI AI", page_icon="🕌", layout="centered")
+st.set_page_config(page_title="QORI AI", page_icon="🕌", layout="wide")
 
 api_key = st.secrets.get("GEMINI_API_KEY", "")
 
@@ -24,7 +24,48 @@ bg = get_base64("background.jpeg")
 if bg:
     st.markdown(f"""
     <style>
-    .stApp {{
+    /* BIKIN FULL LAYAR - HAPUS JARAK PUTIH */
+    html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {{
+        background-image: url("data:image/jpeg;base64,{bg}") !important;
+        background-size: cover !important;
+        background-position: center center !important;
+        background-repeat: no-repeat !important;
+        background-attachment: fixed !important;
+        background-color: #000 !important;
+        height: 100vh !important;
+        width: 100vw !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }}
+    /* HAPUS HEADER PUTIH ATAS */
+    [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"] {{
+        background: transparent !important;
+        background-color: transparent !important;
+    }}
+    /* GELAPIN DIKIT BIAR TULISAN KEBACA */
+    [data-testid="stAppViewContainer"]::before {{
+        content: "";
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.40);
+        z-index: 0;
+        pointer-events: none;
+    }}
+    /* ISI TETAP DI TENGAH */
+    .block-container {{
+        position: relative;
+        z-index: 1;
+        padding-top: 20px !important;
+        padding-bottom: 20px !important;
+        max-width: 900px !important;
+    }}
+    /* BIKIN CHAT & TOMBOL LEBIH JELAS */
+    [data-testid="stChatMessage"] {{
+        background-color: rgba(255,255,255,0.95) !important;
+        border-radius: 12px !important;
+    }}
+    </style>
+    """, unsafe_allow_html=True)
         background-image: url("data:image/jpeg;base64,{bg}");
         background-size: cover;
         background-position: center;
