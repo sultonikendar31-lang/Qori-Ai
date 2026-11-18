@@ -27,7 +27,7 @@ if bg:
     st.markdown(f"""
     <style>
     .stApp, [data-testid="stApp"], [data-testid="stAppViewContainer"] {{
-        background-image: url("data:image/jpeg;base64,{{bg}}") !important;
+        background-image: url("data:image/jpeg;base64,{bg}") !important;
         background-size: cover !important;
         background-position: center center !important;
         background-repeat: no-repeat !important;
@@ -51,7 +51,7 @@ if bg:
         max-width: 900px !important;
     }}
     [data-testid="stBottom"] {{
-        background-image: url("data:image/jpeg;base64,{{bg}}") !important;
+        background-image: url("data:image/jpeg;base64,{bg}") !important;
         background-size: cover !important;
         background-position: center center !important;
         background-repeat: no-repeat !important;
@@ -85,7 +85,6 @@ if bg:
     [data-testid="stRadio"] div, [data-testid="stRadio"] p {{
         color: white !important;
     }}
-    /* TOMBOL TRANSPARAN */
     div[data-testid="stButton"] > button {{
         background-color: rgba(255,255,255,0.25) !important;
         background: rgba(255,255,255,0.25) !important;
@@ -104,7 +103,6 @@ if bg:
     div[data-testid="stButton"] > button p, div[data-testid="stButton"] > button span {{
         color: white !important;
     }}
-    /* KOTAK CHAT BIAR TRANSPARAN JUGA */
     [data-testid="stChatMessage"] {{
         background-color: rgba(255,255,255,0.25) !important;
         backdrop-filter: blur(4px) !important;
@@ -253,7 +251,6 @@ def tampilkan_daftar(kategori):
             st.session_state["siswa_pilih"] = item
             st.rerun()
 
-# === TOMBOL IQRO / TAHSIN / TAHFIDZ TRANSPARAN ===
 c_btn1, c_btn2, c_btn3 = st.columns(3)
 with c_btn1:
     klik_iqro = st.button("📖 Iqro", use_container_width=True)
@@ -281,7 +278,6 @@ if st.session_state["kategori_pilih"]:
         with c3:
             tampilkan_daftar("Tahfidz")
 
-# ===== HALAMAN SOAL =====
 if st.session_state["siswa_pilih"]:
     nama = st.session_state["siswa_pilih"]
     info = DATA_SISWA.get(nama, {"kategori": "Iqro", "level": "Pemula"})
@@ -321,13 +317,11 @@ if st.session_state["siswa_pilih"]:
             st.markdown(f"<p style='color:white;'>No.{i+1} = {kunci[i]}</p>", unsafe_allow_html=True)
     st.stop()
 
-# ===== CHAT - ADA TOMBOL HAPUSNYA DI SINI =====
 if st.session_state["messages"]:
-    # Tiap kotak chat ada tombol hapusnya
     for idx, m in enumerate(st.session_state["messages"]):
         with st.chat_message(m["role"]):
             st.write(m["content"])
-            if st.button(f"🗑️ Hapus pesan ini", key=f"hapus_{idx}"):
+            if st.button("🗑️ Hapus pesan ini", key=f"hapus_{idx}"):
                 del st.session_state["messages"][idx]
                 st.rerun()
     st.write("")
