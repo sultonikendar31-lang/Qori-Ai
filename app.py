@@ -1,6 +1,8 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import base64
 import random
+import time
 from openai import OpenAI
 
 st.set_page_config(page_title="QORI AI", page_icon="🕌", layout="wide")
@@ -21,66 +23,40 @@ if "kunci_acak" not in st.session_state:
     st.session_state["kunci_acak"] = None
 if "kat_acak" not in st.session_state:
     st.session_state["kat_acak"] = None
+if "waktu_mulai" not in st.session_state:
+    st.session_state["waktu_mulai"] = None
+if "waktu_habis" not in st.session_state:
+    st.session_state["waktu_habis"] = False
+
+DURASI_UJIAN = 30 * 60  # 30 menit = 1800 detik
 
 prompt_awal = None
 
-# ===== KUNCI TOPIK QORI AI - HANYA IQRO, TAHSIN, TAHFIDZ =====
 SYSTEM_PROMPT_KUNCI = """
 Kamu adalah QORI AI, guru ngaji yang ramah untuk anak Madrasah Aliyah Al-Barokah.
 Kamu HANYA boleh menjawab tentang 3 topik ini:
 1. IQRO - belajar membaca Al-Qur'an pemula, huruf hijaiyah, harakat, Iqro 1-6
-2. TAHSIN - memperbaiki bacaan, makhraj, tajwid, sifat huruf, ghunnah, qalqalah, mad, waqaf, ibtida'
-3. TAHFIDZ - menghafal Al-Qur'an, muraja'ah, metode menghafal, surah-surah hafalan, adab menghafal
-
+2. TAHSIN - memperbaiki bacaan, makhraj, tajwid, sifat huruf, ghunnah, qalqalah, mad, waqaf, ibtida', hukum bacaan
+3. TAHFIDZ - menghafal Al-Qur'an, muraja'ah, metode menghafal, surah-surah hafalan, Juz 30, Juz 29, adab menghafal. Semua nama surah termasuk Tahfidz, contoh: An-Naba, An-Naziat, Abasa, Al-Ikhlas, dll.
 ATURAN KUNCI - WAJIB DIPATUHI:
 - Jika pertanyaan di luar 3 topik di atas (misal: shalat, puasa, zakat, fikih, matematika, game, pacaran, politik, dll), kamu WAJIB menolak.
 - Jawaban penolakan: "Maaf, saya QORI AI hanya bisa membantu tentang Iqro, Tahsin, dan Tahfidz saja. Silakan tanya seputar membaca dan menghafal Al-Qur'an ya! 🕌"
-- Jangan jawab pertanyaan lain walau sedikit pun, jangan beri penjelasan tentang topik lain.
 - Jawab dengan Bahasa Indonesia yang mudah, sopan, dan islami.
-
-ATURAN TAMPILAN HURUF HIJAIYAH - WAJIB, JANGAN DILANGGAR:
-- Setiap menyebut huruf hijaiyah, WAJIB pakai format persis ini, satu baris satu huruf:
-    1. Alif (ا) - dibaca "A"
-    2. Ba (ب) - dibaca "Ba"
-    3. Ta (ت) - dibaca "Ta"
+ATURAN TAMPILAN HURUF HIJAIYAH - WAJIB:
+- Setiap menyebut huruf hijaiyah, WAJIB pakai format: 1. Alif (ا) - dibaca "A"
 - JANGAN PERNAH tulis huruf Arab saja tanpa nama Latin dan cara bacanya.
-- JANGAN tulis huruf Arab berderet-deret seperti "ا ب ت ث" karena tidak terbaca.
-- Selalu buat dalam daftar bernomor, pakai Bahasa Indonesia, singkat dan jelas.
-- Jika menjelaskan harakat, contoh: Ba Fathah (بَ) - dibaca "Ba", Ba Kasrah (بِ) - dibaca "Bi", Ba Dhammah (بُ) - dibaca "Bu".
+- JANGAN tulis huruf Arab berderet-deret seperti "ا ب ت ث".
 """
 
-# ===== TABEL TETAP HIJAIYAH IQRO 1 - BIAR SELALU JELAS, TIDAK PAKAI AI =====
 HIJAIYAH_IQRO1 = [
-    ("1", "Alif", "ا", "A"),
-    ("2", "Ba", "ب", "Ba"),
-    ("3", "Ta", "ت", "Ta"),
-    ("4", "Tsa", "ث", "Tsa"),
-    ("5", "Jim", "ج", "Ja"),
-    ("6", "Ha", "ح", "Ha"),
-    ("7", "Kha", "خ", "Kha"),
-    ("8", "Dal", "د", "Da"),
-    ("9", "Dzal", "ذ", "Dza"),
-    ("10", "Ra", "ر", "Ra"),
-    ("11", "Zai", "ز", "Za"),
-    ("12", "Sin", "س", "Sa"),
-    ("13", "Syin", "ش", "Sya"),
-    ("14", "Shad", "ص", "Sha"),
-    ("15", "Dhad", "ض", "Dha"),
-    ("16", "Tha", "ط", "Tha"),
-    ("17", "Zha", "ظ", "Zha"),
-    ("18", "Ain", "ع", "A"),
-    ("19", "Ghain", "غ", "Gha"),
-    ("20", "Fa", "ف", "Fa"),
-    ("21", "Qaf", "ق", "Qa"),
-    ("22", "Kaf", "ك", "Ka"),
-    ("23", "Lam", "ل", "La"),
-    ("24", "Mim", "م", "Ma"),
-    ("25", "Nun", "ن", "Na"),
-    ("26", "Wau", "و", "Wa"),
-    ("27", "Ha", "ه", "Ha"),
-    ("28", "Hamzah / Ya", "ء / ي", "A / Ya"),
+    ("1", "Alif", "ا", "A"),("2", "Ba", "ب", "Ba"),("3", "Ta", "ت", "Ta"),("4", "Tsa", "ث", "Tsa"),
+    ("5", "Jim", "ج", "Ja"),("6", "Ha", "ح", "Ha"),("7", "Kha", "خ", "Kha"),("8", "Dal", "د", "Da"),
+    ("9", "Dzal", "ذ", "Dza"),("10", "Ra", "ر", "Ra"),("11", "Zai", "ز", "Za"),("12", "Sin", "س", "Sa"),
+    ("13", "Syin", "ش", "Sya"),("14", "Shad", "ص", "Sha"),("15", "Dhad", "ض", "Dha"),("16", "Tha", "ط", "Tha"),
+    ("17", "Zha", "ظ", "Zha"),("18", "Ain", "ع", "A"),("19", "Ghain", "غ", "Gha"),("20", "Fa", "ف", "Fa"),
+    ("21", "Qaf", "ق", "Qa"),("22", "Kaf", "ك", "Ka"),("23", "Lam", "ل", "La"),("24", "Mim", "م", "Ma"),
+    ("25", "Nun", "ن", "Na"),("26", "Wau", "و", "Wa"),("27", "Ha", "ه", "Ha"),("28", "Hamzah / Ya", "ء / ي", "A / Ya"),
 ]
-
 def jawaban_hijaiyah_iqro1():
     teks = "Baik, mari kita belajar Iqro 1. Di Iqro 1 kita belajar huruf hijaiyah dasar. Bacalah satu per satu ya:\n\n"
     for no, nama, arab, baca in HIJAIYAH_IQRO1:
@@ -88,21 +64,39 @@ def jawaban_hijaiyah_iqro1():
     teks += "Coba ulangi lagi dari nomor 1 sampai 28. Kalau sudah hafal, bilang saja \"Lanjut Iqro 1 pakai harakat\" ya! 📖"
     return teks
 
-# Kata kunci yang diizinkan - untuk hemat saldo, ditolak sebelum panggil API
-KATA_KUNCI_QORI = [
-    "iqro", "iqra", "tahsin", "tahfidz", "tahfiz", "tahfid",
-    "hijaiyah", "harakat", "fathah", "kasrah", "dhammah", "tanwin", "sukun", "tasydid", "mad ",
-    "tajwid", "makhraj", "makharij", "ghunnah", "qalqalah", "ikhfa", "idgham", "idzhar", "iqlab",
-    "waqaf", "waqf", "ibtida", "tartil", "tilawah", "huruf",
-    "hafal", "hafalan", "murajaah", "muraja'ah", "sima'i", "kitabah",
-    "quran", "qur'an", "al-quran", "al quran", "surah", "surat", "ayat", "juz", "hafiz",
-    "al-ikhlas", "al-falaq", "an-nas", "al-kautsar", "al-asr", "al-maun",
-    "assalamualaikum", "halo", "hai", "selamat", "apa kabar"
-]
+def jawaban_mad_thobii():
+    return """**Hukum Bacaan Mad Thobi'i - Tahsin** 📖
+**1. Apa itu Mad Thobi'i?** Mad asli / mad dasar. Dibaca panjang secara alami.
+**2. Berapa Panjangnya?** **2 harakat** (2 ketukan).
+**3. Huruf Mad-nya Ada 3:**
+**1. Alif (ا)** - setelah Fathah. Contoh: Ba (بَا) - dibaca "Baa"
+**2. Wau (و)** - setelah Dhammah. Contoh: Bu (بُو) - dibaca "Buu"
+**3. Ya (ي)** - setelah Kasrah. Contoh: Bi (بِي) - dibaca "Bii"
+Ayo coba baca: **بَا - بُو - بِي** dibaca "Baa - Buu - Bii" ✅"""
 
-def cek_topik_qori(teks):
+def jawaban_an_naba():
+    return """**Surat An-Naba - Tahfidz (Juz 30)** ⭐
+**1. Identitas Surat:**
+**1. Nama:** An-Naba (النبأ) artinya "Berita Besar"
+**2. Nomor Surat:** Surat ke-78
+**3. Jumlah Ayat:** 40 ayat
+**4. Juz:** Juz 30 / Juz Amma
+**5. Golongan:** Makkiyah
+**2. Isi Pokok:** Tentang hari kiamat, bukti kekuasaan Allah, balasan neraka & surga.
+**3. Tips Menghafal:** Bagi 3 bagian: Ayat 1-16, 17-30, 31-40. Hafal 5 ayat per hari, muraja'ah tiap pagi.
+Mau lanjut hafalan ayat 1-5 dulu? Bilang saja "Hafal An-Naba ayat 1-5" ya! 🤲"""
+
+KATA_TERLARANG = [
+    "shalat", "sholat", "puasa", "zakat", "haji", "umroh", "fikih", "fiqih",
+    "matematika", "fisika", "kimia", "biologi", "sejarah", "geografi",
+    "game", "free fire", "ff", "mobile legend", "mlbb", "pubg", "roblox", "minecraft",
+    "pacaran", "pacar", "politik", "presiden", "pemilu",
+    "sepak bola", "bola", "musik", "lagu", "kpop",
+    "resep", "masak", "bisnis", "crypto", "bitcoin"
+]
+def cek_dilarang(teks):
     t = teks.lower()
-    for k in KATA_KUNCI_QORI:
+    for k in KATA_TERLARANG:
         if k in t:
             return True
     return False
@@ -116,11 +110,66 @@ def get_base64(file):
     except:
         return ""
 
+# ===== FUNGSI TIMER 30 MENIT + BUNYI TIT TIT =====
+def tampilkan_timer(sisa_detik):
+    if sisa_detik < 0:
+        sisa_detik = 0
+    menit = int(sisa_detik // 60)
+    detik = int(sisa_detik % 60)
+    warna = "#F9D423"
+    if sisa_detik <= 300:
+        warna = "#FF5252"
+    timer_html = f"""
+    <div style="position:sticky; top:0; z-index:999; background:#0A2319; border:3px solid {warna}; border-radius:15px; padding:12px; text-align:center; margin-bottom:15px;">
+        <div style="color:white; font-size:16px; font-weight:bold;">⏰ SISA WAKTU MENGERJAKAN</div>
+        <div id="timer-qori" style="color:{warna}; font-size:48px; font-weight:bold; line-height:1.1;">{menit:02d}:{detik:02d}</div>
+        <div id="pesan-timer" style="color:white; font-size:14px;">25 Soal - 30 Menit - Semangat! 💪</div>
+    </div>
+    <script>
+    let sisa = {int(sisa_detik)};
+    let sudahBunyi = {{}};
+    function bunyiTit(panjang) {{
+        try {{
+            let ctx = new (window.AudioContext || window.webkitAudioContext)();
+            let osc = ctx.createOscillator();
+            let gain = ctx.createGain();
+            osc.connect(gain); gain.connect(ctx.destination);
+            osc.frequency.value = 880;
+            osc.type = 'sine';
+            gain.gain.setValueAtTime(0.5, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + panjang);
+            osc.start(); osc.stop(ctx.currentTime + panjang);
+        }} catch(e) {{}}
+    }}
+    function updateTimer() {{
+        let m = Math.floor(sisa / 60);
+        let d = sisa % 60;
+        let el = document.getElementById('timer-qori');
+        if (el) el.textContent = String(m).padStart(2,'0') + ':' + String(d).padStart(2,'0');
+        // Bunyi 5-4-3-2-1
+        if (sisa <= 5 && sisa > 0) {{
+            if (!sudahBunyi[sisa]) {{ sudahBunyi[sisa] = true; bunyiTit(0.25); }}
+            let p = document.getElementById('pesan-timer');
+            if (p) {{ p.textContent = '⚠️ SISA ' + sisa + ' DETIK LAGI! Segera klik LIHAT NILAI!'; p.style.color = '#FF5252'; p.style.fontWeight = 'bold'; p.style.fontSize = '18px'; }}
+        }}
+        if (sisa <= 0) {{
+            let p = document.getElementById('pesan-timer');
+            if (p) {{ p.textContent = '⛔ WAKTU HABIS! Segera klik tombol LIHAT NILAI di bawah!'; p.style.color = '#FF5252'; }}
+            if (!sudahBunyi['habis']) {{ sudahBunyi['habis'] = true; bunyiTit(1.0); setTimeout(()=>bunyiTit(1.0), 400); }}
+            clearInterval(iv);
+            return;
+        }}
+        sisa -= 1;
+    }}
+    let iv = setInterval(updateTimer, 1000);
+    </script>
+    """
+    components.html(timer_html, height=130)
+
 bg = get_base64("background.jpeg")
 if bg:
     st.markdown(f"""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Amiri:wght@700&display=swap');
     .stApp, [data-testid="stApp"], [data-testid="stAppViewContainer"] {{
         background-image: url("data:image/jpeg;base64,{bg}") !important;
         background-size: cover !important;
@@ -128,96 +177,22 @@ if bg:
         background-repeat: no-repeat !important;
         background-attachment: fixed !important;
     }}
-    [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"] {{
-        background: transparent !important;
-    }}
-    .stApp::before {{
-        content: "";
-        position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0,0,0,0.55);
-        z-index: 0;
-        pointer-events: none;
-    }}
-    .block-container {{
-        position: relative;
-        z-index: 1;
-        padding-top: 20px !important;
-        max-width: 900px !important;
-    }}
-    [data-testid="stBottom"] {{
-        background-image: url("data:image/jpeg;base64,{bg}") !important;
-        background-size: cover !important;
-        background-position: center center !important;
-        background-repeat: no-repeat !important;
-        background-attachment: fixed !important;
-    }}
-    [data-testid="stBottomBlockContainer"], [data-testid="stChatInputContainer"] {{
-        background: transparent !important;
-        background-image: none !important;
-        background-color: transparent !important;
-    }}
-    [data-testid="stBottom"]::before {{
-        content: "";
-        position: absolute;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0,0,0,0.55);
-        pointer-events: none;
-    }}
-    [data-testid="stChatInput"] {{
-        position: relative;
-        z-index: 2;
-        background-color: white !important;
-        border-radius: 20px !important;
-    }}
-    .block-container p, .block-container span, .block-container label, .block-container h2, .block-container h3 {{
-        color: white !important;
-    }}
-    [data-testid="stRadio"] label {{
-        color: white !important;
-        font-weight: 600 !important;
-    }}
-    [data-testid="stRadio"] div, [data-testid="stRadio"] p {{
-        color: white !important;
-    }}
-    div[data-testid="stButton"] > button {{
-        background-color: rgba(255,255,255,0.25) !important;
-        background: rgba(255,255,255,0.25) !important;
-        color: white !important;
-        border: 1.5px solid rgba(255,255,255,0.8) !important;
-        backdrop-filter: blur(4px) !important;
-        font-weight: bold !important;
-        font-size: 17px !important;
-        border-radius: 12px !important;
-    }}
-    div[data-testid="stButton"] > button:hover {{
-        background-color: rgba(255,255,255,0.45) !important;
-        color: white !important;
-        border: 1.5px solid white !important;
-    }}
-    div[data-testid="stButton"] > button p, div[data-testid="stButton"] > button span {{
-        color: white !important;
-    }}
-    /* ===== PERBAIKAN UTAMA: KOTAK CHAT JADI PEKAT, TIDAK TEMBUS FOTO LAGI ===== */
-    [data-testid="stChatMessage"] {{
-        background-color: rgba(10, 35, 25, 0.97) !important;
-        backdrop-filter: none !important;
-        border: 2px solid #F9D423 !important;
-        border-radius: 14px !important;
-        padding: 10px 14px !important;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.6) !important;
-    }}
-    [data-testid="stChatMessage"] p, [data-testid="stChatMessage"] span, [data-testid="stChatMessage"] li, [data-testid="stChatMessage"] strong {{
-        color: #FFFFFF !important;
-        font-size: 20px !important;
-        line-height: 2.0 !important;
-        font-weight: 600 !important;
-        text-shadow: 0 2px 4px rgba(0,0,0,1) !important;
-    }}
-    [data-testid="stChatMessage"] strong {{
-        color: #F9D423 !important;
-        font-size: 21px !important;
-    }}
+    [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"] {{ background: transparent !important; }}
+    .stApp::before {{ content: ""; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.55); z-index: 0; pointer-events: none; }}
+    .block-container {{ position: relative; z-index: 1; padding-top: 20px !important; max-width: 900px !important; }}
+    [data-testid="stBottom"] {{ background-image: url("data:image/jpeg;base64,{bg}") !important; background-size: cover !important; background-position: center center !important; background-repeat: no-repeat !important; background-attachment: fixed !important; }}
+    [data-testid="stBottomBlockContainer"], [data-testid="stChatInputContainer"] {{ background: transparent !important; background-image: none !important; background-color: transparent !important; }}
+    [data-testid="stBottom"]::before {{ content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.55); pointer-events: none; }}
+    [data-testid="stChatInput"] {{ position: relative; z-index: 2; background-color: white !important; border-radius: 20px !important; }}
+    .block-container p, .block-container span, .block-container label, .block-container h2, .block-container h3 {{ color: white !important; }}
+    [data-testid="stRadio"] label {{ color: white !important; font-weight: 600 !important; }}
+    [data-testid="stRadio"] div, [data-testid="stRadio"] p {{ color: white !important; }}
+    div[data-testid="stButton"] > button {{ background-color: rgba(255,255,255,0.25) !important; background: rgba(255,255,255,0.25) !important; color: white !important; border: 1.5px solid rgba(255,255,255,0.8) !important; backdrop-filter: blur(4px) !important; font-weight: bold !important; font-size: 17px !important; border-radius: 12px !important; }}
+    div[data-testid="stButton"] > button:hover {{ background-color: rgba(255,255,255,0.45) !important; color: white !important; border: 1.5px solid white !important; }}
+    div[data-testid="stButton"] > button p, div[data-testid="stButton"] > button span {{ color: white !important; }}
+    [data-testid="stChatMessage"] {{ background-color: rgba(10, 35, 25, 0.97) !important; backdrop-filter: none !important; border: 2px solid #F9D423 !important; border-radius: 14px !important; padding: 10px 14px !important; box-shadow: 0 4px 12px rgba(0,0,0,0.6) !important; }}
+    [data-testid="stChatMessage"] p, [data-testid="stChatMessage"] span, [data-testid="stChatMessage"] li, [data-testid="stChatMessage"] strong {{ color: #FFFFFF !important; font-size: 20px !important; line-height: 2.0 !important; font-weight: 600 !important; text-shadow: 0 2px 4px rgba(0,0,0,1) !important; }}
+    [data-testid="stChatMessage"] strong {{ color: #F9D423 !important; font-size: 21px !important; }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -227,7 +202,6 @@ st.markdown("""
     <p style='color:white; margin-top:10px; font-size:16px;'>Assalamualaikum warahmatullahi wabarakatuh! Tanya apa saja tentang Iqro, Tahsin dan Tahfidz</p>
 </div>
 """, unsafe_allow_html=True)
-
 st.write("")
 
 DATA_SISWA = {
@@ -252,13 +226,11 @@ DATA_SISWA = {
     "MOCHAMMAD ALKAHFI MUBAROK": {"kategori": "Tahfidz", "level": "Tahfidz, nilai 86"},
     "IMAM MANSYUR IBNU HULKAN": {"kategori": "Tahfidz", "level": "Tahfidz, nilai 80"},
 }
-
 KUNCI = {
     "Iqro": ["C","C","B","A","C","B","A","B","C","C","B","C","C","C","B","B","S","B","B","B","B","S","B","S","B"],
     "Tahsin": ["C","C","B","D","D","B","C","B","B","A","B","C","B","C","C","B","B","S","B","B","B","S","B","B","S"],
     "Tahfidz": ["C","B","C","A","C","B","C","C","C","B","B","B","C","C","B","B","B","S","B","B","B","S","B","B","B"]
 }
-
 SOAL_IQRO = [
 ("1. Jumlah huruf hijaiyah yang umum digunakan adalah ....", ["A. 26 huruf","B. 27 huruf","C. 28 huruf","D. 29 huruf","E. 30 huruf"]),
 ("2. Tanda baca fathah menghasilkan bunyi ....", ["A. i","B. u","C. a","D. an","E. in"]),
@@ -286,7 +258,6 @@ SOAL_IQRO = [
 ("24. Belajar membaca Al-Qur'an tidak membutuhkan bimbingan guru.", ["B - Benar","S - Salah"]),
 ("25. Membiasakan membaca Al-Qur'an secara rutin dapat meningkatkan kelancaran membaca.", ["B - Benar","S - Salah"]),
 ]
-
 SOAL_TAHSIN = [
 ("1. Secara umum, makharijul huruf terbagi menjadi ....", ["A. 3 tempat","B. 4 tempat","C. 5 tempat","D. 6 tempat","E. 7 tempat"]),
 ("2. Hukum nun sukun / tanwin bertemu huruf ب adalah ....", ["A. Idzhar","B. Idgham bighunnah","C. Iqlab","D. Ikhfa haqiqi","E. Idgham bilaghunnah"]),
@@ -314,7 +285,6 @@ SOAL_TAHSIN = [
 ("24. Membaca Al-Qur'an dengan tajwid yang benar membantu menjaga ketepatan pelafalan ayat.", ["B - Benar","S - Salah"]),
 ("25. Semua huruf ra dalam Al-Qur'an harus selalu dibaca tebal.", ["B - Benar","S - Salah"]),
 ]
-
 SOAL_TAHFIDZ = [
 ("1. Tahfidz berasal dari kata hafizha yang artinya ....", ["A. Membaca","B. Menulis","C. Menjaga / memelihara","D. Mendengarkan","E. Memahami"]),
 ("2. Tujuan utama pembelajaran tahfidz adalah ....", ["A. Menghafal tanpa memahami adab","B. Menghafal ayat dan menjaga hafalannya","C. Membaca dengan cepat","D. Menguasai bahasa Arab saja","E. Menghafal terjemahan saja"]),
@@ -342,9 +312,7 @@ SOAL_TAHFIDZ = [
 ("24. Menjaga hafalan membutuhkan kedisiplinan dan muraja'ah rutin.", ["B - Benar","S - Salah"]),
 ("25. Menghafal Al-Qur'an sebaiknya dengan niat ikhlas karena Allah Swt.", ["B - Benar","S - Salah"]),
 ]
-
 SOAL_ALL = {"Iqro": SOAL_IQRO, "Tahsin": SOAL_TAHSIN, "Tahfidz": SOAL_TAHFIDZ}
-
 def buat_soal_acak(kat, seed):
     rng = random.Random(seed)
     data_asli = SOAL_ALL[kat]
@@ -401,6 +369,8 @@ def tampilkan_daftar(kategori):
             st.session_state["siswa_pilih"] = item
             st.session_state["seed_acak"] = st.session_state["seed_acak"] + 1
             st.session_state["soal_acak"] = None
+            st.session_state["waktu_mulai"] = time.time()
+            st.session_state["waktu_habis"] = False
             st.rerun()
 
 c_btn1, c_btn2, c_btn3 = st.columns(3)
@@ -410,14 +380,12 @@ with c_btn2:
     klik_tahsin = st.button("📗 Tahsin", use_container_width=True)
 with c_btn3:
     klik_tahfidz = st.button("⭐ Tahfidz", use_container_width=True)
-
 if klik_iqro:
     st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Iqro" else "Iqro"
 if klik_tahsin:
     st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Tahsin" else "Tahsin"
 if klik_tahfidz:
     st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Tahfidz" else "Tahfidz"
-
 if st.session_state["kategori_pilih"]:
     c1, c2, c3 = st.columns(3)
     if st.session_state["kategori_pilih"] == "Iqro":
@@ -430,16 +398,39 @@ if st.session_state["kategori_pilih"]:
         with c3:
             tampilkan_daftar("Tahfidz")
 
-# ===== HALAMAN SOAL =====
+# ===== HALAMAN SOAL + TIMER 30 MENIT =====
 if st.session_state["siswa_pilih"]:
     nama = st.session_state["siswa_pilih"]
     info = DATA_SISWA.get(nama, {"kategori": "Iqro", "level": "Pemula"})
     kat = info["kategori"]
-    st.markdown(f"<div style='background-color: rgba(20,50,35,0.92); padding:20px; border-radius:15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>Assalamualaikum, {nama} 👋</h2><p style='color:white;'>Kelas: {kat} | Level: {info['level']} | Soal: 25 Soal (15 PG + 10 Benar/Salah) | Nilai: Benar x 4</p></div>", unsafe_allow_html=True)
-    if st.button("⬅️ Kembali ke Daftar Nama"):
-        st.session_state["siswa_pilih"] = None
-        st.session_state["soal_acak"] = None
-        st.rerun()
+    if st.session_state["waktu_mulai"] is None:
+        st.session_state["waktu_mulai"] = time.time()
+    sisa_detik = DURASI_UJIAN - (time.time() - st.session_state["waktu_mulai"])
+    if sisa_detik <= 0:
+        sisa_detik = 0
+        st.session_state["waktu_habis"] = True
+
+    st.markdown(f"<div style='background-color: rgba(20,50,35,0.92); padding:20px; border-radius:15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>Assalamualaikum, {nama} 👋</h2><p style='color:white;'>Kelas: {kat} | Level: {info['level']} | Soal: 25 Soal (15 PG + 10 Benar/Salah) | Nilai: Benar x 4 | Waktu: 30 Menit</p></div>", unsafe_allow_html=True)
+
+    # TIMER MUNCUL DI SINI
+    tampilkan_timer(sisa_detik)
+
+    if st.session_state["waktu_habis"]:
+        st.error("⛔ WAKTU HABIS! 30 menit sudah selesai. Silakan klik LIHAT NILAI di bawah, jawaban yang belum diisi dianggap salah.")
+
+    col_kembali, col_ulang = st.columns(2)
+    with col_kembali:
+        if st.button("⬅️ Kembali ke Daftar Nama"):
+            st.session_state["siswa_pilih"] = None
+            st.session_state["soal_acak"] = None
+            st.session_state["waktu_mulai"] = None
+            st.session_state["waktu_habis"] = False
+            st.rerun()
+    with col_ulang:
+        if st.button("🔄 Ulangi Waktu 30 Menit"):
+            st.session_state["waktu_mulai"] = time.time()
+            st.session_state["waktu_habis"] = False
+            st.rerun()
 
     if st.session_state["soal_acak"] is None or st.session_state["kat_acak"] != kat:
         soal_list, kunci = buat_soal_acak(kat, st.session_state["seed_acak"])
@@ -507,13 +498,19 @@ if prompt:
         st.markdown(prompt)
     with st.chat_message("assistant"):
         t_lower = prompt.lower()
-        # PRIORITAS 1: Huruf Hijaiyah / Iqro 1 - jawab dari tabel tetap, tanpa API, pasti jelas
-        if ("hijaiyah" in t_lower or "huruf" in t_lower or "iqro 1" in t_lower or "iqro satu" in t_lower or "iqro dasar" in t_lower):
+        if "mad" in t_lower and ("tobi" in t_lower or "thobi" in t_lower or "thabi" in t_lower or "tobii" in t_lower or "thobii" in t_lower):
+            jawaban = jawaban_mad_thobii()
+            st.markdown(jawaban)
+            st.session_state.messages.append({"role": "assistant", "content": jawaban})
+        elif "an-naba" in t_lower or "an naba" in t_lower or "annaba" in t_lower:
+            jawaban = jawaban_an_naba()
+            st.markdown(jawaban)
+            st.session_state.messages.append({"role": "assistant", "content": jawaban})
+        elif ("hijaiyah" in t_lower or "huruf" in t_lower or "iqro 1" in t_lower or "iqro satu" in t_lower or "iqro dasar" in t_lower):
             jawaban = jawaban_hijaiyah_iqro1()
             st.markdown(jawaban)
             st.session_state.messages.append({"role": "assistant", "content": jawaban})
-        # PRIORITAS 2: Di luar topik - tolak tanpa API
-        elif not cek_topik_qori(prompt):
+        elif cek_dilarang(prompt):
             st.markdown(PESAN_TOLAK)
             st.session_state.messages.append({"role": "assistant", "content": PESAN_TOLAK})
         elif not api_key:
@@ -523,12 +520,8 @@ if prompt:
                 client = OpenAI(api_key=api_key)
                 response = client.chat.completions.create(
                     model="gpt-4o-mini",
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT_KUNCI},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.7,
-                    max_tokens=800
+                    messages=[{"role": "system", "content": SYSTEM_PROMPT_KUNCI}, {"role": "user", "content": prompt}],
+                    temperature=0.7, max_tokens=800
                 )
                 jawaban = response.choices[0].message.content
                 st.markdown(jawaban)
