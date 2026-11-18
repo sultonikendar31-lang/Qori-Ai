@@ -17,6 +17,15 @@ TIM_PENYUSUN = {
     "KENDAR SULTONI": "Mahasiswa / Pembuat Aplikasi",
 }
 
+# Nama tampilan pakai gelar, untuk banner + kotak Tim Penyusun
+# Login tetap pakai nama tanpa gelar di atas, biar gampang ngetiknya
+NAMA_LENGKAP_TIM = {
+    "MUHAMAD RAIS": "Bapak Muhamad Rais, S.Pd.I",
+    "MUHAMAD SIDDIQ ASYHARI": "Dr. Muhamad Siddiq Asyhari, M.Pd",
+    "SYAMSUL HADI": "Bapak Syamsul Hadi, S.Pd.I",
+    "KENDAR SULTONI": "Kendar Sultoni",
+}
+
 if "login_nama" not in st.session_state:
     st.session_state["login_nama"] = None
 if "login_role" not in st.session_state:
@@ -144,15 +153,15 @@ def tampilkan_tim_pembuat():
         <p style='color:#F9D423; font-weight:bold; font-size:18px; text-align:center; margin:0 0 12px 0;'>👨‍🎓 Tim Penyusun QORI AI</p>
         <div style='display:flex; flex-wrap:wrap; justify-content:center; gap:10px;'>
             <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'>
-                <p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Muhamad Rais</p>
+                <p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Bapak Muhamad Rais, S.Pd.I</p>
                 <p style='color:white; margin:2px 0 0 0; font-size:13px;'>Guru Pamong</p>
             </div>
             <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'>
-                <p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Muhamad Siddiq Asyhari</p>
+                <p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Dr. Muhamad Siddiq Asyhari, M.Pd</p>
                 <p style='color:white; margin:2px 0 0 0; font-size:13px;'>Dosen Pembimbing</p>
             </div>
             <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'>
-                <p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Syamsul Hadi</p>
+                <p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Bapak Syamsul Hadi, S.Pd.I</p>
                 <p style='color:white; margin:2px 0 0 0; font-size:13px;'>Kepala MA Al-Barokah</p>
             </div>
             <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'>
@@ -415,7 +424,7 @@ if st.session_state["login_nama"] is None:
             st.session_state["login_jabatan"] = TIM_PENYUSUN[nama_bersih]
             st.session_state["waktu_login"] = time.time()
             st.session_state["sudah_catat_masuk"] = False
-            st.success(f"✅ Selamat datang, {nama_bersih}")
+            st.success(f"✅ Selamat datang, {NAMA_LENGKAP_TIM.get(nama_bersih, nama_bersih)}")
             time.sleep(0.5)
             st.rerun()
         elif nama_bersih in DATA_SISWA:
@@ -432,13 +441,15 @@ if st.session_state["login_nama"] is None:
     st.write("")
     st.stop()
 
-# ===== SUDAH LOGIN - SISWA DITAMBAHIN KELASNYA, TIM TIDAK =====
+# ===== SUDAH LOGIN - SISWA = KELAS, TIM = GELAR + JABATAN =====
 if st.session_state["login_role"] == "siswa":
     info_login = DATA_SISWA.get(st.session_state["login_nama"], {})
     kelas_login = info_login.get("kategori", "")
     teks_selamat = f"👤 Selamat datang, {st.session_state['login_nama']} | Kelas: {kelas_login}"
 else:
-    teks_selamat = f"👤 Selamat datang, {st.session_state['login_nama']}"
+    jabatan_tim = TIM_PENYUSUN.get(st.session_state["login_nama"], st.session_state.get("login_jabatan", ""))
+    nama_tim = NAMA_LENGKAP_TIM.get(st.session_state["login_nama"], st.session_state["login_nama"])
+    teks_selamat = f"👤 Selamat datang, {nama_tim} | {jabatan_tim}"
 st.markdown(f"<div style='background-color: rgba(0,0,0,0.6); padding:10px; border-radius:10px; text-align:center; margin-top:10px;'><b style='color:white;'>{teks_selamat}</b></div>", unsafe_allow_html=True)
 
 # Catat Masuk Aplikasi SEKALI aja, biar tidak double
