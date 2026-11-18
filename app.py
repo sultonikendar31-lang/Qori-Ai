@@ -28,7 +28,7 @@ if "waktu_mulai" not in st.session_state:
 if "waktu_habis" not in st.session_state:
     st.session_state["waktu_habis"] = False
 
-DURASI_UJIAN = 30 * 60  # 30 menit = 1800 detik
+DURASI_UJIAN = 10 * 60  # 10 menit = 600 detik
 
 prompt_awal = None
 
@@ -110,20 +110,20 @@ def get_base64(file):
     except:
         return ""
 
-# ===== FUNGSI TIMER 30 MENIT + BUNYI TIT TIT =====
+# ===== FUNGSI TIMER 10 MENIT + BUNYI TIT TIT =====
 def tampilkan_timer(sisa_detik):
     if sisa_detik < 0:
         sisa_detik = 0
     menit = int(sisa_detik // 60)
     detik = int(sisa_detik % 60)
     warna = "#F9D423"
-    if sisa_detik <= 300:
+    if sisa_detik <= 60:
         warna = "#FF5252"
     timer_html = f"""
     <div style="position:sticky; top:0; z-index:999; background:#0A2319; border:3px solid {warna}; border-radius:15px; padding:12px; text-align:center; margin-bottom:15px;">
         <div style="color:white; font-size:16px; font-weight:bold;">⏰ SISA WAKTU MENGERJAKAN</div>
         <div id="timer-qori" style="color:{warna}; font-size:48px; font-weight:bold; line-height:1.1;">{menit:02d}:{detik:02d}</div>
-        <div id="pesan-timer" style="color:white; font-size:14px;">25 Soal - 30 Menit - Semangat! 💪</div>
+        <div id="pesan-timer" style="color:white; font-size:14px;">25 Soal - 10 Menit - Semangat! 💪</div>
     </div>
     <script>
     let sisa = {int(sisa_detik)};
@@ -146,7 +146,6 @@ def tampilkan_timer(sisa_detik):
         let d = sisa % 60;
         let el = document.getElementById('timer-qori');
         if (el) el.textContent = String(m).padStart(2,'0') + ':' + String(d).padStart(2,'0');
-        // Bunyi 5-4-3-2-1
         if (sisa <= 5 && sisa > 0) {{
             if (!sudahBunyi[sisa]) {{ sudahBunyi[sisa] = true; bunyiTit(0.25); }}
             let p = document.getElementById('pesan-timer');
@@ -398,7 +397,7 @@ if st.session_state["kategori_pilih"]:
         with c3:
             tampilkan_daftar("Tahfidz")
 
-# ===== HALAMAN SOAL + TIMER 30 MENIT =====
+# ===== HALAMAN SOAL + TIMER 10 MENIT =====
 if st.session_state["siswa_pilih"]:
     nama = st.session_state["siswa_pilih"]
     info = DATA_SISWA.get(nama, {"kategori": "Iqro", "level": "Pemula"})
@@ -410,27 +409,19 @@ if st.session_state["siswa_pilih"]:
         sisa_detik = 0
         st.session_state["waktu_habis"] = True
 
-    st.markdown(f"<div style='background-color: rgba(20,50,35,0.92); padding:20px; border-radius:15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>Assalamualaikum, {nama} 👋</h2><p style='color:white;'>Kelas: {kat} | Level: {info['level']} | Soal: 25 Soal (15 PG + 10 Benar/Salah) | Nilai: Benar x 4 | Waktu: 30 Menit</p></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='background-color: rgba(20,50,35,0.92); padding:20px; border-radius:15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>Assalamualaikum, {nama} 👋</h2><p style='color:white;'>Kelas: {kat} | Level: {info['level']} | Soal: 25 Soal (15 PG + 10 Benar/Salah) | Nilai: Benar x 4 | Waktu: 10 Menit</p></div>", unsafe_allow_html=True)
 
-    # TIMER MUNCUL DI SINI
     tampilkan_timer(sisa_detik)
 
     if st.session_state["waktu_habis"]:
-        st.error("⛔ WAKTU HABIS! 30 menit sudah selesai. Silakan klik LIHAT NILAI di bawah, jawaban yang belum diisi dianggap salah.")
+        st.error("⛔ WAKTU HABIS! 10 menit sudah selesai. Silakan klik LIHAT NILAI di bawah, jawaban yang belum diisi dianggap salah.")
 
-    col_kembali, col_ulang = st.columns(2)
-    with col_kembali:
-        if st.button("⬅️ Kembali ke Daftar Nama"):
-            st.session_state["siswa_pilih"] = None
-            st.session_state["soal_acak"] = None
-            st.session_state["waktu_mulai"] = None
-            st.session_state["waktu_habis"] = False
-            st.rerun()
-    with col_ulang:
-        if st.button("🔄 Ulangi Waktu 30 Menit"):
-            st.session_state["waktu_mulai"] = time.time()
-            st.session_state["waktu_habis"] = False
-            st.rerun()
+    if st.button("⬅️ Kembali ke Daftar Nama"):
+        st.session_state["siswa_pilih"] = None
+        st.session_state["soal_acak"] = None
+        st.session_state["waktu_mulai"] = None
+        st.session_state["waktu_habis"] = False
+        st.rerun()
 
     if st.session_state["soal_acak"] is None or st.session_state["kat_acak"] != kat:
         soal_list, kunci = buat_soal_acak(kat, st.session_state["seed_acak"])
