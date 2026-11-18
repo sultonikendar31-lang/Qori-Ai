@@ -27,7 +27,7 @@ if bg:
     st.markdown(f"""
     <style>
     .stApp, [data-testid="stApp"], [data-testid="stAppViewContainer"] {{
-        background-image: url("data:image/jpeg;base64,{bg}") !important;
+        background-image: url("data:image/jpeg;base64,{{bg}}") !important;
         background-size: cover !important;
         background-position: center center !important;
         background-repeat: no-repeat !important;
@@ -51,7 +51,7 @@ if bg:
         max-width: 900px !important;
     }}
     [data-testid="stBottom"] {{
-        background-image: url("data:image/jpeg;base64,{bg}") !important;
+        background-image: url("data:image/jpeg;base64,{{bg}}") !important;
         background-size: cover !important;
         background-position: center center !important;
         background-repeat: no-repeat !important;
@@ -75,7 +75,6 @@ if bg:
         background-color: white !important;
         border-radius: 20px !important;
     }}
-    /* TULISAN SOAL PUTIH */
     .block-container p, .block-container span, .block-container label, .block-container h2, .block-container h3 {{
         color: white !important;
     }}
@@ -86,7 +85,7 @@ if bg:
     [data-testid="stRadio"] div, [data-testid="stRadio"] p {{
         color: white !important;
     }}
-    /* === REVISI BARU: TOMBOL IQRO / TAHSIN / TAHFIDZ TRANSPARAN === */
+    /* TOMBOL TRANSPARAN */
     div[data-testid="stButton"] > button {{
         background-color: rgba(255,255,255,0.25) !important;
         background: rgba(255,255,255,0.25) !important;
@@ -105,7 +104,16 @@ if bg:
     div[data-testid="stButton"] > button p, div[data-testid="stButton"] > button span {{
         color: white !important;
     }}
-    /* Kotak text input ketik nama - DISEMBUNYIKAN */
+    /* KOTAK CHAT BIAR TRANSPARAN JUGA */
+    [data-testid="stChatMessage"] {{
+        background-color: rgba(255,255,255,0.25) !important;
+        backdrop-filter: blur(4px) !important;
+        border: 1px solid rgba(255,255,255,0.5) !important;
+        border-radius: 12px !important;
+    }}
+    [data-testid="stChatMessage"] p, [data-testid="stChatMessage"] span {{
+        color: white !important;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -118,7 +126,6 @@ st.markdown("""
 
 st.write("")
 
-# ===== DATA 20 SISWA =====
 DATA_SISWA = {
     "MUHAMAD HARTANTO": {"kategori": "Iqro", "level": "Iqro Dasar, nilai 63"},
     "DAFFAN OKTAFFIL HIDAYAT": {"kategori": "Iqro", "level": "Iqro Dasar, nilai 62"},
@@ -246,8 +253,7 @@ def tampilkan_daftar(kategori):
             st.session_state["siswa_pilih"] = item
             st.rerun()
 
-# KOTAK KETIK NAMA SUDAH DIHAPUS - LANGSUNG TOMBOL TRANSPARAN DI BAWAH
-
+# === TOMBOL IQRO / TAHSIN / TAHFIDZ TRANSPARAN ===
 c_btn1, c_btn2, c_btn3 = st.columns(3)
 with c_btn1:
     klik_iqro = st.button("📖 Iqro", use_container_width=True)
@@ -315,9 +321,19 @@ if st.session_state["siswa_pilih"]:
             st.markdown(f"<p style='color:white;'>No.{i+1} = {kunci[i]}</p>", unsafe_allow_html=True)
     st.stop()
 
-for m in st.session_state.messages:
-    with st.chat_message(m["role"]):
-        st.write(m["content"])
+# ===== CHAT - ADA TOMBOL HAPUSNYA DI SINI =====
+if st.session_state["messages"]:
+    # Tiap kotak chat ada tombol hapusnya
+    for idx, m in enumerate(st.session_state["messages"]):
+        with st.chat_message(m["role"]):
+            st.write(m["content"])
+            if st.button(f"🗑️ Hapus pesan ini", key=f"hapus_{idx}"):
+                del st.session_state["messages"][idx]
+                st.rerun()
+    st.write("")
+    if st.button("🗑️ Hapus Semua Chat", use_container_width=True):
+        st.session_state["messages"] = []
+        st.rerun()
 
 prompt = None
 if prompt_awal:
