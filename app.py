@@ -11,10 +11,10 @@ api_key = st.secrets.get("OPENAI_API_KEY", "")
 
 # ===== PINTU MASUK / KUNCI NAMA =====
 TIM_PENYUSUN = {
-    "KENDAR SULTONI": "Mahasiswa / Pembuat Aplikasi",
+    "MUHAMAD RAIS": "Guru Pamong",
     "MUHAMAD SIDDIQ ASYHARI": "Dosen Pembimbing",
     "SYAMSUL HADI": "Kepala MA Al-Barokah",
-    "MUHAMAD RAIS": "Guru Pamong",
+    "KENDAR SULTONI": "Mahasiswa / Pembuat Aplikasi",
 }
 
 if "login_nama" not in st.session_state:
@@ -161,8 +161,8 @@ def tampilkan_tim_pembuat():
         <p style='color:#F9D423; font-weight:bold; font-size:18px; text-align:center; margin:0 0 12px 0;'>👨‍🎓 Tim Penyusun QORI AI</p>
         <div style='display:flex; flex-wrap:wrap; justify-content:center; gap:10px;'>
             <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'>
-                <p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Kendar Sultoni</p>
-                <p style='color:white; margin:2px 0 0 0; font-size:13px;'>Mahasiswa / Pembuat Aplikasi</p>
+                <p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Muhamad Rais</p>
+                <p style='color:white; margin:2px 0 0 0; font-size:13px;'>Guru Pamong</p>
             </div>
             <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'>
                 <p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Muhamad Siddiq Asyhari</p>
@@ -173,8 +173,8 @@ def tampilkan_tim_pembuat():
                 <p style='color:white; margin:2px 0 0 0; font-size:13px;'>Kepala MA Al-Barokah</p>
             </div>
             <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'>
-                <p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Muhamad Rais</p>
-                <p style='color:white; margin:2px 0 0 0; font-size:13px;'>Guru Pamong</p>
+                <p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Kendar Sultoni</p>
+                <p style='color:white; margin:2px 0 0 0; font-size:13px;'>Mahasiswa / Pembuat Aplikasi</p>
             </div>
         </div>
         <p style='color:white; text-align:center; font-size:12px; margin:10px 0 0 0;'>QORI AI - Madrasah Aliyah Al-Barokah | Media Belajar Iqro, Tahsin & Tahfidz</p>
@@ -387,7 +387,6 @@ if st.session_state["login_nama"] is None:
         else:
             st.error("❌ Nama tidak ditemukan! Cek lagi ejaannya, atau tanya ke guru.")
     st.write("")
-    tampilkan_tim_pembuat()
     st.stop()
 
 # ===== SUDAH LOGIN - INFO SINGKAT SAJA, TANPA SEBUT ADMIN / SISWA =====
@@ -407,7 +406,8 @@ with col_out2:
             pass
         st.rerun()
 
-if st.session_state["siswa_pilih"] is None:
+# Kotak Tim Penyusun HANYA boleh dilihat oleh Tim itu sendiri, siswa TIDAK boleh lihat
+if st.session_state["siswa_pilih"] is None and st.session_state["login_role"] == "tim":
     tampilkan_tim_pembuat()
 
 st.write("")
