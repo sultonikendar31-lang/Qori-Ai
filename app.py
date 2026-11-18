@@ -54,6 +54,21 @@ if bg:
         background-color: rgba(255,255,255,0.95) !important;
         border-radius: 12px !important;
     }}
+        /* KOTAK NGETIK JADI PENDEK, DI TENGAH */
+    [data-testid="stBottomBlockContainer"] {{
+        max-width: 700px !important;
+        margin: 0 auto !important;
+        padding-left: 20px !important;
+        padding-right: 20px !important;
+    }}
+    [data-testid="stChatInputContainer"] {{
+        max-width: 700px !important;
+        margin: 0 auto !important;
+    }}
+    [data-testid="stChatInput"] {{
+        max-width: 700px !important;
+        margin: 0 auto !important;
+    }}
         /* PAKSA BAWAH PAKAI GAMBAR YANG SAMA BIAR NYATU */
     [data-testid="stBottom"], [data-testid="stBottomBlockContainer"], [data-testid="stChatInputContainer"], [data-testid="stBottom"] > div, [data-testid="stBottom"] div {{
         background-image: url("data:image/jpeg;base64,{bg}") !important;
