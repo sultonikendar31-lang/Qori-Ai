@@ -17,8 +17,6 @@ TIM_PENYUSUN = {
     "KENDAR SULTONI": "Mahasiswa / Pembuat Aplikasi",
 }
 
-# Nama tampilan pakai gelar, untuk banner + kotak Tim Penyusun
-# Login tetap pakai nama tanpa gelar di atas, biar gampang ngetiknya
 NAMA_LENGKAP_TIM = {
     "MUHAMAD RAIS": "Bapak Muhamad Rais, S.Pd.I",
     "MUHAMAD SIDDIQ ASYHARI": "Dr. Muhamad Siddiq Asyhari, M.Pd",
@@ -72,8 +70,11 @@ if "lihat_riwayat" not in st.session_state:
     st.session_state["lihat_riwayat"] = False
 if "sudah_catat_masuk" not in st.session_state:
     st.session_state["sudah_catat_masuk"] = False
+if "saran_list" not in st.session_state:
+    st.session_state["saran_list"] = []
+if "lihat_saran" not in st.session_state:
+    st.session_state["lihat_saran"] = False
 
-# Bersihkan No.7 SEKALI aja di awal (nilai 0 bekas tes), setelah itu nilai asli ZALFATUSSYIFA tidak akan kehapus lagi
 if not st.session_state["sudah_bersihkan_no7"]:
     st.session_state["sudah_bersihkan_no7"] = True
     if "ZALFATUSSYIFA RAMADANTI" in st.session_state.get("hasil_semua", {}):
@@ -307,6 +308,86 @@ def tampilkan_riwayat_siswa():
             st.session_state["riwayat_aktivitas"] = []
             st.rerun()
 
+# ===== KOTAK SARAN / KRITIK / KELUHAN - TIM & SISWA =====
+def tampilkan_kotak_saran():
+    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>💬 Kotak Saran / Kritik / Keluhan</h2><p style='color:white; margin:5px 0 0 0;'>Sampaikan saran, kritik, atau keluhanmu di sini. Dibaca langsung oleh Tim Penyusun.</p></div>", unsafe_allow_html=True)
+    st.write("")
+    # --- FORM KIRIM ---
+    st.markdown("<div style='background-color: rgba(0,0,0,0.65); padding:15px; border-radius:12px;'><p style='color:white; font-weight:bold;'>✍️ Tulis Saran / Kritik / Keluhan Baru:</p></div>", unsafe_allow_html=True)
+    jenis_saran = st.selectbox("Jenis Pesan:", ["💡 Saran", "📝 Kritik", "😟 Keluhan"], key="jenis_saran")
+    isi_saran = st.text_area("Isi Pesan:", placeholder="Contoh: Soalnya susah di bagian..., Tolong tambahin materi..., Aplikasinya kadang lemot...", height=120, key="isi_saran")
+    if st.button("📩 Kirim Saran / Kritik / Keluhan", use_container_width=True):
+        if not isi_saran.strip():
+            st.warning("⚠️ Isi pesannya masih kosong!")
+        else:
+            if st.session_state["login_role"] == "siswa":
+                info_s = DATA_SISWA.get(st.session_state["login_nama"], {})
+                label_pengirim = f"{st.session_state['login_nama']} | Kelas: {info_s.get('kategori','-')}"
+            else:
+                nama_t = NAMA_LENGKAP_TIM.get(st.session_state["login_nama"], st.session_state["login_nama"])
+                label_pengirim = f"{nama_t} | {TIM_PENYUSUN.get(st.session_state['login_nama'],'Tim')}"
+            st.session_state["saran_list"].append({
+                "pengirim": st.session_state["login_nama"],
+                "label": label_pengirim,
+                "role": st.session_state["login_role"],
+                "jenis": jenis_saran,
+                "isi": isi_saran.strip(),
+                "jam": time.strftime("%d/%m/%Y %H:%M", time.localtime(time.time())),
+                "balasan": "",
+                "pembalas": "",
+            })
+            catat_aktivitas(f"Kirim {jenis_saran}")
+            st.success("✅ Terima kasih! Saran / Kritik / Keluhanmu sudah terkirim ke Tim.")
+            st.rerun()
+    st.write("")
+    # --- DAFTAR PESAN ---
+    if st.session_state["login_role"] == "siswa":
+        daftar_saran = [s for s in st.session_state["saran_list"] if s["pengirim"] == st.session_state["login_nama"]]
+        judul_daftar = "📩 Saran / Kritik / Keluhan Kamu:"
+    else:
+        daftar_saran = list(reversed(st.session_state["saran_list"]))
+        judul_daftar = f"📩 Semua Saran / Kritik / Keluhan ({len(daftar_saran)} pesan):"
+    st.markdown(f"<div style='background-color: rgba(0,0,0,0.65); padding:12px; border-radius:10px;'><p style='color:white; font-weight:bold; margin:0;'>{judul_daftar}</p></div>", unsafe_allow_html=True)
+    st.write("")
+    if not daftar_saran:
+        st.info("Belum ada pesan. Yuk jadi yang pertama kirim saran!")
+    else:
+        # Untuk siswa tampilkan urutan lama ke baru, untuk tim baru ke lama sudah di-reverse di atas
+        tampil = daftar_saran if st.session_state["login_role"] == "tim" else list(reversed(daftar_saran))
+        for idx, s in enumerate(tampil):
+            # Cari index asli di list utama untuk balas / hapus
+            idx_asli = st.session_state["saran_list"].index(s)
+            st.markdown(f"<div style='background-color: rgba(255,255,255,0.12); border:1.5px solid rgba(255,255,255,0.5); padding:14px; border-radius:12px; margin-bottom:10px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>{s['jenis']} - {s['label']}</p><p style='color:#AAAAAA; font-size:12px; margin:2px 0 8px 0;'>{s['jam']}</p><p style='color:white; margin:0;'>{s['isi']}</p></div>", unsafe_allow_html=True)
+            if s.get("balasan"):
+                st.markdown(f"<div style='background-color: rgba(20,50,35,0.9); border:1.5px solid #F9D423; padding:12px; border-radius:12px; margin:-5px 0 12px 20px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>↩️ Balasan dari {s['pembalas']}:</p><p style='color:white; margin:4px 0 0 0;'>{s['balasan']}</p></div>", unsafe_allow_html=True)
+            # Tim bisa balas
+            if st.session_state["login_role"] == "tim":
+                balas = st.text_input(f"Balas pesan ini (Tim):", key=f"balas_{idx_asli}", placeholder="Tulis balasan untuk pengirim...")
+                cb1, cb2 = st.columns(2)
+                with cb1:
+                    if st.button("↩️ Kirim Balasan", key=f"kirim_balas_{idx_asli}", use_container_width=True):
+                        if not balas.strip():
+                            st.warning("⚠️ Balasannya masih kosong!")
+                        else:
+                            nama_t = NAMA_LENGKAP_TIM.get(st.session_state["login_nama"], st.session_state["login_nama"])
+                            st.session_state["saran_list"][idx_asli]["balasan"] = balas.strip()
+                            st.session_state["saran_list"][idx_asli]["pembalas"] = f"{nama_t} | {TIM_PENYUSUN.get(st.session_state['login_nama'],'Tim')}"
+                            st.success("✅ Balasan terkirim!")
+                            st.rerun()
+                with cb2:
+                    if st.button("🗑️ Hapus Pesan", key=f"hapus_saran_{idx_asli}", use_container_width=True):
+                        del st.session_state["saran_list"][idx_asli]
+                        st.rerun()
+            # Siswa bisa hapus pesan sendiri yang belum dibalas
+            if st.session_state["login_role"] == "siswa" and not s.get("balasan"):
+                if st.button("🗑️ Hapus Pesan Saya", key=f"hapus_saran_siswa_{idx_asli}"):
+                    del st.session_state["saran_list"][idx_asli]
+                    st.rerun()
+    st.write("")
+    if st.button("⬅️ Tutup Kotak Saran", use_container_width=True):
+        st.session_state["lihat_saran"] = False
+        st.rerun()
+
 def tampilkan_daftar_hasil_nilai():
     st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📊 Daftar Hasil Nilai</h2><p style='color:white; margin:5px 0 0 0;'>KKM = 75 | Nilai ≤ 75 = <b style=\"color:#FF5252;\">MERAH (Belum Tuntas)</b> | Nilai > 75 = <b style=\"color:white;\">PUTIH (Tuntas)</b> | Belum Ujian = <b style=\"color:#AAAAAA;\">- (Belum Mengerjakan)</b></p></div>", unsafe_allow_html=True)
     st.write("")
@@ -452,7 +533,6 @@ else:
     teks_selamat = f"👤 Selamat datang, {nama_tim} | {jabatan_tim}"
 st.markdown(f"<div style='background-color: rgba(0,0,0,0.6); padding:10px; border-radius:10px; text-align:center; margin-top:10px;'><b style='color:white;'>{teks_selamat}</b></div>", unsafe_allow_html=True)
 
-# Catat Masuk Aplikasi SEKALI aja, biar tidak double
 if st.session_state["login_role"] == "siswa" and not st.session_state["sudah_catat_masuk"]:
     st.session_state["sudah_catat_masuk"] = True
     catat_aktivitas("Masuk Aplikasi")
@@ -469,6 +549,7 @@ with col_out2:
         st.session_state["kategori_pilih"] = None
         st.session_state["lihat_nilai"] = False
         st.session_state["lihat_riwayat"] = False
+        st.session_state["lihat_saran"] = False
         st.session_state["sudah_catat_masuk"] = False
         st.session_state["waktu_login"] = None
         try:
@@ -477,7 +558,6 @@ with col_out2:
             pass
         st.rerun()
 
-# Kotak Tim Penyusun HANYA boleh dilihat oleh Tim itu sendiri, siswa TIDAK boleh lihat
 if st.session_state["siswa_pilih"] is None and st.session_state["login_role"] == "tim":
     tampilkan_tim_pembuat()
 
@@ -675,6 +755,7 @@ def tampilkan_daftar(kategori):
             st.session_state["curang_refresh"] = None
             st.session_state["lihat_nilai"] = False
             st.session_state["lihat_riwayat"] = False
+            st.session_state["lihat_saran"] = False
             catat_aktivitas(f"Mulai Ujian - {kategori}")
             try:
                 st.query_params["ujian"] = "jalan"
@@ -697,21 +778,25 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
         st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Iqro" else "Iqro"
         st.session_state["lihat_nilai"] = False
         st.session_state["lihat_riwayat"] = False
+        st.session_state["lihat_saran"] = False
         catat_aktivitas("Buka Kelas Iqro")
     if klik_tahsin:
         st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Tahsin" else "Tahsin"
         st.session_state["lihat_nilai"] = False
         st.session_state["lihat_riwayat"] = False
+        st.session_state["lihat_saran"] = False
         catat_aktivitas("Buka Kelas Tahsin")
     if klik_tahfidz:
         st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Tahfidz" else "Tahfidz"
         st.session_state["lihat_nilai"] = False
         st.session_state["lihat_riwayat"] = False
+        st.session_state["lihat_saran"] = False
         catat_aktivitas("Buka Kelas Tahfidz")
     if klik_nilai:
         st.session_state["lihat_nilai"] = True
         st.session_state["kategori_pilih"] = None
         st.session_state["lihat_riwayat"] = False
+        st.session_state["lihat_saran"] = False
         catat_aktivitas("Buka Daftar Hasil Nilai")
     if st.session_state["kategori_pilih"]:
         c1, c2, c3 = st.columns(3)
@@ -731,7 +816,24 @@ if st.session_state["login_role"] == "tim" and st.session_state["siswa_pilih"] i
         st.session_state["lihat_riwayat"] = True
         st.session_state["kategori_pilih"] = None
         st.session_state["lihat_nilai"] = False
+        st.session_state["lihat_saran"] = False
         st.rerun()
+
+# Tombol Kotak Saran - untuk TIM & SISWA
+if st.session_state["siswa_pilih"] is None:
+    jml_baru = len([s for s in st.session_state["saran_list"] if not s.get("balasan")]) if st.session_state["login_role"] == "tim" else len([s for s in st.session_state["saran_list"] if s["pengirim"] == st.session_state["login_nama"] and s.get("balasan")])
+    label_saran = f"💬 Kotak Saran / Kritik / Keluhan ({jml_baru} Baru)" if jml_baru > 0 else "💬 Kotak Saran / Kritik / Keluhan"
+    if st.button(label_saran, use_container_width=True):
+        st.session_state["lihat_saran"] = True
+        st.session_state["kategori_pilih"] = None
+        st.session_state["lihat_nilai"] = False
+        st.session_state["lihat_riwayat"] = False
+        catat_aktivitas("Buka Kotak Saran")
+        st.rerun()
+
+if st.session_state.get("lihat_saran") and st.session_state["siswa_pilih"] is None:
+    tampilkan_kotak_saran()
+    st.stop()
 
 if st.session_state.get("lihat_riwayat") and st.session_state["siswa_pilih"] is None:
     tampilkan_riwayat_siswa()
