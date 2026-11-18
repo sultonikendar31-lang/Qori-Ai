@@ -37,14 +37,63 @@ ATURAN KUNCI - WAJIB DIPATUHI:
 - Jawaban penolakan: "Maaf, saya QORI AI hanya bisa membantu tentang Iqro, Tahsin, dan Tahfidz saja. Silakan tanya seputar membaca dan menghafal Al-Qur'an ya! 🕌"
 - Jangan jawab pertanyaan lain walau sedikit pun, jangan beri penjelasan tentang topik lain.
 - Jawab dengan Bahasa Indonesia yang mudah, sopan, dan islami.
+
+ATURAN TAMPILAN HURUF HIJAIYAH - WAJIB, JANGAN DILANGGAR:
+- Setiap menyebut huruf hijaiyah, WAJIB pakai format persis ini, satu baris satu huruf:
+    1. Alif (ا) - dibaca "A"
+    2. Ba (ب) - dibaca "Ba"
+    3. Ta (ت) - dibaca "Ta"
+- JANGAN PERNAH tulis huruf Arab saja tanpa nama Latin dan cara bacanya.
+- JANGAN tulis huruf Arab berderet-deret seperti "ا ب ت ث" karena tidak terbaca.
+- Selalu buat dalam daftar bernomor, pakai Bahasa Indonesia, singkat dan jelas.
+- Jika menjelaskan harakat, contoh: Ba Fathah (بَ) - dibaca "Ba", Ba Kasrah (بِ) - dibaca "Bi", Ba Dhammah (بُ) - dibaca "Bu".
 """
+
+# ===== TABEL TETAP HIJAIYAH IQRO 1 - BIAR SELALU JELAS, TIDAK PAKAI AI =====
+HIJAIYAH_IQRO1 = [
+    ("1", "Alif", "ا", "A"),
+    ("2", "Ba", "ب", "Ba"),
+    ("3", "Ta", "ت", "Ta"),
+    ("4", "Tsa", "ث", "Tsa"),
+    ("5", "Jim", "ج", "Ja"),
+    ("6", "Ha", "ح", "Ha"),
+    ("7", "Kha", "خ", "Kha"),
+    ("8", "Dal", "د", "Da"),
+    ("9", "Dzal", "ذ", "Dza"),
+    ("10", "Ra", "ر", "Ra"),
+    ("11", "Zai", "ز", "Za"),
+    ("12", "Sin", "س", "Sa"),
+    ("13", "Syin", "ش", "Sya"),
+    ("14", "Shad", "ص", "Sha"),
+    ("15", "Dhad", "ض", "Dha"),
+    ("16", "Tha", "ط", "Tha"),
+    ("17", "Zha", "ظ", "Zha"),
+    ("18", "Ain", "ع", "A"),
+    ("19", "Ghain", "غ", "Gha"),
+    ("20", "Fa", "ف", "Fa"),
+    ("21", "Qaf", "ق", "Qa"),
+    ("22", "Kaf", "ك", "Ka"),
+    ("23", "Lam", "ل", "La"),
+    ("24", "Mim", "م", "Ma"),
+    ("25", "Nun", "ن", "Na"),
+    ("26", "Wau", "و", "Wa"),
+    ("27", "Ha", "ه", "Ha"),
+    ("28", "Hamzah / Ya", "ء / ي", "A / Ya"),
+]
+
+def jawaban_hijaiyah_iqro1():
+    teks = "Baik, mari kita belajar Iqro 1. Di Iqro 1 kita belajar huruf hijaiyah dasar. Bacalah satu per satu ya:\n\n"
+    for no, nama, arab, baca in HIJAIYAH_IQRO1:
+        teks += f"**{no}. {nama} ({arab}) - dibaca \"{baca}\"**\n\n"
+    teks += "Coba ulangi lagi dari nomor 1 sampai 28. Kalau sudah hafal, bilang saja \"Lanjut Iqro 1 pakai harakat\" ya! 📖"
+    return teks
 
 # Kata kunci yang diizinkan - untuk hemat saldo, ditolak sebelum panggil API
 KATA_KUNCI_QORI = [
     "iqro", "iqra", "tahsin", "tahfidz", "tahfiz", "tahfid",
     "hijaiyah", "harakat", "fathah", "kasrah", "dhammah", "tanwin", "sukun", "tasydid", "mad ",
     "tajwid", "makhraj", "makharij", "ghunnah", "qalqalah", "ikhfa", "idgham", "idzhar", "iqlab",
-    "waqaf", "waqf", "ibtida", "tartil", "tilawah",
+    "waqaf", "waqf", "ibtida", "tartil", "tilawah", "huruf",
     "hafal", "hafalan", "murajaah", "muraja'ah", "sima'i", "kitabah",
     "quran", "qur'an", "al-quran", "al quran", "surah", "surat", "ayat", "juz", "hafiz",
     "al-ikhlas", "al-falaq", "an-nas", "al-kautsar", "al-asr", "al-maun",
@@ -71,6 +120,7 @@ bg = get_base64("background.jpeg")
 if bg:
     st.markdown(f"""
     <style>
+    @import url('https://fonts.googleapis.com/css2?family=Amiri:wght@700&display=swap');
     .stApp, [data-testid="stApp"], [data-testid="stAppViewContainer"] {{
         background-image: url("data:image/jpeg;base64,{bg}") !important;
         background-size: cover !important;
@@ -85,7 +135,7 @@ if bg:
         content: "";
         position: fixed;
         top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0,0,0,0.40);
+        background: rgba(0,0,0,0.55);
         z-index: 0;
         pointer-events: none;
     }}
@@ -111,7 +161,7 @@ if bg:
         content: "";
         position: absolute;
         top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0,0,0,0.40);
+        background: rgba(0,0,0,0.55);
         pointer-events: none;
     }}
     [data-testid="stChatInput"] {{
@@ -148,14 +198,25 @@ if bg:
     div[data-testid="stButton"] > button p, div[data-testid="stButton"] > button span {{
         color: white !important;
     }}
+    /* ===== PERBAIKAN UTAMA: KOTAK CHAT JADI PEKAT, TIDAK TEMBUS FOTO LAGI ===== */
     [data-testid="stChatMessage"] {{
-        background-color: rgba(255,255,255,0.25) !important;
-        backdrop-filter: blur(4px) !important;
-        border: 1px solid rgba(255,255,255,0.5) !important;
-        border-radius: 12px !important;
+        background-color: rgba(10, 35, 25, 0.97) !important;
+        backdrop-filter: none !important;
+        border: 2px solid #F9D423 !important;
+        border-radius: 14px !important;
+        padding: 10px 14px !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.6) !important;
     }}
-    [data-testid="stChatMessage"] p, [data-testid="stChatMessage"] span {{
-        color: white !important;
+    [data-testid="stChatMessage"] p, [data-testid="stChatMessage"] span, [data-testid="stChatMessage"] li, [data-testid="stChatMessage"] strong {{
+        color: #FFFFFF !important;
+        font-size: 20px !important;
+        line-height: 2.0 !important;
+        font-weight: 600 !important;
+        text-shadow: 0 2px 4px rgba(0,0,0,1) !important;
+    }}
+    [data-testid="stChatMessage"] strong {{
+        color: #F9D423 !important;
+        font-size: 21px !important;
     }}
     </style>
     """, unsafe_allow_html=True)
@@ -369,7 +430,7 @@ if st.session_state["kategori_pilih"]:
         with c3:
             tampilkan_daftar("Tahfidz")
 
-# ===== HALAMAN SOAL - ACAK TETAP JALAN TAPI DISEMBUNYIKAN =====
+# ===== HALAMAN SOAL =====
 if st.session_state["siswa_pilih"]:
     nama = st.session_state["siswa_pilih"]
     info = DATA_SISWA.get(nama, {"kategori": "Iqro", "level": "Pemula"})
@@ -422,7 +483,7 @@ if st.session_state["siswa_pilih"]:
 if st.session_state["messages"]:
     for idx, m in enumerate(st.session_state["messages"]):
         with st.chat_message(m["role"]):
-            st.write(m["content"])
+            st.markdown(m["content"])
             if st.button("🗑️ Hapus pesan ini", key=f"hapus_{idx}"):
                 del st.session_state["messages"][idx]
                 st.rerun()
@@ -443,14 +504,20 @@ else:
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
-        st.write(prompt)
+        st.markdown(prompt)
     with st.chat_message("assistant"):
-        # KUNCI 1: Filter lokal - tolak sebelum panggil API biar hemat saldo
-        if not cek_topik_qori(prompt):
-            st.write(PESAN_TOLAK)
+        t_lower = prompt.lower()
+        # PRIORITAS 1: Huruf Hijaiyah / Iqro 1 - jawab dari tabel tetap, tanpa API, pasti jelas
+        if ("hijaiyah" in t_lower or "huruf" in t_lower or "iqro 1" in t_lower or "iqro satu" in t_lower or "iqro dasar" in t_lower):
+            jawaban = jawaban_hijaiyah_iqro1()
+            st.markdown(jawaban)
+            st.session_state.messages.append({"role": "assistant", "content": jawaban})
+        # PRIORITAS 2: Di luar topik - tolak tanpa API
+        elif not cek_topik_qori(prompt):
+            st.markdown(PESAN_TOLAK)
             st.session_state.messages.append({"role": "assistant", "content": PESAN_TOLAK})
         elif not api_key:
-            st.write("Maaf, API Key belum dipasang di Secrets Streamlit.")
+            st.markdown("Maaf, API Key belum dipasang di Secrets Streamlit.")
         else:
             try:
                 client = OpenAI(api_key=api_key)
@@ -464,7 +531,7 @@ if prompt:
                     max_tokens=800
                 )
                 jawaban = response.choices[0].message.content
-                st.write(jawaban)
+                st.markdown(jawaban)
                 st.session_state.messages.append({"role": "assistant", "content": jawaban})
             except Exception as e:
-                st.write(f"Maaf, sedang ada gangguan. Coba lagi ya. Cek saldo OpenAI, mungkin habis. ({e})")
+                st.markdown(f"Maaf, sedang ada gangguan. Coba lagi ya. Cek saldo OpenAI, mungkin habis. ({e})")
