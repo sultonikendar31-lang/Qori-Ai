@@ -1,5 +1,6 @@
 import streamlit as st
 import base64
+import random
 from google import genai
 
 st.set_page_config(page_title="QORI AI", page_icon="🕌", layout="wide")
@@ -12,6 +13,14 @@ if "messages" not in st.session_state:
     st.session_state["messages"] = []
 if "siswa_pilih" not in st.session_state:
     st.session_state["siswa_pilih"] = None
+if "seed_acak" not in st.session_state:
+    st.session_state["seed_acak"] = 1
+if "soal_acak" not in st.session_state:
+    st.session_state["soal_acak"] = None
+if "kunci_acak" not in st.session_state:
+    st.session_state["kunci_acak"] = None
+if "kat_acak" not in st.session_state:
+    st.session_state["kat_acak"] = None
 
 prompt_awal = None
 
@@ -112,7 +121,6 @@ if bg:
     [data-testid="stChatMessage"] p, [data-testid="stChatMessage"] span {{
         color: white !important;
     }}
-    /* KOTAK PUTIH PALING BAWAH DIHILANGKAN - BIAR FOTO KELIATAN */
     </style>
     """, unsafe_allow_html=True)
 
@@ -240,6 +248,58 @@ SOAL_TAHFIDZ = [
 
 SOAL_ALL = {"Iqro": SOAL_IQRO, "Tahsin": SOAL_TAHSIN, "Tahfidz": SOAL_TAHFIDZ}
 
+# ===== FUNGSI ACAK SOAL - SOAL SAMA TAPI URUTAN + JAWABAN DIACAK =====
+def buat_soal_acak(kat, seed):
+    rng = random.Random(seed)
+    data_asli = SOAL_ALL[kat]
+    kunci_asli = KUNCI[kat]
+    gabung = list(zip(data_asli, kunci_asli))
+    rng.shuffle(gabung)  # acak urutan soal
+    soal_baru = []
+    kunci_baru = []
+    for (teks_soal, opsi_asli), kunci_lama in gabung:
+        # Ambil isi jawaban tanpa huruf depannya, lalu acak
+        isi_jawaban = []
+        for o in opsi_asli:
+            if ". " in o:
+                isi_jawaban.append(o.split(". ", 1)[1])
+            elif " - " in o:
+                isi_jawaban.append(o.split(" - ", 1)[1])
+            else:
+                isi_jawaban.append(o)
+        # Cari isi jawaban yang benar
+        if len(opsi_asli) == 5:
+            idx_benar = ord(kunci_lama) - ord("A")
+        else:
+            # Benar / Salah : B = index 0, S = index 1
+            idx_benar = 0 if kunci_lama == "B" else 1
+        isi_benar = isi_jawaban[idx_benar]
+        rng.shuffle(isi_jawaban)  # acak urutan jawaban
+        # Kasih huruf baru sesuai posisi baru
+        opsi_baru = []
+        kunci_baru_satu = ""
+        if len(opsi_asli) == 5:
+            huruf = ["A","B","C","D","E"]
+            for i, isi in enumerate(isi_jawaban):
+                opsi_baru.append(f"{huruf[i]}. {isi}")
+                if isi == isi_benar:
+                    kunci_baru_satu = huruf[i]
+        else:
+            # Benar / Salah tetap pakai B / S
+            for i, isi in enumerate(isi_jawaban):
+                label = "B" if isi == "Benar" else "S"
+                opsi_baru.append(f"{label} - {isi}")
+                if isi == isi_benar:
+                    kunci_baru_satu = label
+        # Hapus nomor lama di depan soal, ganti nomor baru nanti saat tampil
+        teks_bersih = teks_soal
+        # Buang "1. ", "10. " dll di depan
+        if ". " in teks_bersih[:5]:
+            teks_bersih = teks_bersih.split(". ", 1)[1]
+        soal_baru.append((teks_bersih, opsi_baru))
+        kunci_baru.append(kunci_baru_satu)
+    return soal_baru, kunci_baru
+
 def tampilkan_daftar(kategori):
     if kategori == "Iqro":
         daftar = ["MUHAMAD HARTANTO", "DAFFAN OKTAFFIL HIDAYAT"]
@@ -250,6 +310,9 @@ def tampilkan_daftar(kategori):
     for item in daftar:
         if st.button(item, key=f"{kategori}-{item}"):
             st.session_state["siswa_pilih"] = item
+            # Tiap klik nama baru, langsung acak soal baru
+            st.session_state["seed_acak"] = st.session_state["seed_acak"] + 1
+            st.session_state["soal_acak"] = None
             st.rerun()
 
 c_btn1, c_btn2, c_btn3 = st.columns(3)
@@ -279,22 +342,40 @@ if st.session_state["kategori_pilih"]:
         with c3:
             tampilkan_daftar("Tahfidz")
 
+# ===== HALAMAN SOAL - SUDAH DIACAK =====
 if st.session_state["siswa_pilih"]:
     nama = st.session_state["siswa_pilih"]
     info = DATA_SISWA.get(nama, {"kategori": "Iqro", "level": "Pemula"})
     kat = info["kategori"]
-    st.markdown(f"<div style='background-color: rgba(20,50,35,0.92); padding:20px; border-radius:15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>Assalamualaikum, {nama} 👋</h2><p style='color:white;'>Kelas: {kat} | Level: {info['level']} | Soal: 25 Soal (15 PG + 10 Benar/Salah) | Nilai: Benar x 4</p></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='background-color: rgba(20,50,35,0.92); padding:20px; border-radius:15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>Assalamualaikum, {nama} 👋</h2><p style='color:white;'>Kelas: {kat} | Level: {info['level']} | Soal: 25 Soal (15 PG + 10 Benar/Salah) | Nilai: Benar x 4 | Soal Diacak Otomatis 🔀</p></div>", unsafe_allow_html=True)
     if st.button("⬅️ Kembali ke Daftar Nama"):
         st.session_state["siswa_pilih"] = None
+        st.session_state["soal_acak"] = None
         st.rerun()
-    soal_list = SOAL_ALL[kat]
-    kunci = KUNCI[kat]
-    st.markdown(f"<h2 style='color:white; background-color: rgba(0,0,0,0.65); padding:10px; border-radius:10px; text-align:center;'>📝 Soal {kat} - Kelas XI MA</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='color:white; background-color: rgba(0,0,0,0.65); padding:8px; border-radius:10px; text-align:center;'>Jawab semua soal, lalu klik LIHAT NILAI di bawah.</p>", unsafe_allow_html=True)
+
+    # Bikin soal acak kalau belum ada / ganti kategori / ganti seed
+    if st.session_state["soal_acak"] is None or st.session_state["kat_acak"] != kat:
+        soal_list, kunci = buat_soal_acak(kat, st.session_state["seed_acak"])
+        st.session_state["soal_acak"] = soal_list
+        st.session_state["kunci_acak"] = kunci
+        st.session_state["kat_acak"] = kat
+    else:
+        soal_list = st.session_state["soal_acak"]
+        kunci = st.session_state["kunci_acak"]
+
+    # Tombol ulangi + acak lagi
+    if st.button("🔀 Acak Soal Lagi - Ulangi Dengan Urutan Beda", use_container_width=True):
+        st.session_state["seed_acak"] = st.session_state["seed_acak"] + 1
+        st.session_state["soal_acak"] = None
+        st.rerun()
+
+    st.markdown(f"<h2 style='color:white; background-color: rgba(0,0,0,0.65); padding:10px; border-radius:10px; text-align:center;'>📝 Soal {kat} - Kelas XI MA (Acak)</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='color:white; background-color: rgba(0,0,0,0.65); padding:8px; border-radius:10px; text-align:center;'>Soalnya sama tapi urutannya diacak! Jawab semua, lalu klik LIHAT NILAI.</p>", unsafe_allow_html=True)
     jawaban_siswa = []
+    seed = st.session_state["seed_acak"]
     for i, (soal, opsi) in enumerate(soal_list):
-        st.markdown(f"<div style='background-color: rgba(0,0,0,0.65); padding:12px; border-radius:10px; margin-bottom:5px;'><p style='color:white; font-weight:bold; font-size:17px; margin:0;'>{soal}</p></div>", unsafe_allow_html=True)
-        pilih = st.radio(f"Pilih jawaban No.{i+1}", opsi, key=f"soal_{kat}_{i}", index=None)
+        st.markdown(f"<div style='background-color: rgba(0,0,0,0.65); padding:12px; border-radius:10px; margin-bottom:5px;'><p style='color:white; font-weight:bold; font-size:17px; margin:0;'>{i+1}. {soal}</p></div>", unsafe_allow_html=True)
+        pilih = st.radio(f"Pilih jawaban No.{i+1}", opsi, key=f"soal_{kat}_{seed}_{i}", index=None)
         jawaban_siswa.append(pilih)
     if st.button("✅ LIHAT NILAI SAYA", use_container_width=True):
         benar = 0
@@ -313,9 +394,14 @@ if st.session_state["siswa_pilih"]:
             st.markdown("<p style='color:white;'>Sudah Bagus! Ayo ulangi yang salah, kamu pasti bisa! 📖</p>", unsafe_allow_html=True)
         else:
             st.markdown("<p style='color:white;'>Jangan menyerah! Ayo belajar lagi bersama QORI AI, kamu pasti bisa! 🤲</p>", unsafe_allow_html=True)
-        st.markdown("<div style='background-color: rgba(0,0,0,0.65); padding:10px; border-radius:10px;'><p style='color:white; font-weight:bold;'>Pembahasan Kunci Jawaban:</p></div>", unsafe_allow_html=True)
+        st.markdown("<div style='background-color: rgba(0,0,0,0.65); padding:10px; border-radius:10px;'><p style='color:white; font-weight:bold;'>Pembahasan Kunci Jawaban (Sesuai Urutan Acak Ini):</p></div>", unsafe_allow_html=True)
         for i in range(25):
             st.markdown(f"<p style='color:white;'>No.{i+1} = {kunci[i]}</p>", unsafe_allow_html=True)
+        st.write("")
+        if st.button("🔀 Ulangi Lagi Dengan Soal Acak Baru", use_container_width=True):
+            st.session_state["seed_acak"] = st.session_state["seed_acak"] + 1
+            st.session_state["soal_acak"] = None
+            st.rerun()
     st.stop()
 
 if st.session_state["messages"]:
@@ -354,5 +440,3 @@ if prompt:
                 st.session_state.messages.append({"role": "assistant", "content": response.text})
             except Exception as e:
                 st.write(f"Maaf, sedang ada gangguan. Coba lagi ya. ({e})")
-
-# KOTAK PUTIH PALING BAWAH SUDAH DIHAPUS - TIDAK ADA FOOTER LAGI
