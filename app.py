@@ -364,8 +364,14 @@ if st.session_state["login_nama"] is None:
     st.write("")
     st.stop()
 
-# ===== SUDAH LOGIN - INFO SINGKAT SAJA, TANPA SEBUT ADMIN / SISWA =====
-st.markdown(f"<div style='background-color: rgba(0,0,0,0.6); padding:10px; border-radius:10px; text-align:center; margin-top:10px;'><b style='color:white;'>👤 Selamat datang, {st.session_state['login_nama']}</b></div>", unsafe_allow_html=True)
+# ===== SUDAH LOGIN - SISWA DITAMBAHIN KELASNYA, TIM TIDAK =====
+if st.session_state["login_role"] == "siswa":
+    info_login = DATA_SISWA.get(st.session_state["login_nama"], {})
+    kelas_login = info_login.get("kategori", "")
+    teks_selamat = f"👤 Selamat datang, {st.session_state['login_nama']} | Kelas: {kelas_login}"
+else:
+    teks_selamat = f"👤 Selamat datang, {st.session_state['login_nama']}"
+st.markdown(f"<div style='background-color: rgba(0,0,0,0.6); padding:10px; border-radius:10px; text-align:center; margin-top:10px;'><b style='color:white;'>{teks_selamat}</b></div>", unsafe_allow_html=True)
 col_out1, col_out2 = st.columns([3,1])
 with col_out2:
     if st.button("🚪 Keluar / Ganti Nama", use_container_width=True):
