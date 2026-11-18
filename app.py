@@ -24,7 +24,6 @@ bg = get_base64("background.jpeg")
 if bg:
     st.markdown(f"""
     <style>
-    /* BIKIN FULL LAYAR - HAPUS JARAK PUTIH */
     html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {{
         background-image: url("data:image/jpeg;base64,{bg}") !important;
         background-size: cover !important;
@@ -32,17 +31,10 @@ if bg:
         background-repeat: no-repeat !important;
         background-attachment: fixed !important;
         background-color: #000 !important;
-        height: 100vh !important;
-        width: 100vw !important;
-        margin: 0 !important;
-        padding: 0 !important;
     }}
-    /* HAPUS HEADER PUTIH ATAS */
     [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"] {{
         background: transparent !important;
-        background-color: transparent !important;
     }}
-    /* GELAPIN DIKIT BIAR TULISAN KEBACA */
     [data-testid="stAppViewContainer"]::before {{
         content: "";
         position: fixed;
@@ -51,7 +43,6 @@ if bg:
         z-index: 0;
         pointer-events: none;
     }}
-    /* ISI TETAP DI TENGAH */
     .block-container {{
         position: relative;
         z-index: 1;
@@ -59,28 +50,9 @@ if bg:
         padding-bottom: 20px !important;
         max-width: 900px !important;
     }}
-    /* BIKIN CHAT & TOMBOL LEBIH JELAS */
     [data-testid="stChatMessage"] {{
         background-color: rgba(255,255,255,0.95) !important;
         border-radius: 12px !important;
-    }}
-    </style>
-    """, unsafe_allow_html=True)
-        background-image: url("data:image/jpeg;base64,{bg}");
-        background-size: cover;
-        background-position: center;
-        background-attachment: fixed;
-    }}
-    .stApp::before {{
-        content: "";
-        position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0,0,0,0.45);
-        z-index: 0;
-    }}
-    .block-container {{
-        position: relative;
-        z-index: 1;
     }}
     </style>
     """, unsafe_allow_html=True)
@@ -150,7 +122,7 @@ if prompt:
         st.write(prompt)
     with st.chat_message("assistant"):
         if not api_key:
-            st.write("Maaf, API Key belum dipasang di Secrets Streamlit. Minta tolong guru untuk pasang GEMINI_API_KEY dulu ya.")
+            st.write("Maaf, API Key belum dipasang di Secrets Streamlit.")
         else:
             try:
                 client = genai.Client(api_key=api_key)
@@ -160,4 +132,4 @@ if prompt:
             except Exception as e:
                 st.write(f"Maaf, sedang ada gangguan. Coba lagi ya. ({e})")
 
-st.markdown("<p style='text-align:center; font-size:12px; margin-top:20px; background-color:white; padding:8px; border-radius:10px;'> QORI AI - Madrasah Aliyah Al Barokah ✨ خَيْرُكُمْ مَنْ تَعَلَّمَ الْقُرْآنَ وَعَلَّمَهُ ✨ Sebaik-baik kalian adalah yang belajar Al-Qur'an dan mengajarkannya</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center; font-size:12px; margin-top:20px; background-color:white; padding:8px; border-radius:10px;'> QORI AI - Madrasah Aliyah Al Barokah</p>", unsafe_allow_html=True)
