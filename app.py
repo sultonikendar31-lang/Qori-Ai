@@ -1468,18 +1468,14 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
                     if not st.session_state.get(flag_upload, False):
                         st.markdown("### 🎤 Langkah 1: Baca, lalu upload suara untuk potongan ini")
                         st.caption(f"Rekaman ini khusus untuk {surat_aktif}, {rentang_ayat}.")
-                        st.markdown(
-                            "<div style='background:#FFFFFF; padding:12px; border-radius:12px; border:2px solid #1A5C2A;'>"
-                            "<p style='color:#000000; font-size:16px; font-weight:bold; margin:0;'>🎤 Upload Suara Bacaan (maksimal 5 ayat):</p>"
-                            f"<p style='color:#333333; font-size:14px; margin:0;'>Klik tombol hijau di bawah untuk memilih file MP3 / WAV / M4A. Khusus untuk {html.escape(surat_aktif)}, {html.escape(rentang_ayat)}.</p>"
-                            "</div>",
-                            unsafe_allow_html=True,
-                        )
+                        # Satu-satunya kotak upload: gunakan uploader Streamlit langsung.
+                        # Kotak HTML judul upload yang sebelumnya berada di atas dihapus
+                        # agar tidak muncul dua kotak putih bertumpuk.
+                        st.caption(f"File suara untuk {surat_aktif}, {rentang_ayat}.")
                         audio_potong = st.file_uploader(
-                            "Pilih file suara di sini:",
+                            "📥 Upload Suara Bacaan (maksimal 5 ayat):",
                             type=["mp3", "wav", "m4a", "ogg", "webm", "opus", "aac"],
                             key=f"uploader_potong_{kunci_potong}",
-                            label_visibility="collapsed",
                         )
                         if audio_potong:
                             st.audio(audio_potong)
