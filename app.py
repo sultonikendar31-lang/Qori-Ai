@@ -55,7 +55,22 @@ st.markdown("""
 }
 [data-testid="stAlert"] * {
     color: #000000 !important;
-    font-weight: 600 !important;
+    font-weight: 900 !important;
+}
+/* Paksa warna teks pada kotak Mode Tahsin, terlepas dari tema Streamlit */
+.qori-mode-tahsin,
+.qori-mode-tahsin * {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+    font-weight: 900 !important;
+}
+.qori-mode-tahsin {
+    background: #FFFFFF !important;
+    border: 3px solid #1A5C2A !important;
+}
+.qori-mode-tahsin p::selection {
+    color: #000000 !important;
+    background: #FFE082 !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -1389,10 +1404,10 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
             bacaan_juz30_selesai = bool(st.session_state.get("setoran_juz30_selesai", False))
             if kat_setoran == "Tahsin":
                 st.markdown("""
-                <div style='background:#FFFFFF; padding:14px; border-radius:12px; border:3px solid #1A5C2A;'>
-                <p style='color:#000000 !important; font-size:16px; font-weight:800; line-height:1.6; margin:0;'>
-                📖 Mode Tahsin: baca ayat dengan memperhatikan makhraj, sifat huruf, panjang-pendek, dan hukum tajwid.
-                </p>
+                <div class="qori-mode-tahsin" style="background:#FFFFFF !important; color:#000000 !important; padding:14px; border-radius:12px; border:3px solid #1A5C2A;">
+                    <p style="color:#000000 !important; -webkit-text-fill-color:#000000 !important; font-size:17px; font-weight:900 !important; line-height:1.6; margin:0;">
+                    📖 Mode Tahsin: baca ayat dengan memperhatikan makhraj, sifat huruf, panjang-pendek, dan hukum tajwid.
+                    </p>
                 </div>
                 """, unsafe_allow_html=True)
             else:
