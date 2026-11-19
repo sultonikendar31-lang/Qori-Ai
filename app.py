@@ -3,7 +3,14 @@ import streamlit.components.v1 as components
 import base64
 import random
 import time
+import os
+import sqlite3
+import hashlib
+import hmac
+import html
+from contextlib import closing
 from openai import OpenAI
+from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="QORI AI", page_icon="🕌", layout="wide")
 
@@ -82,18 +89,106 @@ if not st.session_state["sudah_bersihkan_no7"]:
     if "ZALFATUSSYIFA RAMADANTI" in st.session_state.get("hitung_ulang", {}):
         del st.session_state["hitung_ulang"]["ZALFATUSSYIFA RAMADANTI"]
 
+
 DURASI_UJIAN = 10 * 60
 KKM = 75
 prompt_awal = None
 
-try:
-    qp = st.query_params
-    status_ujian_url = qp.get("ujian", "")
-    nama_url = qp.get("nama", "")
-    if status_ujian_url == "jalan" and st.session_state["siswa_pilih"] is None and st.session_state["curang_refresh"] is None:
-        st.session_state["curang_refresh"] = nama_url if nama_url else "SISWA"
-except:
-    pass
+# ===== DATABASE PERSISTEN QORI AI =====
+# Untuk server lokal gunakan qori_ai.db. Pada deployment cloud multi-instance,
+# arahkan QORI_DB_PATH ke volume persisten atau ganti adapter dengan PostgreSQL/Supabase.
+DB_PATH = os.getenv("QORI_DB_PATH", "qori_ai.db")
+
+def db_connect():
+    conn = sqlite3.connect(DB_PATH, timeout=20, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+def init_database():
+    with closing(db_connect()) as conn:
+        conn.executescript("""
+        CREATE TABLE IF NOT EXISTS exam_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_name TEXT NOT NULL,
+            category TEXT NOT NULL,
+            score INTEGER NOT NULL,
+            correct_count INTEGER NOT NULL,
+            attempt_no INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_exam_student ON exam_results(student_name, id);
+        CREATE TABLE IF NOT EXISTS activity_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_name TEXT NOT NULL,
+            category TEXT,
+            activity TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            duration TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS suggestions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender TEXT NOT NULL,
+            sender_label TEXT NOT NULL,
+            role TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            body TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            reply TEXT DEFAULT '',
+            replied_by TEXT DEFAULT ''
+        );
+        """)
+        conn.commit()
+
+def load_persistent_data():
+    """Muat ulang data bersama setiap rerun agar perubahan sesi lain terlihat."""
+    init_database()
+    with closing(db_connect()) as conn:
+        latest = conn.execute("""
+            SELECT e.* FROM exam_results e
+            INNER JOIN (SELECT student_name, MAX(id) AS max_id
+                        FROM exam_results GROUP BY student_name) x
+            ON e.id=x.max_id
+        """).fetchall()
+        attempts = conn.execute("""
+            SELECT student_name, COUNT(*) AS n FROM exam_results GROUP BY student_name
+        """).fetchall()
+        activities = conn.execute("""
+            SELECT student_name AS nama, category AS kelas, activity AS aktivitas,
+                   created_at AS jam, duration AS lama
+            FROM activity_log ORDER BY id
+        """).fetchall()
+        suggestions = conn.execute("""
+            SELECT id, sender AS pengirim, sender_label AS label, role, kind AS jenis,
+                   body AS isi, created_at AS jam, reply AS balasan, replied_by AS pembalas
+            FROM suggestions ORDER BY id
+        """).fetchall()
+    st.session_state["hasil_semua"] = {r["student_name"]: int(r["score"]) for r in latest}
+    st.session_state["hitung_ulang"] = {r["student_name"]: int(r["n"]) for r in attempts}
+    st.session_state["riwayat_aktivitas"] = [dict(r) for r in activities]
+    st.session_state["saran_list"] = [dict(r) for r in suggestions]
+
+def simpan_hasil_database(nama, kategori, nilai, benar, percobaan):
+    with closing(db_connect()) as conn:
+        conn.execute("""
+            INSERT INTO exam_results(student_name, category, score, correct_count, attempt_no, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (nama, kategori, int(nilai), int(benar), int(percobaan),
+              time.strftime("%Y-%m-%d %H:%M:%S")))
+        conn.commit()
+
+def verifikasi_password(nama, password):
+    """USER_PASSWORDS berisi SHA-256 password, bukan password teks biasa."""
+    users = st.secrets.get("USER_PASSWORDS", {})
+    hash_tersimpan = users.get(nama, "")
+    if not hash_tersimpan:
+        return False
+    hash_input = hashlib.sha256(password.encode("utf-8")).hexdigest()
+    return hmac.compare_digest(str(hash_tersimpan), hash_input)
+
+
+# Deteksi refresh berbasis query string dihapus karena mudah dimanipulasi dan dapat memberi nilai 0 kepada siswa lain.
 
 SYSTEM_PROMPT_KUNCI = """
 Kamu adalah QORI AI, guru yang ramah dan pintar untuk anak Madrasah Aliyah Al-Barokah.
@@ -191,7 +286,6 @@ def tampilkan_timer(sisa_detik):
     <script>
     let sisa = {int(sisa_detik)};
     let sudahBunyi = {{}};
-    window.onbeforeunload = function() {{ return "Yakin mau keluar? Nilai ujian akan jadi 0!"; }};
     function bunyiTit(panjang) {{
         try {{
             let ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -252,6 +346,9 @@ DATA_SISWA = {
     "IMAM MANSYUR IBNU HULKAN": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki"},
 }
 
+# Muat data bersama dari database setelah daftar siswa tersedia.
+load_persistent_data()
+
 # ===== RIWAYAT / STORY SISWA - KHUSUS TIM =====
 def catat_aktivitas(aktivitas):
     if st.session_state.get("login_role") != "siswa":
@@ -265,13 +362,20 @@ def catat_aktivitas(aktivitas):
     detik = lama_detik % 60
     lama = f"{menit} mnt {detik} dtk" if menit > 0 else f"{detik} dtk"
     info = DATA_SISWA.get(st.session_state["login_nama"], {})
-    st.session_state["riwayat_aktivitas"].append({
+    record = {
         "nama": st.session_state["login_nama"],
         "kelas": info.get("kategori", "-"),
         "aktivitas": aktivitas,
         "jam": jam,
         "lama": lama,
-    })
+    }
+    st.session_state["riwayat_aktivitas"].append(record)
+    with closing(db_connect()) as conn:
+        conn.execute(
+            "INSERT INTO activity_log(student_name, category, activity, created_at, duration) VALUES (?, ?, ?, ?, ?)",
+            (record["nama"], record["kelas"], record["aktivitas"], record["jam"], record["lama"])
+        )
+        conn.commit()
 
 def tampilkan_riwayat_siswa():
     st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📋 Riwayat / Story Siswa</h2><p style='color:white; margin:5px 0 0 0;'>Khusus Tim Penyusun - Siswa TIDAK bisa lihat ini</p></div>", unsafe_allow_html=True)
@@ -306,6 +410,9 @@ def tampilkan_riwayat_siswa():
     with c2:
         if st.button("🗑️ Hapus Riwayat", use_container_width=True):
             st.session_state["riwayat_aktivitas"] = []
+            with closing(db_connect()) as conn:
+                conn.execute("DELETE FROM activity_log")
+                conn.commit()
             st.rerun()
 
 # ===== KOTAK SARAN / KRITIK / KELUHAN - TIM & SISWA =====
@@ -326,7 +433,7 @@ def tampilkan_kotak_saran():
             else:
                 nama_t = NAMA_LENGKAP_TIM.get(st.session_state["login_nama"], st.session_state["login_nama"])
                 label_pengirim = f"{nama_t} | {TIM_PENYUSUN.get(st.session_state['login_nama'],'Tim')}"
-            st.session_state["saran_list"].append({
+            data_saran = {
                 "pengirim": st.session_state["login_nama"],
                 "label": label_pengirim,
                 "role": st.session_state["login_role"],
@@ -335,7 +442,17 @@ def tampilkan_kotak_saran():
                 "jam": time.strftime("%d/%m/%Y %H:%M", time.localtime(time.time())),
                 "balasan": "",
                 "pembalas": "",
-            })
+            }
+            with closing(db_connect()) as conn:
+                cur = conn.execute(
+                    """INSERT INTO suggestions(sender, sender_label, role, kind, body, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (data_saran["pengirim"], data_saran["label"], data_saran["role"],
+                     data_saran["jenis"], data_saran["isi"], data_saran["jam"])
+                )
+                data_saran["id"] = cur.lastrowid
+                conn.commit()
+            st.session_state["saran_list"].append(data_saran)
             catat_aktivitas(f"Kirim {jenis_saran}")
             st.success("✅ Terima kasih! Saran / Kritik / Keluhanmu sudah terkirim ke Tim.")
             st.rerun()
@@ -357,9 +474,15 @@ def tampilkan_kotak_saran():
         for idx, s in enumerate(tampil):
             # Cari index asli di list utama untuk balas / hapus
             idx_asli = st.session_state["saran_list"].index(s)
-            st.markdown(f"<div style='background-color: rgba(255,255,255,0.12); border:1.5px solid rgba(255,255,255,0.5); padding:14px; border-radius:12px; margin-bottom:10px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>{s['jenis']} - {s['label']}</p><p style='color:#AAAAAA; font-size:12px; margin:2px 0 8px 0;'>{s['jam']}</p><p style='color:white; margin:0;'>{s['isi']}</p></div>", unsafe_allow_html=True)
+            jenis_html = html.escape(str(s.get("jenis", "")))
+            label_html = html.escape(str(s.get("label", "")))
+            jam_html = html.escape(str(s.get("jam", "")))
+            isi_html = html.escape(str(s.get("isi", "")))
+            st.markdown(f"<div style='background-color: rgba(255,255,255,0.12); border:1.5px solid rgba(255,255,255,0.5); padding:14px; border-radius:12px; margin-bottom:10px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>{jenis_html} - {label_html}</p><p style='color:#AAAAAA; font-size:12px; margin:2px 0 8px 0;'>{jam_html}</p><p style='color:white; margin:0;'>{isi_html}</p></div>", unsafe_allow_html=True)
             if s.get("balasan"):
-                st.markdown(f"<div style='background-color: rgba(20,50,35,0.9); border:1.5px solid #F9D423; padding:12px; border-radius:12px; margin:-5px 0 12px 20px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>↩️ Balasan dari {s['pembalas']}:</p><p style='color:white; margin:4px 0 0 0;'>{s['balasan']}</p></div>", unsafe_allow_html=True)
+                pembalas_html = html.escape(str(s.get("pembalas", "")))
+                balasan_html = html.escape(str(s.get("balasan", "")))
+                st.markdown(f"<div style='background-color: rgba(20,50,35,0.9); border:1.5px solid #F9D423; padding:12px; border-radius:12px; margin:-5px 0 12px 20px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>↩️ Balasan dari {pembalas_html}:</p><p style='color:white; margin:4px 0 0 0;'>{balasan_html}</p></div>", unsafe_allow_html=True)
             # Tim bisa balas
             if st.session_state["login_role"] == "tim":
                 balas = st.text_input(f"Balas pesan ini (Tim):", key=f"balas_{idx_asli}", placeholder="Tulis balasan untuk pengirim...")
@@ -370,12 +493,29 @@ def tampilkan_kotak_saran():
                             st.warning("⚠️ Balasannya masih kosong!")
                         else:
                             nama_t = NAMA_LENGKAP_TIM.get(st.session_state["login_nama"], st.session_state["login_nama"])
+                            pembalas = f"{nama_t} | {TIM_PENYUSUN.get(st.session_state['login_nama'],'Tim')}"
                             st.session_state["saran_list"][idx_asli]["balasan"] = balas.strip()
-                            st.session_state["saran_list"][idx_asli]["pembalas"] = f"{nama_t} | {TIM_PENYUSUN.get(st.session_state['login_nama'],'Tim')}"
+                            st.session_state["saran_list"][idx_asli]["pembalas"] = pembalas
+                            saran_id = st.session_state["saran_list"][idx_asli].get("id")
+                            if saran_id:
+                                with closing(db_connect()) as conn:
+                                    conn.execute("UPDATE suggestions SET reply=?, replied_by=? WHERE id=?",
+                                                 (balas.strip(), pembalas, saran_id))
+                                    conn.commit()
                             st.success("✅ Balasan terkirim!")
                             st.rerun()
                 with cb2:
                     if st.button("🗑️ Hapus Pesan", key=f"hapus_saran_{idx_asli}", use_container_width=True):
+                        item_hapus = st.session_state["saran_list"][idx_asli]
+                        if item_hapus.get("id"):
+                            with closing(db_connect()) as conn:
+                                conn.execute("DELETE FROM suggestions WHERE id=?", (item_hapus["id"],))
+                                conn.commit()
+                        item_hapus = st.session_state["saran_list"][idx_asli]
+                        if item_hapus.get("id"):
+                            with closing(db_connect()) as conn:
+                                conn.execute("DELETE FROM suggestions WHERE id=?", (item_hapus["id"],))
+                                conn.commit()
                         del st.session_state["saran_list"][idx_asli]
                         st.rerun()
             # Siswa bisa hapus pesan sendiri yang belum dibalas
@@ -389,7 +529,7 @@ def tampilkan_kotak_saran():
         st.rerun()
 
 def tampilkan_daftar_hasil_nilai():
-    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📊 Daftar Hasil Nilai</h2><p style='color:white; margin:5px 0 0 0;'>KKM = 75 | Nilai ≤ 75 = <b style=\"color:#FF5252;\">MERAH (Belum Tuntas)</b> | Nilai > 75 = <b style=\"color:white;\">PUTIH (Tuntas)</b> | Belum Ujian = <b style=\"color:#AAAAAA;\">- (Belum Mengerjakan)</b></p></div>", unsafe_allow_html=True)
+    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📊 Daftar Hasil Nilai</h2><p style='color:white; margin:5px 0 0 0;'>KKM = 75 | Nilai < 75 = <b style=\"color:#FF5252;\">MERAH (Belum Tuntas)</b> | Nilai ≥ 75 = <b style=\"color:white;\">PUTIH (Tuntas)</b> | Belum Ujian = <b style=\"color:#AAAAAA;\">- (Belum Mengerjakan)</b></p></div>", unsafe_allow_html=True)
     st.write("")
     if st.session_state["login_role"] == "siswa":
         daftar_tampil = [st.session_state["login_nama"]] if st.session_state["login_nama"] in DATA_SISWA else []
@@ -414,7 +554,7 @@ def tampilkan_daftar_hasil_nilai():
             if jml_ulang == 0:
                 jml_ulang = 1
             teks_ulang = f"{jml_ulang}x" if jml_ulang <= 1 else f"{jml_ulang}x 🔁"
-            if nilai <= KKM:
+            if nilai < KKM:
                 warna_nilai = "#FF5252"
                 ket = "❌ Belum Tuntas"
                 warna_ket = "#FF5252"
@@ -494,11 +634,17 @@ if st.session_state["login_nama"] is None:
     </div>
     """, unsafe_allow_html=True)
     st.write("")
-    nama_input = st.text_input("✍️ Nama Lengkap:", placeholder="Tulis nama lengkapmu di sini...", key="input_nama_login")
+    nama_input = st.text_input("✍️ Nama Lengkap:", placeholder="Tulis nama lengkap sesuai daftar...", key="input_nama_login")
+    password_input = st.text_input("🔑 Password:", type="password", key="input_password_login")
+    st.caption("Akun harus didaftarkan oleh administrator. Hubungi tim QORI AI jika belum memiliki password.")
     if st.button("🚪 Masuk ke QORI AI", use_container_width=True):
         nama_bersih = nama_input.strip().upper()
-        if not nama_bersih:
-            st.warning("⚠️ Nama belum diisi!")
+        if not nama_bersih or not password_input:
+            st.warning("⚠️ Nama dan password wajib diisi.")
+        elif nama_bersih not in TIM_PENYUSUN and nama_bersih not in DATA_SISWA:
+            st.error("❌ Nama tidak terdaftar. Periksa kembali atau hubungi administrator.")
+        elif not verifikasi_password(nama_bersih, password_input):
+            st.error("⛔ Password salah atau akun belum dikonfigurasi oleh administrator.")
         elif nama_bersih in TIM_PENYUSUN:
             st.session_state["login_nama"] = nama_bersih
             st.session_state["login_role"] = "tim"
@@ -506,19 +652,17 @@ if st.session_state["login_nama"] is None:
             st.session_state["waktu_login"] = time.time()
             st.session_state["sudah_catat_masuk"] = False
             st.success(f"✅ Selamat datang, {NAMA_LENGKAP_TIM.get(nama_bersih, nama_bersih)}")
-            time.sleep(0.5)
+            time.sleep(0.3)
             st.rerun()
-        elif nama_bersih in DATA_SISWA:
+        else:
             st.session_state["login_nama"] = nama_bersih
             st.session_state["login_role"] = "siswa"
             st.session_state["login_jabatan"] = f"Siswa {DATA_SISWA[nama_bersih]['kategori']}"
             st.session_state["waktu_login"] = time.time()
             st.session_state["sudah_catat_masuk"] = False
             st.success(f"✅ Selamat datang, {nama_bersih}")
-            time.sleep(0.5)
+            time.sleep(0.3)
             st.rerun()
-        else:
-            st.error("❌ Nama tidak ditemukan! Cek lagi ejaannya, atau tanya ke guru.")
     st.write("")
     st.stop()
 
@@ -563,40 +707,9 @@ if st.session_state["siswa_pilih"] is None and st.session_state["login_role"] ==
 
 st.write("")
 
-if st.session_state["curang_refresh"]:
-    nama_curang = st.session_state["curang_refresh"]
-    st.session_state["hasil_semua"][nama_curang] = 0
-    if nama_curang not in st.session_state["hitung_ulang"]:
-        st.session_state["hitung_ulang"][nama_curang] = 1
-    st.markdown(f"<div style='background-color:#7A0000; padding:25px; border-radius:15px; text-align:center; border:3px solid #FF5252;'><h1 style='color:white;'>⛔ TERDETEKSI REFRESH SAAT UJIAN!</h1><p style='color:white; font-size:20px;'>Nama: {nama_curang}</p><h1 style='color:#F9D423; font-size:60px;'>Nilai: 0</h1><p style='color:white; font-size:18px;'>Kamu keluar / refresh halaman saat ujian sedang berjalan.<br>Jawabanmu tidak disimpan dan nilai dianggap 0.<br>Kamu masih bisa Remedial / Mengulang sampai Tuntas.</p></div>", unsafe_allow_html=True)
-    st.write("")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🔁 Remedial - Ulangi Lagi", use_container_width=True):
-            st.session_state["curang_refresh"] = None
-            st.session_state["siswa_pilih"] = nama_curang
-            st.session_state["seed_acak"] = st.session_state["seed_acak"] + 1
-            st.session_state["soal_acak"] = None
-            st.session_state["waktu_mulai"] = time.time()
-            st.session_state["waktu_habis"] = False
-            st.session_state["ujian_selesai"] = False
-            st.session_state["hasil_ujian"] = None
-            try:
-                st.query_params["ujian"] = "jalan"
-                st.query_params["nama"] = nama_curang
-            except:
-                pass
-            st.rerun()
-    with col2:
-        if st.button("🏠 Saya Mengerti - Kembali ke Beranda", use_container_width=True):
-            st.session_state["curang_refresh"] = None
-            st.session_state["siswa_pilih"] = None
-            try:
-                st.query_params.clear()
-            except:
-                pass
-            st.rerun()
-    st.stop()
+# Status ujian tidak lagi ditentukan oleh query parameter yang dapat diubah pengguna.
+# Timer dan penilaian dilakukan berdasarkan waktu server pada sesi ujian.
+
 
 KUNCI = {
     "Iqro": ["C","C","B","A","C","B","A","B","C","C","B","C","C","C","B","B","S","B","B","B","B","S","B","S","B"],
@@ -757,11 +870,6 @@ def tampilkan_daftar(kategori):
             st.session_state["lihat_riwayat"] = False
             st.session_state["lihat_saran"] = False
             catat_aktivitas(f"Mulai Ujian - {kategori}")
-            try:
-                st.query_params["ujian"] = "jalan"
-                st.query_params["nama"] = item
-            except:
-                pass
             st.rerun()
 
 if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai"]:
@@ -862,12 +970,13 @@ if st.session_state["siswa_pilih"]:
     jml_percobaan = st.session_state["hitung_ulang"].get(nama, 0)
     st.markdown(f"<div style='background-color: rgba(20,50,35,0.92); padding:20px; border-radius:15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>Assalamualaikum, {nama} 👋</h2><p style='color:white;'>Kelas: {kat} | Level: {info['level']} | Soal: 25 Soal | Nilai: Benar x 4 | Waktu: 10 Menit | KKM: 75 | Percobaan ke-{jml_percobaan + 1 if not st.session_state['ujian_selesai'] else jml_percobaan}</p></div>", unsafe_allow_html=True)
     if not st.session_state["ujian_selesai"]:
-        st.warning("🔒 UJIAN TERKUNCI - Jangan refresh / tutup tab / pencet back! Kalau refresh, nilai langsung jadi 0!")
+        st.warning("🔒 UJIAN BERLANGSUNG - Jangan refresh atau menutup tab. Sisa waktu dihitung oleh server; jawaban yang tersimpan di sesi akan dinilai saat waktu habis.")
+        st_autorefresh(interval=1000, key=f"qori_timer_{nama}_{st.session_state['seed_acak']}")
     tampilkan_timer(sisa_detik)
     if st.session_state["waktu_habis"] and not st.session_state["ujian_selesai"]:
         st.error("⛔ WAKTU HABIS! 10 menit sudah selesai. Silakan klik LIHAT NILAI di bawah.")
     if st.session_state["ujian_selesai"]:
-        if st.session_state["hasil_ujian"] and st.session_state["hasil_ujian"]["nilai"] <= KKM:
+        if st.session_state["hasil_ujian"] and st.session_state["hasil_ujian"]["nilai"] < KKM:
             col_r, col_k = st.columns(2)
             with col_r:
                 if st.button("🔁 Remedial - Ulangi Lagi Sampai Tuntas", use_container_width=True):
@@ -880,11 +989,6 @@ if st.session_state["siswa_pilih"]:
                     st.session_state["waktu_habis"] = False
                     st.session_state["ujian_selesai"] = False
                     st.session_state["hasil_ujian"] = None
-                    try:
-                        st.query_params["ujian"] = "jalan"
-                        st.query_params["nama"] = nama
-                    except:
-                        pass
                     st.rerun()
             with col_k:
                 if st.button("🏠 Kembali ke Beranda", use_container_width=True):
@@ -929,33 +1033,41 @@ if st.session_state["siswa_pilih"]:
     kunci_input = st.session_state["ujian_selesai"]
     for i, (soal, opsi) in enumerate(soal_list):
         st.markdown(f"<div style='background-color: rgba(0,0,0,0.65); padding:12px; border-radius:10px; margin-bottom:5px;'><p style='color:white; font-weight:bold; font-size:17px; margin:0;'>{i+1}. {soal}</p></div>", unsafe_allow_html=True)
-        pilih = st.radio(f"Pilih jawaban No.{i+1}", opsi, key=f"soal_{kat}_{seed}_{i}", index=None, disabled=kunci_input)
+        pilih = st.radio(f"Pilih jawaban No.{i+1}", opsi, key=f"soal_{kat}_{seed}_{i}", index=None, disabled=(kunci_input or st.session_state["waktu_habis"]))
         jawaban_siswa.append(pilih)
+
+    def proses_simpan_nilai(jawaban, kunci_jawaban):
+        benar = sum(1 for i, pilihan in enumerate(jawaban)
+                    if pilihan and pilihan[0] == kunci_jawaban[i])
+        nilai_hitung = int(round((benar / len(kunci_jawaban)) * 100))
+        st.session_state["ujian_selesai"] = True
+        st.session_state["waktu_habis"] = True if time.time() - st.session_state["waktu_mulai"] >= DURASI_UJIAN else st.session_state["waktu_habis"]
+        st.session_state["hasil_ujian"] = {"benar": benar, "nilai": nilai_hitung}
+        st.session_state["hasil_semua"][nama] = nilai_hitung
+        st.session_state["hitung_ulang"][nama] = st.session_state["hitung_ulang"].get(nama, 0) + 1
+        simpan_hasil_database(nama, kat, nilai_hitung, benar, st.session_state["hitung_ulang"][nama])
+        catat_aktivitas(f"Selesai Ujian - Nilai {nilai_hitung}")
+        try:
+            st.query_params.clear()
+        except Exception:
+            pass
+
+    if st.session_state["waktu_habis"] and not st.session_state["ujian_selesai"]:
+        proses_simpan_nilai(jawaban_siswa, kunci)
+        st.rerun()
+
     if not st.session_state["ujian_selesai"]:
         if st.button("✅ LIHAT NILAI SAYA - SELESAI", use_container_width=True):
-            benar = 0
-            for i, pilih in enumerate(jawaban_siswa):
-                if pilih and pilih[0] == kunci[i]:
-                    benar += 1
-            nilai = (benar / 25) * 100
-            st.session_state["ujian_selesai"] = True
-            st.session_state["hasil_ujian"] = {"benar": benar, "nilai": int(nilai)}
-            st.session_state["hasil_semua"][nama] = int(nilai)
-            st.session_state["hitung_ulang"][nama] = st.session_state["hitung_ulang"].get(nama, 0) + 1
-            catat_aktivitas(f"Selesai Ujian - Nilai {int(nilai)}")
-            try:
-                st.query_params.clear()
-            except:
-                pass
+            proses_simpan_nilai(jawaban_siswa, kunci)
             st.rerun()
     if st.session_state["ujian_selesai"] and st.session_state["hasil_ujian"]:
         hasil = st.session_state["hasil_ujian"]
         benar = hasil["benar"]
         nilai = hasil["nilai"]
         percobaan = st.session_state["hitung_ulang"].get(nama, 1)
-        warna_n = "#FF5252" if nilai <= KKM else "#FFFFFF"
+        warna_n = "#FF5252" if nilai < KKM else "#FFFFFF"
         st.success(f"🎉 HASIL {nama} - Kelas {kat}")
-        st.markdown(f"<div style='background-color: rgba(0,0,0,0.65); padding:15px; border-radius:10px; text-align:center;'><h1 style='color:{warna_n};'>Nilai: {nilai}</h1><p style='color:white;'>Jawaban Benar: {benar} / 25 | Salah / Kosong: {25-benar} | KKM: 75 | Percobaan ke-{percobaan} | {'❌ Belum Tuntas - Silakan klik Remedial di atas untuk mengulang!' if nilai <= KKM else '✅ Tuntas!'}</p><p style='color:white;'>Perhitungan: ({benar} ÷ 25) × 100 = {nilai}</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='background-color: rgba(0,0,0,0.65); padding:15px; border-radius:10px; text-align:center;'><h1 style='color:{warna_n};'>Nilai: {nilai}</h1><p style='color:white;'>Jawaban Benar: {benar} / 25 | Salah / Kosong: {25-benar} | KKM: 75 | Percobaan ke-{percobaan} | {'❌ Belum Tuntas - Silakan klik Remedial di atas untuk mengulang!' if nilai < KKM else '✅ Tuntas!'}</p><p style='color:white;'>Perhitungan: ({benar} ÷ 25) × 100 = {nilai}</p></div>", unsafe_allow_html=True)
         if nilai == 100:
             st.balloons()
             st.markdown("<p style='color:white;'>MasyaAllah Sempurna! 🌟 Pertahankan ya!</p>", unsafe_allow_html=True)
@@ -1011,7 +1123,9 @@ if prompt:
             st.markdown(jawaban)
             st.session_state.messages.append({"role": "assistant", "content": jawaban})
         elif not api_key:
-            st.markdown("Maaf, API Key belum dipasang di Secrets Streamlit.")
+            jawaban = "Maaf, layanan AI belum dikonfigurasi. Silakan hubungi administrator QORI AI."
+            st.markdown(jawaban)
+            st.session_state.messages.append({"role": "assistant", "content": jawaban})
         else:
             try:
                 client = OpenAI(api_key=api_key)
@@ -1024,4 +1138,4 @@ if prompt:
                 st.markdown(jawaban)
                 st.session_state.messages.append({"role": "assistant", "content": jawaban})
             except Exception as e:
-                st.markdown(f"Maaf, sedang ada gangguan. Coba lagi ya. Cek saldo OpenAI, mungkin habis. ({e})")
+                st.error("Maaf, QORI AI sedang mengalami gangguan. Silakan coba beberapa saat lagi.")
