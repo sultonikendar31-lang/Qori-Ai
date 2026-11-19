@@ -9,7 +9,10 @@ import hmac
 import html
 import csv
 import io
+import json
+import re
 import sqlite3
+from urllib.request import Request, urlopen
 from openai import OpenAI
 try:
     from streamlit_autorefresh import st_autorefresh
@@ -17,6 +20,18 @@ except:
     st_autorefresh = None
 
 st.set_page_config(page_title="QORI AI", page_icon="🕌", layout="wide")
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def ambil_ayat_surat_quran(nomor_surat):
+    """Ambil teks Arab lengkap satu surat dari API Al-Quran Cloud dan cache 24 jam."""
+    url = f"https://api.alquran.cloud/v1/surah/{int(nomor_surat)}"
+    request = Request(url, headers={"User-Agent": "QORI-AI/1.0"})
+    with urlopen(request, timeout=15) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if payload.get("code") != 200 or not payload.get("data", {}).get("ayahs"):
+        raise ValueError("Data ayat tidak tersedia dari layanan Al-Quran.")
+    return payload["data"]["ayahs"]
+
 api_key = st.secrets.get("OPENAI_API_KEY", "")
 
 # ===== DATABASE SQLITE =====
@@ -1299,43 +1314,152 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
     else:
         idx_kat = 1
     kat_setoran = st.selectbox("Kategori Setoran:", ["Iqro","Tahsin","Tahfidz"], index=idx_kat, key="kat_setoran")
-    surat_juz30 = st.selectbox("📖 Pilih Surat Juz 30 (kalau setoran Tahfidz / Tahsin):", ["-- Ketik Sendiri / Bukan Juz 30 --"] + JUZ30_SURAH, key="surat_juz30")
-    if surat_juz30 != "-- Ketik Sendiri / Bukan Juz 30 --":
-        st.info(f"Surat dipilih: **{surat_juz30}** — tinggal isi ayatnya di bawah kalau perlu.")
-    judul_setoran = st.text_input("Materi / Ayat / Judul Setoran:", placeholder="Contoh: Ayat 1-4 | Iqro 2 Hal. 5 | Atau kosongkan kalau sudah pilih surat di atas", key="judul_setoran")
-    ket_setoran = st.text_area("Keterangan (opsional):", placeholder="Contoh: Mohon dikoreksi makhraj huruf... / Ayat 1-4...", height=70, key="ket_setoran")
-    foto_up = st.file_uploader("📷 Upload Foto (halaman Iqro / tulisan / mushaf):", type=["jpg","jpeg","png","webp"], key="foto_setoran")
-    st.markdown("<div style='background-color: rgba(249,212,35,0.15); border:1.5px solid #F9D423; padding:12px; border-radius:12px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>🎤 Cara Kirim Suara di HP:</p><p style='color:white; margin:5px 0 0 0;'>1. Rekam dulu pakai <b>Perekam HP</b> atau <b>Voice Note WA</b><br>2. Terus Upload file-nya di bawah ini<br>❌ Jangan pencet mic Google yang di atas layar!</p></div>", unsafe_allow_html=True)
-    st.write("")
-    audio_file = st.file_uploader("📤 Upload File Suara Di Sini (WA / Perekam HP):", type=["mp3","wav","m4a","ogg","webm","opus","aac"], key="audio_file_setoran")
-    if audio_file:
-        st.success(f"✅ Suara terpilih: {audio_file.name} - Coba putar dulu sebelum kirim, pastikan ada suaranya!")
-        st.audio(audio_file)
-    if st.button("📩 Kirim Setoran ke Tim", use_container_width=True):
-        if surat_juz30 != "-- Ketik Sendiri / Bukan Juz 30 --":
-            if judul_setoran.strip():
-                judul_final = f"{surat_juz30} - {judul_setoran.strip()}"
-            else:
-                judul_final = surat_juz30
+    surat_juz30 = st.selectbox("📖 Pilih Surat Juz 30 (untuk setoran Tahsin / Tahfidz):", ["-- Ketik Sendiri / Bukan Juz 30 --"] + JUZ30_SURAH, key="surat_juz30")
+
+    # ===== BACAAN LENGKAP JUZ 30 UNTUK TAHSIN & TAHFIDZ =====
+    # Iqro tetap menggunakan cara lama: isi halaman/materi secara manual, tanpa teks surat.
+    bacaan_juz30_selesai = False
+    teks_surat_berhasil_dimuat = False
+    if kat_setoran in ("Tahsin", "Tahfidz"):
+        if surat_juz30 == "-- Ketik Sendiri / Bukan Juz 30 --":
+            st.info("Pilih surat Juz 30 terlebih dahulu. Teks Arab lengkap akan muncul otomatis untuk Tahsin dan Tahfidz.")
         else:
-            judul_final = judul_setoran.strip()
-        if not judul_final:
-            st.warning("⚠️ Pilih dulu Surat Juz 30 di atas, atau isi Materi / Judul Setorannya!")
-        elif not audio_file:
-            st.warning("⚠️ Suaranya belum ada! Rekam di WA / Perekam HP dulu, terus Upload di atas.")
-        else:
-            if st.session_state["login_role"]=="siswa":
-                label = f"{st.session_state['login_nama']} | Kelas: {DATA_SISWA.get(st.session_state['login_nama'],{}).get('kategori','-')}"
+            # Perubahan pilihan surat oleh pengguna memulai sesi baca baru dari ayat pertama.
+            if st.session_state.get("setoran_surat_pilihan_terakhir") != surat_juz30:
+                st.session_state["setoran_surat_pilihan_terakhir"] = surat_juz30
+                st.session_state["setoran_surat_mulai"] = surat_juz30
+                st.session_state["setoran_surat_aktif"] = surat_juz30
+                st.session_state["setoran_ayat_ke"] = 0
+                st.session_state["setoran_juz30_selesai"] = False
+                st.session_state["setoran_rentang_selesai"] = False
+
+            if "setoran_surat_aktif" not in st.session_state:
+                st.session_state["setoran_surat_aktif"] = surat_juz30
+            if "setoran_ayat_ke" not in st.session_state:
+                st.session_state["setoran_ayat_ke"] = 0
+            if "setoran_juz30_selesai" not in st.session_state:
+                st.session_state["setoran_juz30_selesai"] = False
+            if "setoran_rentang_selesai" not in st.session_state:
+                st.session_state["setoran_rentang_selesai"] = False
+
+            bacaan_juz30_selesai = bool(st.session_state.get("setoran_juz30_selesai", False))
+            if kat_setoran == "Tahsin":
+                st.info("📖 Mode Tahsin: baca ayat dengan memperhatikan makhraj, sifat huruf, panjang-pendek, dan hukum tajwid.")
             else:
-                label = f"{NAMA_LENGKAP_TIM.get(st.session_state['login_nama'], st.session_state['login_nama'])} | {TIM_PENYUSUN.get(st.session_state['login_nama'],'Tim')}"
-            foto_bytes = foto_up.getvalue() if foto_up else None
-            foto_nama = foto_up.name if foto_up else ""
-            audio_bytes = audio_file.getvalue(); audio_nama = audio_file.name
-            tambah_setoran(st.session_state["login_nama"], label, kat_setoran, judul_final, ket_setoran.strip(), foto_bytes, foto_nama, audio_bytes, audio_nama, time.strftime("%d/%m/%Y %H:%M", time.localtime(time.time())))
-            catat_aktivitas(f"Kirim Setoran {kat_setoran} - {judul_final[:30]}")
-            st.success("✅ Setoran terkirim! Tim akan mendengarkan & mengoreksi.")
-            time.sleep(0.5); st.rerun()
-    st.write("")
+                st.info("🧠 Mode Tahfidz: baca dan hafalkan ayat secara bertahap. Gunakan tombol Next untuk melanjutkan.")
+
+            if not bacaan_juz30_selesai:
+                surat_aktif = st.session_state["setoran_surat_aktif"]
+                try:
+                    nomor_surat_aktif = int(re.search(r"\((\d+)\)", surat_aktif).group(1))
+                    daftar_ayat = ambil_ayat_surat_quran(nomor_surat_aktif)
+                    teks_surat_berhasil_dimuat = True
+                except Exception as err:
+                    daftar_ayat = []
+                    st.error("Teks surat belum berhasil dimuat. Periksa koneksi internet lalu tekan tombol Muat Ulang Bacaan.")
+                    if st.button("🔄 Muat Ulang Bacaan", key=f"muat_ulang_{st.session_state.get('setoran_surat_aktif','surat')}"):
+                        ambil_ayat_surat_quran.clear()
+                        st.rerun()
+
+                if daftar_ayat:
+                    mulai_ayat = int(st.session_state.get("setoran_ayat_ke", 0))
+                    akhir_ayat = min(mulai_ayat + 5, len(daftar_ayat))
+                    indeks_surat = JUZ30_SURAH.index(surat_aktif)
+                    indeks_mulai = JUZ30_SURAH.index(st.session_state.get("setoran_surat_mulai", surat_juz30))
+                    st.markdown(f"### 📖 {surat_aktif}")
+                    st.caption(f"Surat {indeks_surat + 1} dari 37 dalam Juz 30 | Ayat {mulai_ayat + 1}–{akhir_ayat} dari {len(daftar_ayat)}")
+
+                    for ayat in daftar_ayat[mulai_ayat:akhir_ayat]:
+                        teks_arab = html.escape(str(ayat.get("text", "")))
+                        nomor_ayat = ayat.get("numberInSurah", "")
+                        st.markdown(
+                            f"<div dir='rtl' style='text-align:right; font-family:serif; font-size:30px; line-height:2.1; background:#fff; color:#111; padding:18px; border-radius:12px; margin:10px 0;'>"
+                            f"{teks_arab} <span style='font-size:19px; color:#9a7610;'>۞ {nomor_ayat}</span></div>",
+                            unsafe_allow_html=True,
+                        )
+
+                    st.progress(min(akhir_ayat / max(len(daftar_ayat), 1), 1.0))
+                    st.caption(f"Progress surat: {akhir_ayat}/{len(daftar_ayat)} ayat")
+                    b_prev, b_next = st.columns(2)
+                    tombol_prev_disabled = (mulai_ayat == 0 and indeks_surat == indeks_mulai)
+                    with b_prev:
+                        if st.button("⬅️ Sebelumnya", key=f"prev_{nomor_surat_aktif}_{mulai_ayat}", use_container_width=True, disabled=tombol_prev_disabled):
+                            if mulai_ayat >= 5:
+                                st.session_state["setoran_ayat_ke"] = mulai_ayat - 5
+                            elif indeks_surat > indeks_mulai:
+                                surat_sebelumnya = JUZ30_SURAH[indeks_surat - 1]
+                                nomor_sebelumnya = int(re.search(r"\((\d+)\)", surat_sebelumnya).group(1))
+                                ayat_sebelumnya = ambil_ayat_surat_quran(nomor_sebelumnya)
+                                st.session_state["setoran_surat_aktif"] = surat_sebelumnya
+                                st.session_state["setoran_ayat_ke"] = ((len(ayat_sebelumnya) - 1) // 5) * 5
+                            st.rerun()
+                    with b_next:
+                        if st.button("➡️ Next / Lanjut Bacaan", key=f"next_{nomor_surat_aktif}_{mulai_ayat}", use_container_width=True):
+                            if akhir_ayat < len(daftar_ayat):
+                                st.session_state["setoran_ayat_ke"] = akhir_ayat
+                            elif indeks_surat + 1 < len(JUZ30_SURAH):
+                                st.session_state["setoran_surat_aktif"] = JUZ30_SURAH[indeks_surat + 1]
+                                st.session_state["setoran_ayat_ke"] = 0
+                            else:
+                                # Baru dihitung selesai Juz 30 jika dimulai dari An-Naba.
+                                if st.session_state.get("setoran_surat_mulai") == JUZ30_SURAH[0]:
+                                    st.session_state["setoran_juz30_selesai"] = True
+                                else:
+                                    st.session_state["setoran_rentang_selesai"] = True
+                            st.rerun()
+
+            if st.session_state.get("setoran_juz30_selesai", False):
+                bacaan_juz30_selesai = True
+                st.success("🎉 JUZ 30 SELESAI! Kamu sudah membaca dari An-Naba sampai An-Nas. Sekarang upload suara setoranmu di bawah.")
+            elif st.session_state.get("setoran_rentang_selesai", False):
+                st.success("Bacaan dari surat yang dipilih sampai An-Nas sudah selesai.")
+                st.warning("Untuk menandai seluruh Juz 30 selesai dan membuka upload setoran, pilih Surah An-Naba (78) lalu lanjutkan sampai An-Nas.")
+
+    judul_setoran = st.text_input("Materi / Ayat / Judul Setoran:", placeholder="Contoh: Iqro 2 Hal. 5 atau keterangan tambahan setoran", key="judul_setoran")
+    ket_setoran = st.text_area("Keterangan (opsional):", placeholder="Contoh: Mohon dikoreksi makhraj huruf... / Ayat yang ingin diperhatikan...", height=70, key="ket_setoran")
+
+    # Upload suara Tahsin/Tahfidz baru dibuka setelah bacaan Juz 30 selesai.
+    boleh_upload_setoran = (kat_setoran == "Iqro") or (kat_setoran in ("Tahsin", "Tahfidz") and bacaan_juz30_selesai)
+    foto_up = None
+    audio_file = None
+    if boleh_upload_setoran:
+        st.markdown("<div style='background-color: rgba(249,212,35,0.15); border:1.5px solid #F9D423; padding:12px; border-radius:12px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>🎤 Cara Kirim Suara di HP:</p><p style='color:white; margin:5px 0 0 0;'>1. Rekam bacaan menggunakan Perekam HP atau Voice Note WA.<br>2. Upload file rekaman di bawah ini.<br>3. Dengarkan kembali sebelum dikirim.</p></div>", unsafe_allow_html=True)
+        st.write("")
+        foto_up = st.file_uploader("📷 Upload Foto (halaman Iqro / tulisan / mushaf) - Opsional:", type=["jpg","jpeg","png","webp"], key="foto_setoran")
+        audio_file = st.file_uploader("📤 Upload File Suara (WA / Perekam HP):", type=["mp3","wav","m4a","ogg","webm","opus","aac"], key="audio_file_setoran")
+        if audio_file:
+            st.success(f"✅ Suara terpilih: {audio_file.name} - Putar dahulu untuk memastikan rekaman benar.")
+            st.audio(audio_file)
+        if st.button("📩 Kirim Setoran ke Tim", use_container_width=True):
+            if kat_setoran in ("Tahsin", "Tahfidz") and bacaan_juz30_selesai:
+                judul_final = "Juz 30 lengkap (An-Naba sampai An-Nas)"
+                if judul_setoran.strip():
+                    judul_final += f" - {judul_setoran.strip()}"
+            else:
+                judul_final = judul_setoran.strip()
+                if kat_setoran in ("Tahsin", "Tahfidz") and surat_juz30 != "-- Ketik Sendiri / Bukan Juz 30 --":
+                    judul_final = f"{surat_juz30} - {judul_final}" if judul_final else surat_juz30
+            if not judul_final:
+                st.warning("⚠️ Isi materi / halaman Iqro yang disetorkan terlebih dahulu.")
+            elif not audio_file:
+                st.warning("⚠️ File suara belum diunggah. Rekam melalui WA / Perekam HP lalu upload di atas.")
+            else:
+                if st.session_state["login_role"]=="siswa":
+                    label = f"{st.session_state['login_nama']} | Kelas: {DATA_SISWA.get(st.session_state['login_nama'],{}).get('kategori','-')}"
+                else:
+                    label = f"{NAMA_LENGKAP_TIM.get(st.session_state['login_nama'], st.session_state['login_nama'])} | {TIM_PENYUSUN.get(st.session_state['login_nama'],'Tim')}"
+                foto_bytes = foto_up.getvalue() if foto_up else None
+                foto_nama = foto_up.name if foto_up else ""
+                audio_bytes = audio_file.getvalue(); audio_nama = audio_file.name
+                tambah_setoran(st.session_state["login_nama"], label, kat_setoran, judul_final, ket_setoran.strip(), foto_bytes, foto_nama, audio_bytes, audio_nama, time.strftime("%d/%m/%Y %H:%M", time.localtime(time.time())))
+                catat_aktivitas(f"Kirim Setoran {kat_setoran} - {judul_final[:30]}")
+                st.success("✅ Setoran terkirim! Tim akan mendengarkan & mengoreksi.")
+                time.sleep(0.5); st.rerun()
+    else:
+        if kat_setoran in ("Tahsin", "Tahfidz"):
+            st.warning("🔒 Upload suara akan terbuka setelah seluruh bacaan Juz 30 selesai dari surat yang dipilih sampai An-Nas. Tekan Next / Lanjut Bacaan sampai selesai.")
+        else:
+            st.info("Untuk Iqro, isi materi atau halaman Iqro yang dibaca. Teks surat Juz 30 tidak ditampilkan.")
     st.markdown("<hr>", unsafe_allow_html=True)
     st.markdown("<p style='color:white; font-weight:bold; font-size:17px;'>📋 Daftar Setoran:</p>", unsafe_allow_html=True)
     filter_kat = st.selectbox("Filter:", ["Semua","Iqro","Tahsin","Tahfidz"], key="filter_setoran")
