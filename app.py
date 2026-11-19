@@ -57,6 +57,13 @@ def get_aktivitas():
 def tambah_aktivitas(nama, kelas, aktivitas, jam, lama):
     CONN.execute("INSERT INTO aktivitas(nama,kelas,aktivitas,jam,lama) VALUES(?,?,?,?,?)", (nama, kelas, aktivitas, jam, lama))
     CONN.commit()
+# ===== RESET RIWAYAT - KHUSUS TIM =====
+def hapus_riwayat_satu(nama):
+    CONN.execute("DELETE FROM aktivitas WHERE nama=?", (nama,))
+    CONN.commit()
+def reset_semua_riwayat():
+    CONN.execute("DELETE FROM aktivitas")
+    CONN.commit()
 def get_saran():
     return [{"id":r[0],"pengirim":r[1],"label":r[2],"role":r[3],"jenis":r[4],"isi":r[5],"jam":r[6],"balasan":r[7] or "","pembalas":r[8] or ""} for r in CONN.execute("SELECT id,pengirim,label,role,jenis,isi,jam,balasan,pembalas FROM saran ORDER BY id DESC")]
 def tambah_saran(pengirim, label, role, jenis, isi, jam):
@@ -82,7 +89,7 @@ TIM_PENYUSUN = {
     "MUHAMAD RAIS": "Guru Pamong",
     "MUHAMAD SIDDIQ ASYHARI": "Dosen Pembimbing",
     "SYAMSUL HADI": "Kepala MA Al-Barokah",
-    "KENDAR SULTONI": "Mahasiswa / Pembuat Aplikasi",
+    "KENDAR SULTONI": "Mahasiswa",
 }
 NAMA_LENGKAP_TIM = {
     "MUHAMAD RAIS": "Bapak Muhamad Rais, S.Pd.I",
@@ -165,7 +172,7 @@ def tampilkan_tim_pembuat():
             <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'><p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Bapak Muhamad Rais, S.Pd.I</p><p style='color:white; margin:2px 0 0 0; font-size:13px;'>Guru Pamong</p></div>
             <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'><p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Dr. Muhamad Siddiq Asyhari, M.Pd</p><p style='color:white; margin:2px 0 0 0; font-size:13px;'>Dosen Pembimbing</p></div>
             <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'><p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Bapak Syamsul Hadi, S.Pd.I</p><p style='color:white; margin:2px 0 0 0; font-size:13px;'>Kepala MA Al-Barokah</p></div>
-            <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'><p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Kendar Sultoni</p><p style='color:white; margin:2px 0 0 0; font-size:13px;'>Mahasiswa / Pembuat Aplikasi</p></div>
+            <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'><p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Kendar Sultoni</p><p style='color:white; margin:2px 0 0 0; font-size:13px;'>Mahasiswa</p></div>
         </div>
         <p style='color:white; text-align:center; font-size:12px; margin:10px 0 0 0;'>QORI AI - Madrasah Aliyah Al-Barokah | Media Belajar Iqro, Tahsin & Tahfidz</p>
     </div>
@@ -196,7 +203,6 @@ if st.session_state["login_nama"] is None:
             if st_autorefresh:
                 st_autorefresh(interval=1000, key="cek_error_hilang")
             else:
-                # Cadangan kalau streamlit-autorefresh belum terinstall: tunggu 5 detik lalu hapus
                 time.sleep(5)
                 st.session_state["login_error"] = ""
                 st.session_state["login_error_time"] = 0
@@ -500,6 +506,32 @@ if st.session_state.get("lihat_riwayat") and st.session_state["siswa_pilih"] is 
         for i,r in enumerate(riw,1):
             rows+=f"<tr><td style='padding:10px; text-align:center; color:white;'>{i}</td><td style='padding:10px; color:white; font-weight:bold;'>{html.escape(str(r['nama']))}</td><td style='padding:10px; text-align:center; color:white;'>{html.escape(str(r['kelas']))}</td><td style='padding:10px; color:white;'>{html.escape(str(r['aktivitas']))}</td><td style='padding:10px; text-align:center; color:white;'>{html.escape(str(r['jam']))}</td><td style='padding:10px; text-align:center; color:#F9D423;'>{html.escape(str(r['lama']))}</td></tr>"
         st.markdown(f"<div style='background-color: rgba(0,0,0,0.75); padding:15px; border-radius:15px;'><table style='width:100%;'><tr style='background-color:#F9D423;'><th style='padding:10px; color:#000;'>No</th><th style='padding:10px; color:#000;'>Nama</th><th style='padding:10px; color:#000;'>Kelas</th><th style='padding:10px; color:#000;'>Buka Apa</th><th style='padding:10px; color:#000;'>Jam</th><th style='padding:10px; color:#000;'>Lama</th></tr>{rows}</table></div>", unsafe_allow_html=True)
+    # ===== TOMBOL RESET RIWAYAT - KHUSUS TIM SAJA =====
+    if st.session_state["login_role"] == "tim":
+        st.write("")
+        st.markdown("<div style='background-color: rgba(120,20,20,0.9); padding:18px; border-radius:15px; text-align:center; border:2px solid #FF5252;'><h3 style='color:#FFFFFF; margin:0;'>🔄 Reset Riwayat (Khusus Tim)</h3><p style='color:white; font-size:13px; margin:6px 0 0 0;'>Hati-hati! Riwayat yang sudah dihapus tidak bisa dikembalikan.</p></div>", unsafe_allow_html=True)
+        st.write("")
+        st.markdown("<p style='color:white; font-weight:bold;'>Reset 1 siswa saja:</p>", unsafe_allow_html=True)
+        nama_reset_riw = st.selectbox("Pilih siswa yang riwayatnya mau dihapus:", ["-- Pilih Siswa --"] + list(DATA_SISWA.keys()), key="pilih_reset_riwayat_satu")
+        if st.button("🗑️ Hapus Riwayat Siswa Ini", use_container_width=True):
+            if nama_reset_riw == "-- Pilih Siswa --":
+                st.warning("⚠️ Pilih dulu siswanya!")
+            else:
+                hapus_riwayat_satu(nama_reset_riw)
+                st.success(f"✅ Riwayat {nama_reset_riw} sudah dihapus!")
+                time.sleep(0.5)
+                st.rerun()
+        st.write("")
+        st.markdown("<p style='color:white; font-weight:bold;'>Reset SEMUA riwayat jadi kosong:</p>", unsafe_allow_html=True)
+        konfirmasi_riw = st.text_input("Ketik RESET untuk konfirmasi (huruf besar semua):", placeholder="Ketik RESET di sini...", key="konfirmasi_reset_riwayat")
+        if st.button("🗑️ Hapus SEMUA Riwayat", use_container_width=True):
+            if konfirmasi_riw.strip() != "RESET":
+                st.warning("⚠️ Ketik dulu RESET dengan huruf besar semua biar tidak kepencet tidak sengaja!")
+            else:
+                reset_semua_riwayat()
+                st.success("✅ Semua riwayat sudah dihapus! Tabel jadi kosong.")
+                time.sleep(0.5)
+                st.rerun()
     st.write("")
     if st.button("⬅️ Tutup Riwayat", use_container_width=True):
         st.session_state["lihat_riwayat"]=False; st.rerun()
