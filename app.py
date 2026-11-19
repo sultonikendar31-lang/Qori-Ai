@@ -98,13 +98,11 @@ KKM = 75
 prompt_awal = None
 SYSTEM_PROMPT_KUNCI = "Kamu adalah QORI AI, guru yang ramah dan pintar untuk anak Madrasah Aliyah Al-Barokah. Kamu BEBAS menjawab pertanyaan apa saja: Iqro, Tahsin, Tahfidz, pelajaran sekolah, agama, umum. Jawab Bahasa Indonesia mudah, sopan, islami. Kalau menyebut huruf hijaiyah, WAJIB format: 1. Alif (ا) - dibaca \"A\"."
 
-# ===== REVISI PASSWORD: TIM = 123, SISWA = 321 =====
+# ===== CEK PASSWORD =====
 def cek_password(nama, password_input):
     pw_dict = st.secrets.get("USER_PASSWORDS", {})
-    # Kalau Secrets sudah diisi untuk nama ini, pakai Secrets dulu
     if pw_dict and nama in pw_dict:
         return hashlib.sha256(password_input.encode()).hexdigest() == pw_dict[nama]
-    # Kalau Secrets belum diisi, pakai aturan baru:
     if nama in TIM_PENYUSUN:
         return password_input == "123"
     else:
@@ -154,17 +152,17 @@ if st.session_state["login_nama"] is None:
             st.session_state["lihat_video"] = False
             st.rerun()
         st.write("")
-    st.markdown("""<div style='background-color: rgba(255,255,255,0.12); border: 1.5px solid #F9D423; padding: 20px; border-radius: 15px; margin-top: 15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>🔐 Silakan Masukkan Nama & Password</h2><p style='color:white; margin-top:8px;'>Tim: password 123 | Siswa: password 321</p></div>""", unsafe_allow_html=True)
+    st.markdown("""<div style='background-color: rgba(255,255,255,0.12); border: 1.5px solid #F9D423; padding: 20px; border-radius: 15px; margin-top: 15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>🔐 Silakan Masukkan Nama & Password</h2><p style='color:white; margin-top:8px;'>Untuk masuk ke QORI AI</p></div>""", unsafe_allow_html=True)
     st.write("")
     nama_input = st.text_input("✍️ Nama Lengkap:", placeholder="Tulis nama lengkapmu...", key="input_nama_login")
-    pw_input = st.text_input("🔑 Password:", type="password", placeholder="Tim: 123 | Siswa: 321", key="input_pw_login")
+    pw_input = st.text_input("🔑 Password:", type="password", placeholder="Masukkan passwordmu...", key="input_pw_login")
     if st.button("🚪 Masuk ke QORI AI", use_container_width=True):
         nama_bersih = nama_input.strip().upper()
         if not nama_bersih or not pw_input:
             st.warning("⚠️ Nama & Password harus diisi!")
         elif nama_bersih in TIM_PENYUSUN or nama_bersih in DATA_SISWA:
             if not cek_password(nama_bersih, pw_input):
-                st.error("❌ Password salah! Tim pakai 123, Siswa pakai 321.")
+                st.error("❌ Password salah! Tanya ke guru / tim kalau lupa.")
             else:
                 st.session_state["login_nama"] = nama_bersih
                 if nama_bersih in TIM_PENYUSUN:
