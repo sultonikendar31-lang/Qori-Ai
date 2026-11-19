@@ -214,18 +214,22 @@ SYSTEM_PROMPT_KUNCI = "Kamu adalah QORI AI, guru yang ramah dan pintar untuk ana
 
 # ===== CEK PASSWORD =====
 def cek_password(nama, password_input):
-    """Memastikan password lama tetap berlaku untuk seluruh akun."""
-    nama = str(nama).strip().upper()
-    password_input = str(password_input)
-
-    # Password bawaan yang diminta pemilik aplikasi: jangan diubah.
-    # Pemeriksaan ini dilakukan SEBELUM USER_PASSWORDS agar secret lama
-    # yang berisi hash berbeda tidak mengunci pengguna dari akun mereka.
+    pw_dict = st.secrets.get("USER_PASSWORDS", {})
+    stored = pw_dict.get(nama) if hasattr(pw_dict, "get") else None
+    if stored:
+        if str(stored).startswith("pbkdf2_sha256$"):
+            try:
+                _, salt, digest = str(stored).split("$", 2)
+                calculated = hashlib.pbkdf2_hmac("sha256", password_input.encode(), bytes.fromhex(salt), 300_000).hex()
+                return hmac.compare_digest(calculated, digest)
+            except (ValueError, TypeError):
+                return False
+        calculated = hashlib.sha256(password_input.encode()).hexdigest()
+        return hmac.compare_digest(calculated, str(stored))
     if nama in TIM_PENYUSUN:
-        return hmac.compare_digest(password_input, "123")
+        return password_input == "123"
     if nama in DATA_SISWA:
-        return hmac.compare_digest(password_input, "321")
-
+        return password_input == "321"
     return False
 
 def catat_aktivitas(aktivitas):
@@ -719,19 +723,10 @@ if st.session_state.get("lihat_riwayat") and st.session_state["siswa_pilih"] is 
         rows=""
         for i,r in enumerate(riw,1):
             rows+=f"<tr><td style='padding:10px; text-align:center; color:white;'>{i}</td><td style='padding:10px; color:white; font-weight:bold;'>{html.escape(str(r['nama']))}</td><td style='padding:10px; text-align:center; color:white;'>{html.escape(str(r['kelas']))}</td><td style='padding:10px; color:white;'>{html.escape(str(r['aktivitas']))}</td><td style='padding:10px; text-align:center; color:white;'>{html.escape(str(r['jam']))}</td><td style='padding:10px; text-align:center; color:#F9D423;'>{html.escape(str(r['lama']))}</td></tr>"
-        st.markdown(
-            f"<div style='background-color: rgba(0,0,0,0.75); padding:15px; border-radius:15px;'>"
-            f"<table style='width:100%;'>"
-            f"<tr style='background-color:#F9D423;'>"
-            "<th style='padding:10px; color:#000;'>No</th>"
-            "<th style='padding:10px; color:#000;'>Nama</th>"
-            "<th style='padding:10px; color:#000;'>Kelas</th>"
-            "<th style='padding:10px; color:#000;'>Buka Apa</th>"
-            "<th style='padding:10px; color:#000;'>Jam</th>"
-            "<th style='padding:10px; color:#000;'>Lama</th>"
-            f"</tr>{rows}</table></div>",
-            unsafe_allow_html=True,
-        )
+        st.markdown(f"<div style='background-color: rgba(0,0,0,0.75); padding:15px; border-radius:15px;'><table style='width:100%;'><tr style='background-color:#F9D423;'><th style='padding:10px; color:#000;'>No</th><th style='padding:10px; color:#000;'>Nama</th><th style='padding:10px; color:#000;'>Kelas</th><th style='padding:10px; color:#000;'>Buka Apa</th><th style='padding:10px; color:#000;'>Jam</th><th style='padding:10px; color:#000;'>Lama</th></tr>{rows}</table></div>", unsafe_allow_html=True)
+
+```python
+        st.markdown(f"<div style='background-color: rgba(0,0,0,0.75); padding:15px; border-radius:15px;'><table style='width:100%;'><tr style='background-color:#F9D423;'><th style='padding:10px; color:#000;'>No</th><th style='padding:10px; color:#000;'>Nama</th><th style='padding:10px; color:#000;'>Kelas</th><th style='padding:10px; color:#000;'>Buka Apa</th><th style='padding:10px; color:#000;'>Jam</th><th style='padding:10px; color:#000;'>Lama</th></tr>{rows}</table></div>", unsafe_allow_html=True)
     if st.session_state["login_role"] == "tim":
         st.write("")
         st.markdown("<div style='background-color: rgba(120,20,20,0.9); padding:18px; border-radius:15px; text-align:center; border:2px solid #FF5252;'><h3 style='color:#FFFFFF; margin:0;'>🔄 Reset Riwayat (Khusus Tim)</h3><p style='color:white; font-size:13px; margin:6px 0 0 0;'>Hati-hati! Riwayat yang sudah dihapus tidak bisa dikembalikan.</p></div>", unsafe_allow_html=True)
