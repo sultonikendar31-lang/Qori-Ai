@@ -29,6 +29,12 @@ def db():
     c.execute("CREATE TABLE IF NOT EXISTS aktivitas (id INTEGER PRIMARY KEY AUTOINCREMENT, nama TEXT, kelas TEXT, aktivitas TEXT, jam TEXT, lama TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS saran (id INTEGER PRIMARY KEY AUTOINCREMENT, pengirim TEXT, label TEXT, role TEXT, jenis TEXT, isi TEXT, jam TEXT, balasan TEXT, pembalas TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS ujian_sesi (nama TEXT PRIMARY KEY, mulai REAL NOT NULL, seed INTEGER NOT NULL)")
+    c.execute("""CREATE TABLE IF NOT EXISTS setoran (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pengirim TEXT, label TEXT, kategori TEXT, judul TEXT, keterangan TEXT,
+        foto BLOB, foto_nama TEXT, audio BLOB, audio_nama TEXT,
+        jam TEXT, koreksi TEXT, pembalas TEXT, nilai_setoran TEXT
+    )""")
     c.commit()
     return c
 CONN = db()
@@ -75,6 +81,22 @@ def balas_saran(sid, balasan, pembalas):
 def hapus_saran(sid):
     CONN.execute("DELETE FROM saran WHERE id=?", (sid,))
     CONN.commit()
+# ===== SETORAN SUARA - FOTO + AUDIO =====
+def tambah_setoran(pengirim, label, kategori, judul, keterangan, foto_bytes, foto_nama, audio_bytes, audio_nama, jam):
+    CONN.execute("INSERT INTO setoran(pengirim,label,kategori,judul,keterangan,foto,foto_nama,audio,audio_nama,jam,koreksi,pembalas,nilai_setoran) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (pengirim, label, kategori, judul, keterangan, foto_bytes, foto_nama, audio_bytes, audio_nama, jam, "", "", ""))
+    CONN.commit()
+def get_setoran():
+    rows = CONN.execute("SELECT id,pengirim,label,kategori,judul,keterangan,foto,foto_nama,audio,audio_nama,jam,koreksi,pembalas,nilai_setoran FROM setoran ORDER BY id DESC").fetchall()
+    out = []
+    for r in rows:
+        out.append({"id":r[0],"pengirim":r[1],"label":r[2],"kategori":r[3],"judul":r[4],"keterangan":r[5] or "","foto":r[6],"foto_nama":r[7] or "","audio":r[8],"audio_nama":r[9] or "","jam":r[10],"koreksi":r[11] or "","pembalas":r[12] or "","nilai":r[13] or ""})
+    return out
+def koreksi_setoran(sid, koreksi, pembalas, nilai_setoran):
+    CONN.execute("UPDATE setoran SET koreksi=?, pembalas=?, nilai_setoran=? WHERE id=?", (koreksi, pembalas, nilai_setoran, sid))
+    CONN.commit()
+def hapus_setoran(sid):
+    CONN.execute("DELETE FROM setoran WHERE id=?", (sid,))
+    CONN.commit()
 def simpan_sesi_ujian(nama, mulai, seed):
     CONN.execute("INSERT INTO ujian_sesi(nama,mulai,seed) VALUES(?,?,?) ON CONFLICT(nama) DO UPDATE SET mulai=excluded.mulai, seed=excluded.seed", (nama, mulai, seed))
     CONN.commit()
@@ -97,6 +119,22 @@ NAMA_LENGKAP_TIM = {
     "SYAMSUL HADI": "Bapak Syamsul Hadi, S.Pd.I",
     "KENDAR SULTONI": "Kendar Sultoni",
 }
+# ===== DAFTAR SURAT JUZ 30 (An-Naba sampai An-Nas) =====
+JUZ30_SURAH = [
+    "Surah An-Naba (78)", "Surah An-Nazi'at (79)", "Surah 'Abasa (80)",
+    "Surah At-Takwir (81)", "Surah Al-Infitar (82)", "Surah Al-Mutaffifin (83)",
+    "Surah Al-Insyiqaq (84)", "Surah Al-Buruj (85)", "Surah At-Tariq (86)",
+    "Surah Al-A'la (87)", "Surah Al-Ghasyiyah (88)", "Surah Al-Fajr (89)",
+    "Surah Al-Balad (90)", "Surah Asy-Syams (91)", "Surah Al-Lail (92)",
+    "Surah Ad-Dhuha (93)", "Surah Asy-Syarh (94)", "Surah At-Tin (95)",
+    "Surah Al-'Alaq (96)", "Surah Al-Qadr (97)", "Surah Al-Bayyinah (98)",
+    "Surah Az-Zalzalah (99)", "Surah Al-'Adiyat (100)", "Surah Al-Qari'ah (101)",
+    "Surah At-Takasur (102)", "Surah Al-'Asr (103)", "Surah Al-Humazah (104)",
+    "Surah Al-Fil (105)", "Surah Quraisy (106)", "Surah Al-Ma'un (107)",
+    "Surah Al-Kautsar (108)", "Surah Al-Kafirun (109)", "Surah An-Nasr (110)",
+    "Surah Al-Lahab (111)", "Surah Al-Ikhlas (112)", "Surah Al-Falaq (113)",
+    "Surah An-Nas (114)",
+]
 DATA_SISWA = {
     "MUHAMAD HARTANTO": {"kategori": "Iqro", "level": "Iqro Dasar", "jk": "Laki-laki"},
     "DAFFAN OKTAFFIL HIDAYAT": {"kategori": "Iqro", "level": "Iqro Dasar", "jk": "Laki-laki"},
@@ -120,7 +158,7 @@ DATA_SISWA = {
     "IMAM MANSYUR IBNU HULKAN": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki"},
 }
 
-for k, v in [("login_nama",None),("login_role",None),("login_jabatan",None),("kategori_pilih",None),("messages",[]),("siswa_pilih",None),("seed_acak",1),("soal_acak",None),("kunci_acak",None),("kat_acak",None),("waktu_mulai",None),("waktu_habis",False),("ujian_selesai",False),("hasil_ujian",None),("lihat_nilai",False),("lihat_riwayat",False),("lihat_saran",False),("lihat_video",True),("waktu_login",None),("sudah_catat_masuk",False),("jawaban_tersimpan",{}),("login_error",""),("login_error_time",0)]:
+for k, v in [("login_nama",None),("login_role",None),("login_jabatan",None),("kategori_pilih",None),("messages",[]),("siswa_pilih",None),("seed_acak",1),("soal_acak",None),("kunci_acak",None),("kat_acak",None),("waktu_mulai",None),("waktu_habis",False),("ujian_selesai",False),("hasil_ujian",None),("lihat_nilai",False),("lihat_riwayat",False),("lihat_saran",False),("lihat_setoran",False),("lihat_video",True),("waktu_login",None),("sudah_catat_masuk",False),("jawaban_tersimpan",{}),("login_error",""),("login_error_time",0)]:
     if k not in st.session_state:
         st.session_state[k] = v
 
@@ -195,7 +233,6 @@ if st.session_state["login_nama"] is None:
         st.write("")
     st.markdown("""<div style='background-color: rgba(255,255,255,0.12); border: 1.5px solid #F9D423; padding: 20px; border-radius: 15px; margin-top: 15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>🔐 Silakan Masukkan Nama & Password</h2><p style='color:white; margin-top:8px;'>Untuk masuk ke QORI AI</p></div>""", unsafe_allow_html=True)
     st.write("")
-    # === KETERANGAN SALAH, HILANG SENDIRI 5 DETIK ===
     if st.session_state.get("login_error"):
         sisa = 5 - (time.time() - st.session_state["login_error_time"])
         if sisa > 0:
@@ -273,6 +310,7 @@ with col_out2:
         st.session_state["lihat_nilai"] = False
         st.session_state["lihat_riwayat"] = False
         st.session_state["lihat_saran"] = False
+        st.session_state["lihat_setoran"] = False
         st.session_state["sudah_catat_masuk"] = False
         st.session_state["waktu_login"] = None
         st.session_state["lihat_video"] = True
@@ -423,7 +461,7 @@ def tampilkan_daftar(kategori):
     for item in daftar:
         label = item if st.session_state["login_role"]=="tim" else f"▶️ Mulai Ujian - {item}"
         if st.button(label, key=f"{kategori}-{item}"):
-            st.session_state["siswa_pilih"]=item; st.session_state["seed_acak"]+=1; st.session_state["soal_acak"]=None; st.session_state["waktu_mulai"]=time.time(); simpan_sesi_ujian(item, st.session_state["waktu_mulai"], st.session_state["seed_acak"]); st.session_state["waktu_habis"]=False; st.session_state["ujian_selesai"]=False; st.session_state["hasil_ujian"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["jawaban_tersimpan"]={}
+            st.session_state["siswa_pilih"]=item; st.session_state["seed_acak"]+=1; st.session_state["soal_acak"]=None; st.session_state["waktu_mulai"]=time.time(); simpan_sesi_ujian(item, st.session_state["waktu_mulai"], st.session_state["seed_acak"]); st.session_state["waktu_habis"]=False; st.session_state["ujian_selesai"]=False; st.session_state["hasil_ujian"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; st.session_state["jawaban_tersimpan"]={}
             catat_aktivitas(f"Mulai Ujian - {kategori}")
             st.rerun()
 
@@ -434,10 +472,10 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
     with c2: klik_tahsin = st.button("📗 Tahsin", use_container_width=True)
     with c3: klik_tahfidz = st.button("⭐ Tahfidz", use_container_width=True)
     with c4: klik_nilai = st.button("📊 Daftar Hasil Nilai", use_container_width=True)
-    if klik_iqro: st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"]=="Iqro" else "Iqro"; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; catat_aktivitas("Buka Kelas Iqro")
-    if klik_tahsin: st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"]=="Tahsin" else "Tahsin"; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; catat_aktivitas("Buka Kelas Tahsin")
-    if klik_tahfidz: st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"]=="Tahfidz" else "Tahfidz"; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; catat_aktivitas("Buka Kelas Tahfidz")
-    if klik_nilai: st.session_state["lihat_nilai"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; catat_aktivitas("Buka Daftar Hasil Nilai")
+    if klik_iqro: st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"]=="Iqro" else "Iqro"; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; catat_aktivitas("Buka Kelas Iqro")
+    if klik_tahsin: st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"]=="Tahsin" else "Tahsin"; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; catat_aktivitas("Buka Kelas Tahsin")
+    if klik_tahfidz: st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"]=="Tahfidz" else "Tahfidz"; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; catat_aktivitas("Buka Kelas Tahfidz")
+    if klik_nilai: st.session_state["lihat_nilai"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; catat_aktivitas("Buka Daftar Hasil Nilai")
     if st.session_state["kategori_pilih"]:
         cc1,cc2,cc3 = st.columns(3)
         if st.session_state["kategori_pilih"]=="Iqro":
@@ -449,12 +487,110 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
 
 if st.session_state["login_role"]=="tim" and st.session_state["siswa_pilih"] is None:
     if st.button("📋 Riwayat / Story Siswa (Khusus Tim)", use_container_width=True):
-        st.session_state["lihat_riwayat"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_saran"]=False; st.rerun()
+        st.session_state["lihat_riwayat"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; st.rerun()
 if st.session_state["siswa_pilih"] is None:
     jml_baru = len([s for s in get_saran() if not s["balasan"]]) if st.session_state["login_role"]=="tim" else len([s for s in get_saran() if s["pengirim"]==st.session_state["login_nama"] and s["balasan"]])
     label_saran = f"💬 Kotak Saran / Kritik / Keluhan ({jml_baru} Baru)" if jml_baru>0 else "💬 Kotak Saran / Kritik / Keluhan"
     if st.button(label_saran, use_container_width=True):
-        st.session_state["lihat_saran"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; catat_aktivitas("Buka Kotak Saran"); st.rerun()
+        st.session_state["lihat_saran"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_setoran"]=False; catat_aktivitas("Buka Kotak Saran"); st.rerun()
+if st.session_state["siswa_pilih"] is None:
+    jml_setoran_baru = len([s for s in get_setoran() if not s["koreksi"]]) if st.session_state["login_role"]=="tim" else len([s for s in get_setoran() if s["pengirim"]==st.session_state["login_nama"] and s["koreksi"]])
+    label_setoran = f"🎙️ Setoran Suara / Koreksi Bacaan ({jml_setoran_baru} Baru)" if jml_setoran_baru>0 else "🎙️ Setoran Suara / Koreksi Bacaan (Foto + Suara)"
+    if st.button(label_setoran, use_container_width=True):
+        st.session_state["lihat_setoran"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; catat_aktivitas("Buka Setoran Suara"); st.rerun()
+
+# ===== SETORAN SUARA =====
+if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is None:
+    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>🎙️ Setoran Suara / Koreksi Bacaan</h2><p style='color:white;'>Iqro | Tahsin | Tahfidz - Pilih Surat Juz 30 + Upload Foto + Rekam Suara</p></div>", unsafe_allow_html=True)
+    st.write("")
+    st.markdown("<p style='color:white; font-weight:bold; font-size:17px;'>📤 Kirim Setoran Baru:</p>", unsafe_allow_html=True)
+    if st.session_state["login_role"]=="siswa":
+        kat_default = DATA_SISWA.get(st.session_state["login_nama"],{}).get("kategori","Tahsin")
+        idx_kat = ["Iqro","Tahsin","Tahfidz"].index(kat_default) if kat_default in ["Iqro","Tahsin","Tahfidz"] else 1
+    else:
+        idx_kat = 1
+    kat_setoran = st.selectbox("Kategori Setoran:", ["Iqro","Tahsin","Tahfidz"], index=idx_kat, key="kat_setoran")
+    # --- PILIH SURAT JUZ 30 ---
+    surat_juz30 = st.selectbox("📖 Pilih Surat Juz 30 (kalau setoran Tahfidz / Tahsin):", ["-- Ketik Sendiri / Bukan Juz 30 --"] + JUZ30_SURAH, key="surat_juz30")
+    if surat_juz30 != "-- Ketik Sendiri / Bukan Juz 30 --":
+        st.info(f"Surat dipilih: **{surat_juz30}** — tinggal isi ayatnya di bawah kalau perlu.")
+    judul_setoran = st.text_input("Materi / Ayat / Judul Setoran:", placeholder="Contoh: Ayat 1-4 | Iqro 2 Hal. 5 | Atau kosongkan kalau sudah pilih surat di atas", key="judul_setoran")
+    ket_setoran = st.text_area("Keterangan (opsional):", placeholder="Contoh: Mohon dikoreksi makhraj huruf... / Ayat 1-4...", height=70, key="ket_setoran")
+    foto_up = st.file_uploader("📷 Upload Foto (halaman Iqro / tulisan / mushaf):", type=["jpg","jpeg","png","webp"], key="foto_setoran")
+    st.markdown("<p style='color:white;'>🎤 Rekam suara langsung di sini (pencet mic di HP/laptop):</p>", unsafe_allow_html=True)
+    audio_rekam = st.audio_input("Rekam Suara Bacaan:", key="audio_rekam_setoran")
+    audio_file = st.file_uploader("Atau upload file suara (kalau sudah rekam di WA / HP):", type=["mp3","wav","m4a","ogg","webm"], key="audio_file_setoran")
+    if st.button("📩 Kirim Setoran ke Tim", use_container_width=True):
+        if surat_juz30 != "-- Ketik Sendiri / Bukan Juz 30 --":
+            if judul_setoran.strip():
+                judul_final = f"{surat_juz30} - {judul_setoran.strip()}"
+            else:
+                judul_final = surat_juz30
+        else:
+            judul_final = judul_setoran.strip()
+        if not judul_final:
+            st.warning("⚠️ Pilih dulu Surat Juz 30 di atas, atau isi Materi / Judul Setorannya!")
+        elif not audio_rekam and not audio_file:
+            st.warning("⚠️ Suaranya belum ada! Rekam dulu atau upload file suara.")
+        else:
+            if st.session_state["login_role"]=="siswa":
+                label = f"{st.session_state['login_nama']} | Kelas: {DATA_SISWA.get(st.session_state['login_nama'],{}).get('kategori','-')}"
+            else:
+                label = f"{NAMA_LENGKAP_TIM.get(st.session_state['login_nama'], st.session_state['login_nama'])} | {TIM_PENYUSUN.get(st.session_state['login_nama'],'Tim')}"
+            foto_bytes = foto_up.getvalue() if foto_up else None
+            foto_nama = foto_up.name if foto_up else ""
+            if audio_rekam:
+                audio_bytes = audio_rekam.getvalue(); audio_nama = "rekaman.wav"
+            else:
+                audio_bytes = audio_file.getvalue(); audio_nama = audio_file.name
+            tambah_setoran(st.session_state["login_nama"], label, kat_setoran, judul_final, ket_setoran.strip(), foto_bytes, foto_nama, audio_bytes, audio_nama, time.strftime("%d/%m/%Y %H:%M", time.localtime(time.time())))
+            catat_aktivitas(f"Kirim Setoran {kat_setoran} - {judul_final[:30]}")
+            st.success("✅ Setoran terkirim! Tim akan mendengarkan & mengoreksi.")
+            time.sleep(0.5); st.rerun()
+    st.write("")
+    st.markdown("<hr>", unsafe_allow_html=True)
+    st.markdown("<p style='color:white; font-weight:bold; font-size:17px;'>📋 Daftar Setoran:</p>", unsafe_allow_html=True)
+    filter_kat = st.selectbox("Filter:", ["Semua","Iqro","Tahsin","Tahfidz"], key="filter_setoran")
+    semua_setoran = get_setoran()
+    if st.session_state["login_role"]=="siswa":
+        daftar_setoran = [s for s in semua_setoran if s["pengirim"]==st.session_state["login_nama"]]
+    else:
+        daftar_setoran = semua_setoran
+    if filter_kat != "Semua":
+        daftar_setoran = [s for s in daftar_setoran if s["kategori"]==filter_kat]
+    if not daftar_setoran:
+        st.info("Belum ada setoran.")
+    else:
+        for s in daftar_setoran:
+            st.markdown(f"<div style='background-color: rgba(255,255,255,0.12); border:1.5px solid rgba(255,255,255,0.5); padding:14px; border-radius:12px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>[{html.escape(str(s['kategori']))}] {html.escape(str(s['judul']))} - {html.escape(str(s['label']))}</p><p style='color:#AAAAAA; font-size:12px;'>{html.escape(str(s['jam']))} | {'✅ Sudah Dikoreksi' if s['koreksi'] else '⏳ Menunggu Koreksi'}</p><p style='color:white;'>{html.escape(str(s['keterangan']))}</p></div>", unsafe_allow_html=True)
+            if s["foto"]:
+                try: st.image(io.BytesIO(s["foto"]), caption=f"📷 Foto - {s['judul']}", use_container_width=True)
+                except: st.warning("Foto tidak bisa ditampilkan.")
+            if s["audio"]:
+                st.markdown("<p style='color:#F9D423; font-weight:bold; margin:5px 0 2px 0;'>🔊 Dengarkan Suara Siswa:</p>", unsafe_allow_html=True)
+                st.audio(io.BytesIO(s["audio"]), format="audio/wav")
+            if s["koreksi"]:
+                st.markdown(f"<div style='background-color: rgba(20,50,35,0.9); border:1.5px solid #F9D423; padding:12px; border-radius:12px; margin:5px 0 12px 0;'><p style='color:#F9D423; font-weight:bold; margin:0;'>✍️ Koreksi dari {html.escape(str(s['pembalas']))} | Nilai Setoran: {html.escape(str(s['nilai']))}</p><p style='color:white;'>{html.escape(str(s['koreksi']))}</p></div>", unsafe_allow_html=True)
+            if st.session_state["login_role"]=="tim":
+                koreksi_txt = st.text_area(f"Tulis Koreksi untuk {s['label']} - {s['judul']}:", value=s["koreksi"], key=f"koreksi_{s['id']}", height=100, placeholder="Contoh: Makhraj huruf ح kurang jelas, ulangi... Tajwid idgham sudah bagus...")
+                nilai_txt = st.text_input("Nilai Setoran (0-100, kosongkan kalau belum dinilai):", value=s["nilai"], key=f"nilai_{s['id']}", placeholder="Contoh: 85")
+                ck1, ck2 = st.columns(2)
+                with ck1:
+                    if st.button("✅ Kirim / Update Koreksi", key=f"kirim_koreksi_{s['id']}", use_container_width=True):
+                        if not koreksi_txt.strip():
+                            st.warning("⚠️ Koreksinya masih kosong!")
+                        else:
+                            koreksi_setoran(s['id'], koreksi_txt.strip(), f"{NAMA_LENGKAP_TIM.get(st.session_state['login_nama'], st.session_state['login_nama'])} | {TIM_PENYUSUN.get(st.session_state['login_nama'],'Tim')}", nilai_txt.strip())
+                            st.success("✅ Koreksi terkirim, siswa bisa langsung lihat!")
+                            time.sleep(0.5); st.rerun()
+                with ck2:
+                    if st.button("🗑️ Hapus Setoran", key=f"hapus_setoran_{s['id']}", use_container_width=True):
+                        hapus_setoran(s['id']); st.rerun()
+            st.write("")
+    st.write("")
+    if st.button("⬅️ Tutup Setoran Suara", use_container_width=True):
+        st.session_state["lihat_setoran"]=False; st.rerun()
+    st.stop()
 
 # ===== KOTAK SARAN =====
 if st.session_state.get("lihat_saran") and st.session_state["siswa_pilih"] is None:
@@ -506,7 +642,6 @@ if st.session_state.get("lihat_riwayat") and st.session_state["siswa_pilih"] is 
         for i,r in enumerate(riw,1):
             rows+=f"<tr><td style='padding:10px; text-align:center; color:white;'>{i}</td><td style='padding:10px; color:white; font-weight:bold;'>{html.escape(str(r['nama']))}</td><td style='padding:10px; text-align:center; color:white;'>{html.escape(str(r['kelas']))}</td><td style='padding:10px; color:white;'>{html.escape(str(r['aktivitas']))}</td><td style='padding:10px; text-align:center; color:white;'>{html.escape(str(r['jam']))}</td><td style='padding:10px; text-align:center; color:#F9D423;'>{html.escape(str(r['lama']))}</td></tr>"
         st.markdown(f"<div style='background-color: rgba(0,0,0,0.75); padding:15px; border-radius:15px;'><table style='width:100%;'><tr style='background-color:#F9D423;'><th style='padding:10px; color:#000;'>No</th><th style='padding:10px; color:#000;'>Nama</th><th style='padding:10px; color:#000;'>Kelas</th><th style='padding:10px; color:#000;'>Buka Apa</th><th style='padding:10px; color:#000;'>Jam</th><th style='padding:10px; color:#000;'>Lama</th></tr>{rows}</table></div>", unsafe_allow_html=True)
-    # ===== TOMBOL RESET RIWAYAT - KHUSUS TIM SAJA =====
     if st.session_state["login_role"] == "tim":
         st.write("")
         st.markdown("<div style='background-color: rgba(120,20,20,0.9); padding:18px; border-radius:15px; text-align:center; border:2px solid #FF5252;'><h3 style='color:#FFFFFF; margin:0;'>🔄 Reset Riwayat (Khusus Tim)</h3><p style='color:white; font-size:13px; margin:6px 0 0 0;'>Hati-hati! Riwayat yang sudah dihapus tidak bisa dikembalikan.</p></div>", unsafe_allow_html=True)
@@ -563,8 +698,6 @@ if st.session_state["lihat_nilai"] and st.session_state["siswa_pilih"] is None:
             nilai_export = hasil.get(nama_export)
             writer.writerow([nama_export, info_export["jk"], info_export["kategori"], nilai_export if nilai_export is not None else "", "Tuntas" if nilai_export is not None and nilai_export >= KKM else ("Belum Tuntas" if nilai_export is not None else "Belum Ujian"), ulang.get(nama_export, 0)])
         st.download_button("⬇️ Unduh Daftar Nilai (CSV - bisa dibuka di Excel)", data="\ufeff" + output.getvalue(), file_name="daftar_nilai_qori_ai.csv", mime="text/csv", use_container_width=True)
-
-    # ===== KOTAK RESET - KHUSUS TIM SAJA, SISWA TIDAK BISA LIHAT =====
     if st.session_state["login_role"] == "tim":
         st.write("")
         st.markdown("<div style='background-color: rgba(120,20,20,0.9); padding:18px; border-radius:15px; text-align:center; border:2px solid #FF5252;'><h3 style='color:#FFFFFF; margin:0;'>🔄 Reset Nilai (Khusus Tim)</h3><p style='color:white; font-size:13px; margin:6px 0 0 0;'>Hati-hati! Nilai yang sudah direset tidak bisa dikembalikan.</p></div>", unsafe_allow_html=True)
@@ -592,7 +725,6 @@ if st.session_state["lihat_nilai"] and st.session_state["siswa_pilih"] is None:
                 st.success("✅ Semua nilai sudah direset! Semua siswa kembali jadi Belum Mengerjakan.")
                 time.sleep(0.5)
                 st.rerun()
-
     st.write("")
     if st.button("⬅️ Tutup Daftar Nilai", use_container_width=True):
         st.session_state["lihat_nilai"]=False; st.rerun()
