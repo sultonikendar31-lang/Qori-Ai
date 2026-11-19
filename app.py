@@ -34,6 +34,14 @@ def db():
         nama TEXT NOT NULL, kelas TEXT NOT NULL, game TEXT NOT NULL,
         skor INTEGER NOT NULL, jam TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS game_attempts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        attempt_id TEXT NOT NULL UNIQUE,
+        nama TEXT NOT NULL, kelas TEXT NOT NULL, game TEXT NOT NULL,
+        level INTEGER NOT NULL, skor INTEGER NOT NULL,
+        benar INTEGER NOT NULL, total_soal INTEGER NOT NULL,
+        jam TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""")
     c.execute("""CREATE TABLE IF NOT EXISTS setoran (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         pengirim TEXT, label TEXT, kategori TEXT, judul TEXT, keterangan TEXT,
@@ -91,7 +99,36 @@ def get_leaderboard():
 
 def reset_leaderboard():
     CONN.execute("DELETE FROM game_scores")
+    CONN.execute("DELETE FROM game_attempts")
     CONN.commit()
+
+def simpan_hasil_game(attempt_id, nama, kelas, game, level, skor, total_soal=25):
+    """Simpan satu hasil akhir sesi game; attempt_id mencegah duplikasi saat rerun."""
+    benar = int(skor // 10)
+    CONN.execute(
+        """INSERT OR IGNORE INTO game_attempts
+        (attempt_id,nama,kelas,game,level,skor,benar,total_soal,jam)
+        VALUES(?,?,?,?,?,?,?,?,datetime('now','localtime'))""",
+        (attempt_id, nama, kelas, game, int(level), int(skor), benar, int(total_soal))
+    )
+    CONN.commit()
+
+def get_rekap_nilai_game(nama_game):
+    """Nilai terbaik dan jumlah percobaan per siswa pada setiap level game."""
+    rows = CONN.execute(
+        """SELECT nama, kelas, level, MAX(skor), COUNT(*), MAX(jam)
+        FROM game_attempts WHERE game=?
+        GROUP BY nama, kelas, level
+        ORDER BY nama COLLATE NOCASE, level""",
+        (nama_game,)
+    ).fetchall()
+    hasil = {}
+    for nama, kelas, level, skor, jumlah, jam in rows:
+        hasil.setdefault(nama, {"kelas": kelas, "level": {}})
+        hasil[nama]["level"][int(level)] = {
+            "skor": int(skor), "percobaan": int(jumlah), "jam": jam
+        }
+    return hasil
 
 def get_saran():
     return [{"id":r[0],"pengirim":r[1],"label":r[2],"role":r[3],"jenis":r[4],"isi":r[5],"jam":r[6],"balasan":r[7] or "","pembalas":r[8] or ""} for r in CONN.execute("SELECT id,pengirim,label,role,jenis,isi,jam,balasan,pembalas FROM saran ORDER BY id DESC")]
@@ -555,9 +592,20 @@ if st.session_state.get("game"):
         st.session_state["game_question"] = None
         st.session_state["game_feedback"] = ""
         st.session_state["game_session_score"] = 0
+        st.session_state["game_attempt_id"] = f"{time.time_ns()}-{random.randint(1000,9999)}"
 
     indeks = st.session_state.get("game_index", 0)
     if indeks >= jumlah_soal:
+        # Simpan nilai akhir satu kali untuk rekap khusus Tim.
+        if st.session_state.get("login_role") == "siswa":
+            nama_hasil = st.session_state.get("login_nama", "")
+            kelas_hasil = DATA_SISWA.get(nama_hasil, {}).get("kategori", "-")
+            if kelas_hasil == kategori_game.get(game_key):
+                simpan_hasil_game(
+                    st.session_state.get("game_attempt_id", str(time.time_ns())),
+                    nama_hasil, kelas_hasil, judul_game, level_game,
+                    st.session_state.get("game_session_score", 0), jumlah_soal
+                )
         st.success("🎉 MasyaAllah! Kamu telah menyelesaikan 25 soal.")
         st.metric("Skor sesi ini", st.session_state.get("game_session_score", 0))
         st.write("Skor maksimal: 250 poin.")
@@ -567,6 +615,7 @@ if st.session_state.get("game"):
             st.session_state["game_question"] = None
             st.session_state["game_feedback"] = ""
             st.session_state["game_session_score"] = 0
+            st.session_state["game_attempt_id"] = f"{time.time_ns()}-{random.randint(1000,9999)}"
             st.rerun()
         if st.button("❌ Tutup Game", use_container_width=True):
             st.session_state["game"] = None
@@ -581,7 +630,6 @@ if st.session_state.get("game"):
         pilihan_game = list(pilihan_asli)
         random.shuffle(pilihan_game)
         st.session_state["game_question"] = {"prompt": prompt_game, "answer": jawaban_benar, "options": pilihan_game}
-        st.session_state["game_feedback"] = ""
 
     q = st.session_state["game_question"]
     st.progress(indeks / jumlah_soal, text=f"Soal {indeks + 1} dari {jumlah_soal}")
@@ -604,16 +652,17 @@ if st.session_state.get("game"):
                     kelas_login = DATA_SISWA.get(nama_login, {}).get("kategori", "-")
                     if kelas_login == kategori_game.get(game_key):
                         simpan_skor_game(nama_login, kelas_login, judul_game_level, 10)
-                st.session_state["game_index"] += 1
-                st.session_state["game_question"] = None
-                st.session_state["game_feedback"] = "Benar! MasyaAllah, kamu mendapat 10 poin."
-                st.rerun()
+                st.session_state["game_feedback"] = "✅ Benar! MasyaAllah, kamu mendapat 10 poin."
             else:
-                st.session_state["game_feedback"] = "Belum tepat. Coba lagi; soal ini belum berpindah."
-                st.rerun()
+                st.session_state["game_feedback"] = f"❌ Belum tepat. Jawaban yang benar: {q['answer']}. Soal berikutnya akan ditampilkan."
+
+            # Setiap jawaban hanya boleh satu kali. Benar atau salah, langsung lanjut.
+            st.session_state["game_index"] += 1
+            st.session_state["game_question"] = None
+            st.rerun()
 
     st.metric("⭐ Skor sesi ini", st.session_state.get("game_session_score", 0))
-    st.caption("Jawaban benar bernilai 10 poin. Jawaban salah boleh dicoba kembali dan tidak mengurangi skor.")
+    st.caption("Setiap soal hanya dijawab satu kali. Jawaban benar mendapat 10 poin; jika salah, skor tidak bertambah dan permainan langsung lanjut ke soal berikutnya.")
     if st.button("❌ Tutup Game", use_container_width=True):
         st.session_state["game"] = None
         st.session_state["game_session_key"] = None
@@ -1034,6 +1083,50 @@ if st.session_state.get("lihat_riwayat") and st.session_state["siswa_pilih"] is 
             f"<th style='padding:10px;color:#000;'>Total Skor</th><th style='padding:10px;color:#000;'>Jumlah Main</th>"
             f"</tr>{rows_lb}</table></div>", unsafe_allow_html=True
         )
+    # Rekap nilai per siswa, per game, dan per level hanya dapat dilihat Tim.
+    if st.session_state.get("login_role") == "tim":
+        st.markdown("### 📊 Daftar Nilai Game Siswa – Level 1 sampai 6")
+        st.caption("Menampilkan nilai terbaik dari setiap level yang telah diselesaikan. Tanda — berarti siswa belum menyelesaikan level tersebut. Data ini khusus Tim.")
+        konfigurasi_rekap = [
+            ("Game Iqro'", "Iqro", "🔤 Nilai Game Iqro'"),
+            ("Game Tahsin", "Tahsin", "📖 Nilai Game Tahsin"),
+            ("Game Tahfidz", "Tahfidz", "🧠 Nilai Game Tahfidz"),
+        ]
+        for nama_game_rekap, kategori_rekap, judul_rekap in konfigurasi_rekap:
+            st.markdown(f"#### {judul_rekap}")
+            rekap = get_rekap_nilai_game(nama_game_rekap)
+            siswa_kategori = [n for n, d in DATA_SISWA.items() if d.get("kategori") == kategori_rekap]
+            if not siswa_kategori:
+                st.info("Belum ada data siswa untuk kategori ini.")
+                continue
+            rows_rekap = ""
+            for no, nama_siswa in enumerate(siswa_kategori, 1):
+                data_siswa = rekap.get(nama_siswa, {"kelas": kategori_rekap, "level": {}})
+                cells = ""
+                total_terbaik = 0
+                for lev in range(1, 7):
+                    info_level = data_siswa["level"].get(lev)
+                    if info_level:
+                        nilai_level = info_level["skor"]
+                        total_terbaik += nilai_level
+                        isi_nilai = f"{nilai_level}/250<br><small>{info_level['percobaan']}x main</small>"
+                    else:
+                        isi_nilai = "—"
+                    cells += f"<td style='padding:8px;text-align:center;color:white;'>{isi_nilai}</td>"
+                rows_rekap += (
+                    f"<tr><td style='padding:8px;text-align:center;color:white;'>{no}</td>"
+                    f"<td style='padding:8px;color:white;font-weight:bold;'>{html.escape(nama_siswa)}</td>"
+                    f"{cells}<td style='padding:8px;text-align:center;color:#F9D423;font-weight:bold;'>{total_terbaik}</td></tr>"
+                )
+            st.markdown(
+                "<div style='background:rgba(0,0,0,.78);padding:12px;border-radius:12px;overflow-x:auto;'>"
+                "<table style='width:100%;border-collapse:collapse;min-width:850px;'>"
+                "<tr style='background:#F9D423;color:#000;'><th>No</th><th>Nama Siswa</th>"
+                "<th>Level 1</th><th>Level 2</th><th>Level 3</th><th>Level 4</th>"
+                "<th>Level 5</th><th>Level 6</th><th>Akumulasi Nilai Terbaik</th></tr>"
+                f"{rows_rekap}</table></div>", unsafe_allow_html=True
+            )
+
     if st.session_state["login_role"] == "tim":
         if st.button("🔄 Reset Leaderboard Game (Khusus Tim)"):
             reset_leaderboard()
