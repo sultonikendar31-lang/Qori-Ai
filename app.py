@@ -379,6 +379,15 @@ if st.session_state["login_nama"] is None:
                     st.session_state["login_role"] = "siswa"
                     st.session_state["login_jabatan"] = f"Siswa {DATA_SISWA[nama_bersih]['kategori']}"
                     tampil = nama_bersih
+                # Reset sesi game saat akun berganti agar soal/skor akun sebelumnya
+                # tidak terbawa ke akun berikutnya, termasuk akun dengan kategori sama.
+                for k_game, v_game in [
+                    ("game", None), ("game_question", None), ("game_questions", []),
+                    ("game_index", 0), ("game_feedback", ""),
+                    ("game_session_score", 0), ("game_session_key", None),
+                    ("game_attempt_id", None),
+                ]:
+                    st.session_state[k_game] = v_game
                 st.session_state["waktu_login"] = time.time()
                 st.session_state["sudah_catat_masuk"] = False
                 st.success(f"✅ Selamat datang, {tampil}")
@@ -407,8 +416,12 @@ role_login = st.session_state.get("login_role")
 nama_login = st.session_state.get("login_nama")
 kategori_login = DATA_SISWA.get(nama_login, {}).get("kategori") if role_login == "siswa" else None
 
-# Siswa hanya melihat game yang sesuai kategori pada DATA_SISWA.
-# Tim dapat membuka semua game untuk keperluan pendampingan/pengujian.
+# PEMBATASAN TAMPILAN GAME:
+# - Siswa Iqro hanya melihat Game Iqro'.
+# - Siswa Tahsin hanya melihat Game Tahsin.
+# - Siswa Tahfidz hanya melihat Game Tahfidz.
+# - Siswa tidak melihat tombol game kategori lain.
+# - Aturan ini khusus siswa; akun TIM tetap dapat melihat ketiga game.
 if role_login == "siswa":
     game_diizinkan = {
         "Iqro": [("iqro", "🔤 Game Iqro'")],
@@ -419,7 +432,7 @@ if role_login == "siswa":
         st.warning("Kategori akun siswa belum terdaftar. Silakan hubungi tim QORI AI.")
     else:
         game_key, game_label = game_diizinkan[0]
-        st.caption(f"Game khusus kategori kamu: **{kategori_login}**")
+        st.caption(f"Akses siswa dibatasi: hanya **Game {kategori_login}** yang ditampilkan untuk akun kamu.")
         if st.button(game_label, use_container_width=True):
             st.session_state["game"] = game_key
             st.session_state["game_question"] = None
@@ -693,6 +706,15 @@ with col_out2:
         st.session_state["lihat_baca"] = False
         st.session_state["sudah_catat_masuk"] = False
         st.session_state["waktu_login"] = None
+        # Tutup dan bersihkan sesi game ketika keluar/ganti akun.
+        st.session_state["game"] = None
+        st.session_state["game_question"] = None
+        st.session_state["game_questions"] = []
+        st.session_state["game_index"] = 0
+        st.session_state["game_feedback"] = ""
+        st.session_state["game_session_score"] = 0
+        st.session_state["game_session_key"] = None
+        st.session_state["game_attempt_id"] = None
         st.session_state["lihat_video"] = True
         st.session_state["login_error"] = ""
         st.rerun()
