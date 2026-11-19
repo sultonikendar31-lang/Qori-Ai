@@ -410,55 +410,6 @@ else:
     teks_selamat = f"👤 Selamat datang, {nama_tim} | {jabatan_tim}"
 st.markdown(f"<div style='background-color: rgba(0,0,0,0.6); padding:10px; border-radius:10px; text-align:center; margin-top:10px;'><b style='color:white;'>{teks_selamat}</b></div>", unsafe_allow_html=True)
 
-# ===== MENU GAME QORI AI BERDASARKAN KATEGORI SISWA =====
-st.markdown("### 🎮 Game QORI AI")
-role_login = st.session_state.get("login_role")
-nama_login = st.session_state.get("login_nama")
-kategori_login = DATA_SISWA.get(nama_login, {}).get("kategori") if role_login == "siswa" else None
-
-# PEMBATASAN TAMPILAN GAME:
-# - Siswa Iqro hanya melihat Game Iqro'.
-# - Siswa Tahsin hanya melihat Game Tahsin.
-# - Siswa Tahfidz hanya melihat Game Tahfidz.
-# - Siswa tidak melihat tombol game kategori lain.
-# - Aturan ini khusus siswa; akun TIM tetap dapat melihat ketiga game.
-if role_login == "siswa":
-    game_diizinkan = {
-        "Iqro": [("iqro", "🔤 Game Iqro'")],
-        "Tahsin": [("tahsin", "📖 Game Tahsin")],
-        "Tahfidz": [("tahfidz", "🧠 Game Tahfidz")],
-    }.get(kategori_login, [])
-    if not game_diizinkan:
-        st.warning("Kategori akun siswa belum terdaftar. Silakan hubungi tim QORI AI.")
-    else:
-        game_key, game_label = game_diizinkan[0]
-        st.caption(f"Akses siswa dibatasi: hanya **Game {kategori_login}** yang ditampilkan untuk akun kamu.")
-        if st.button(game_label, use_container_width=True):
-            st.session_state["game"] = game_key
-            st.session_state["game_question"] = None
-            st.session_state["game_feedback"] = ""
-            st.rerun()
-elif role_login == "tim":
-    game_col1, game_col2, game_col3 = st.columns(3)
-    with game_col1:
-        if st.button("🔤 Game Iqro'", use_container_width=True):
-            st.session_state["game"] = "iqro"
-            st.session_state["game_question"] = None
-            st.session_state["game_feedback"] = ""
-            st.rerun()
-    with game_col2:
-        if st.button("📖 Game Tahsin", use_container_width=True):
-            st.session_state["game"] = "tahsin"
-            st.session_state["game_question"] = None
-            st.session_state["game_feedback"] = ""
-            st.rerun()
-    with game_col3:
-        if st.button("🧠 Game Tahfidz", use_container_width=True):
-            st.session_state["game"] = "tahfidz"
-            st.session_state["game_question"] = None
-            st.session_state["game_feedback"] = ""
-            st.rerun()
-
 # ===== HALAMAN GAME QORI AI: 25 SOAL PER PERMAINAN =====
 if st.session_state.get("game"):
     game_key = st.session_state["game"]
@@ -733,6 +684,133 @@ if st.session_state["siswa_pilih"] is None and st.session_state["login_role"] ==
     d4.metric("Belum Ujian", jumlah_belum_ujian)
     if jumlah_belum:
         st.info(f"{jumlah_belum} siswa memperoleh nilai di bawah KKM dan perlu tindak lanjut/remedial.")
+
+    # ===== PENILAIAN GAME SISWA - KHUSUS TIM =====
+    # Data diambil dari SQLite (game_attempts), bukan session_state/leaderboard sementara.
+    # Untuk setiap game dan level, yang dihitung adalah nilai terbaik siswa.
+    st.markdown("### 📝 Penilaian Game Siswa")
+    st.caption("Rekap nilai seluruh 20 siswa. Hanya akun Tim yang dapat melihat dan mengunduh data ini.")
+
+    konfigurasi_nilai_game = [
+        ("Game Iqro'", "Iqro"),
+        ("Game Tahsin", "Tahsin"),
+        ("Game Tahfidz", "Tahfidz"),
+    ]
+    rekap_per_game = {nama_game: get_rekap_nilai_game(nama_game) for nama_game, _ in konfigurasi_nilai_game}
+    data_nilai_siswa = []
+    for nama_siswa, identitas in DATA_SISWA.items():
+        kategori_siswa = identitas.get("kategori", "-")
+        baris_nilai = {
+            "Nama Siswa": nama_siswa,
+            "Kelas/Kategori": kategori_siswa,
+            "Iqro'": 0,
+            "Tahsin": 0,
+            "Tahfidz": 0,
+        }
+        for nama_game, kolom_game in konfigurasi_nilai_game:
+            # Setiap siswa hanya dinilai pada game sesuai kategori akunnya.
+            if kategori_siswa != kolom_game:
+                continue
+            data_game = rekap_per_game[nama_game].get(nama_siswa, {"level": {}})
+            baris_nilai[kolom_game if kolom_game != "Iqro" else "Iqro'"] = sum(
+                info_level.get("skor", 0) for info_level in data_game.get("level", {}).values()
+            )
+        baris_nilai["Total"] = baris_nilai["Iqro'"] + baris_nilai["Tahsin"] + baris_nilai["Tahfidz"]
+        baris_nilai["Keterangan"] = "✅ Sudah Main" if baris_nilai["Total"] > 0 else "❌ Belum Main"
+        data_nilai_siswa.append(baris_nilai)
+
+    rows_penilaian = ""
+    for nomor, nilai in enumerate(data_nilai_siswa, 1):
+        rows_penilaian += (
+            f"<tr><td style='padding:9px;text-align:center;color:white;'>{nomor}</td>"
+            f"<td style='padding:9px;color:white;font-weight:bold;'>{html.escape(nilai['Nama Siswa'])}</td>"
+            f"<td style='padding:9px;text-align:center;color:white;'>{html.escape(nilai['Kelas/Kategori'])}</td>"
+            f"<td style='padding:9px;text-align:center;color:white;'>{nilai["Iqro'"]}</td>"
+            f"<td style='padding:9px;text-align:center;color:white;'>{nilai['Tahsin']}</td>"
+            f"<td style='padding:9px;text-align:center;color:white;'>{nilai['Tahfidz']}</td>"
+            f"<td style='padding:9px;text-align:center;color:#F9D423;font-weight:bold;'>{nilai['Total']}</td>"
+            f"<td style='padding:9px;text-align:center;color:white;'>{nilai['Keterangan']}</td></tr>"
+        )
+
+    st.markdown(
+        "<div style='background:rgba(0,0,0,.78);padding:14px;border-radius:12px;overflow-x:auto;'>"
+        "<table style='width:100%;border-collapse:collapse;min-width:760px;'>"
+        "<tr style='background:#F9D423;color:#000;'><th>No</th><th>Nama Siswa</th>"
+        "<th>Kelas/Kategori</th><th>Iqro'</th><th>Tahsin</th><th>Tahfidz</th>"
+        "<th>Total</th><th>Keterangan</th></tr>"
+        f"{rows_penilaian}</table></div>", unsafe_allow_html=True
+    )
+
+    jumlah_sudah_main = sum(1 for item in data_nilai_siswa if item["Total"] > 0)
+    jumlah_belum_main = len(data_nilai_siswa) - jumlah_sudah_main
+    nilai_col1, nilai_col2, nilai_col3 = st.columns(3)
+    nilai_col1.metric("Jumlah Siswa", len(data_nilai_siswa))
+    nilai_col2.metric("Sudah Main", jumlah_sudah_main)
+    nilai_col3.metric("Belum Main", jumlah_belum_main)
+
+    # CSV disusun dari seluruh daftar siswa, termasuk yang belum bermain (nilai 0).
+    output_csv = io.StringIO()
+    kolom_csv = ["Nama Siswa", "Kelas/Kategori", "Iqro'", "Tahsin", "Tahfidz", "Total", "Keterangan"]
+    writer_csv = csv.DictWriter(output_csv, fieldnames=kolom_csv)
+    writer_csv.writeheader()
+    writer_csv.writerows(data_nilai_siswa)
+    st.download_button(
+        "📥 Download Nilai Game (CSV)",
+        data=output_csv.getvalue().encode("utf-8-sig"),
+        file_name="penilaian_game_siswa_qori_ai.csv",
+        mime="text/csv",
+        key="download_penilaian_game_tim",
+    )
+
+# ===== MENU GAME QORI AI BERDASARKAN KATEGORI SISWA =====
+st.markdown("### 🎮 Game QORI AI")
+role_login = st.session_state.get("login_role")
+nama_login = st.session_state.get("login_nama")
+kategori_login = DATA_SISWA.get(nama_login, {}).get("kategori") if role_login == "siswa" else None
+
+# PEMBATASAN TAMPILAN GAME:
+# - Siswa Iqro hanya melihat Game Iqro'.
+# - Siswa Tahsin hanya melihat Game Tahsin.
+# - Siswa Tahfidz hanya melihat Game Tahfidz.
+# - Siswa tidak melihat tombol game kategori lain.
+# - Aturan ini khusus siswa; akun TIM tetap dapat melihat ketiga game.
+if role_login == "siswa":
+    game_diizinkan = {
+        "Iqro": [("iqro", "🔤 Game Iqro'")],
+        "Tahsin": [("tahsin", "📖 Game Tahsin")],
+        "Tahfidz": [("tahfidz", "🧠 Game Tahfidz")],
+    }.get(kategori_login, [])
+    if not game_diizinkan:
+        st.warning("Kategori akun siswa belum terdaftar. Silakan hubungi tim QORI AI.")
+    else:
+        game_key, game_label = game_diizinkan[0]
+        st.caption(f"Akses siswa dibatasi: hanya **Game {kategori_login}** yang ditampilkan untuk akun kamu.")
+        if st.button(game_label, use_container_width=True):
+            st.session_state["game"] = game_key
+            st.session_state["game_question"] = None
+            st.session_state["game_feedback"] = ""
+            st.rerun()
+elif role_login == "tim":
+    game_col1, game_col2, game_col3 = st.columns(3)
+    with game_col1:
+        if st.button("🔤 Game Iqro'", use_container_width=True):
+            st.session_state["game"] = "iqro"
+            st.session_state["game_question"] = None
+            st.session_state["game_feedback"] = ""
+            st.rerun()
+    with game_col2:
+        if st.button("📖 Game Tahsin", use_container_width=True):
+            st.session_state["game"] = "tahsin"
+            st.session_state["game_question"] = None
+            st.session_state["game_feedback"] = ""
+            st.rerun()
+    with game_col3:
+        if st.button("🧠 Game Tahfidz", use_container_width=True):
+            st.session_state["game"] = "tahfidz"
+            st.session_state["game_question"] = None
+            st.session_state["game_feedback"] = ""
+            st.rerun()
+
 st.write("")
 
 # ===== DATA SOAL =====
