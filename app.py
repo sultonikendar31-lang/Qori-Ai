@@ -730,7 +730,7 @@ nama_login = st.session_state.get("login_nama", "")
 
 # DATA_SISWA menjadi sumber kategori utama untuk seluruh akun siswa.
 kategori_saya = DATA_SISWA.get(nama_login, {}).get("kategori") if role_login == "siswa" else None
-if role_login == "siswa":
+if role_login == "siswa" and not st.session_state.get("lihat_nilai_game", False) and not st.session_state.get("lihat_nilai", False):
     st.markdown("### 🎮 Game QORI AI")
     st.session_state["kategori_saya"] = kategori_saya
 
@@ -748,19 +748,22 @@ if role_login == "siswa":
         st.caption(f"Akses siswa dibatasi: hanya **Game {kategori_saya}** yang ditampilkan untuk akun kamu.")
 
         # Siswa hanya melihat game kategorinya sendiri dan daftar nilainya sendiri.
-        tombol_game, tombol_nilai = st.columns(2)
+        tombol_game, tombol_nilai_game = st.columns(2)
         with tombol_game:
-            if st.button(label_kategori_siswa, use_container_width=True, key="tombol_game_siswa_kategori"):
+            if st.button(label_game_siswa, use_container_width=True, key="tombol_game_siswa_kategori"):
                 st.session_state["game"] = game_key_siswa
                 st.session_state["game_session_key"] = None
                 st.session_state["game_index"] = 0
                 st.session_state["game_question"] = None
                 st.session_state["game_feedback"] = ""
                 st.session_state["lihat_nilai_game"] = False
+                st.session_state["lihat_nilai"] = False
                 st.rerun()
-        with tombol_nilai:
-            if st.button("📋 Daftar Hasil Nilai", use_container_width=True, key="tombol_nilai_game_siswa"):
+        with tombol_nilai_game:
+            if st.button("📋 Daftar Hasil Nilai Game", use_container_width=True, key="tombol_nilai_game_siswa"):
                 st.session_state["lihat_nilai_game"] = True
+                st.session_state["lihat_nilai"] = False
+                st.session_state["kategori_pilih"] = None
                 st.session_state["game"] = None
                 st.session_state["game_question"] = None
                 st.session_state["game_feedback"] = ""
@@ -895,7 +898,7 @@ if st.session_state.get("lihat_nilai_game", False):
             writer_nilai_csv.writeheader()
             writer_nilai_csv.writerows(data_tabel_nilai)
             st.download_button(
-                "📥 Download Daftar Hasil Nilai (CSV)",
+                "📥 Download Daftar Hasil Nilai Game (CSV)",
                 data=output_nilai_csv.getvalue().encode("utf-8-sig"),
                 file_name="daftar_hasil_nilai_game_qori_ai.csv",
                 mime="text/csv",
@@ -1070,7 +1073,7 @@ def tampilkan_daftar(kategori):
         st.rerun()
 
 # ===== MENU UTAMA: TIM SEMUA KATEGORI, SISWA SESUAI KATEGORI AKUN =====
-if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai"]:
+if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai"] and not st.session_state.get("lihat_nilai_game", False):
     role_menu = st.session_state.get("login_role")
     nama_menu = st.session_state.get("login_nama", "")
     kategori_menu_siswa = DATA_SISWA.get(nama_menu, {}).get("kategori")
@@ -1080,7 +1083,7 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
         # Baris 1 = Game edukatif (bank soal game: huruf, tajwid, sambung ayat).
         # Baris 2 = Ujian akademik (bank soal ujian) dan daftar hasil nilai.
         st.markdown("### 🎮 Soal Game")
-        g1, g2, g3 = st.columns(3)
+        g1, g2, g3, g4 = st.columns(4)
         with g1:
             klik_game_iqro = st.button(
                 "🎮 Game Iqro", use_container_width=True, key="tim_game_iqro"
@@ -1092,6 +1095,10 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
         with g3:
             klik_game_tahfidz = st.button(
                 "🎮 Game Tahfidz", use_container_width=True, key="tim_game_tahfidz"
+            )
+        with g4:
+            klik_nilai_game = st.button(
+                "📋 Daftar Hasil Nilai Game", use_container_width=True, key="tim_nilai_game"
             )
 
         game_tim_dipilih = (
@@ -1118,6 +1125,19 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
             st.session_state["lihat_baca"] = False
             st.rerun()
 
+        if klik_nilai_game:
+            st.session_state["lihat_nilai_game"] = True
+            st.session_state["lihat_nilai"] = False
+            st.session_state["game"] = None
+            st.session_state["game_session_key"] = None
+            st.session_state["kategori_pilih"] = None
+            st.session_state["lihat_riwayat"] = False
+            st.session_state["lihat_saran"] = False
+            st.session_state["lihat_setoran"] = False
+            st.session_state["lihat_baca"] = False
+            catat_aktivitas("Buka Daftar Hasil Nilai Game")
+            st.rerun()
+
         st.markdown("### 📝 Soal Ujian")
         m1, m2, m3, m4 = st.columns(4)
         with m1:
@@ -1127,7 +1147,7 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
         with m3:
             klik_tahfidz = st.button("⭐ Tahfidz", use_container_width=True, key="menu_utama_tahfidz_tim")
         with m4:
-            klik_nilai = st.button("📊 Daftar Hasil Nilai", use_container_width=True, key="menu_utama_nilai_tim")
+            klik_nilai = st.button("📋 Daftar Hasil Nilai Ujian", use_container_width=True, key="menu_utama_nilai_tim")
 
         kategori_tim_dipilih = (
             "Iqro" if klik_iqro else
@@ -1146,16 +1166,16 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
             st.session_state["lihat_baca"] = False
 
         if klik_nilai:
-            st.session_state["lihat_nilai_game"] = True
+            st.session_state["lihat_nilai"] = True
+            st.session_state["lihat_nilai_game"] = False
             st.session_state["game"] = None
             st.session_state["game_session_key"] = None
             st.session_state["kategori_pilih"] = None
-            st.session_state["lihat_nilai"] = False
             st.session_state["lihat_riwayat"] = False
             st.session_state["lihat_saran"] = False
             st.session_state["lihat_setoran"] = False
             st.session_state["lihat_baca"] = False
-            catat_aktivitas("Buka Daftar Hasil Nilai Game")
+            catat_aktivitas("Buka Daftar Hasil Nilai Ujian")
             st.rerun()
 
     else:
@@ -1180,9 +1200,9 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
                 )
             with s2:
                 klik_nilai = st.button(
-                    "📋 Daftar Hasil Nilai",
+                    "📋 Daftar Hasil Nilai Ujian",
                     use_container_width=True,
-                    key="menu_utama_nilai_siswa",
+                    key="menu_utama_nilai_ujian_siswa",
                 )
 
             if klik_kategori_siswa:
@@ -1198,12 +1218,14 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
 
         if klik_nilai:
             st.session_state["lihat_nilai"] = True
+            st.session_state["lihat_nilai_game"] = False
+            st.session_state["game"] = None
             st.session_state["kategori_pilih"] = None
             st.session_state["lihat_riwayat"] = False
             st.session_state["lihat_saran"] = False
             st.session_state["lihat_setoran"] = False
             st.session_state["lihat_baca"] = False
-            catat_aktivitas("Buka Daftar Hasil Nilai")
+            catat_aktivitas("Buka Daftar Hasil Nilai Ujian")
 
     # Siswa hanya dapat membuka kategori sendiri. Tim melihat satu tombol preview,
     # bukan daftar nama siswa.
@@ -1517,7 +1539,7 @@ if st.session_state.get("lihat_riwayat") and st.session_state["siswa_pilih"] is 
 
 # ===== DAFTAR NILAI =====
 if st.session_state["lihat_nilai"] and st.session_state["siswa_pilih"] is None:
-    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📊 Daftar Hasil Nilai</h2><p style='color:white;'>KKM = 75 | Nilai >= 75 = Tuntas | Nilai < 75 = Belum Tuntas</p></div>", unsafe_allow_html=True)
+    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📊 Daftar Hasil Nilai Ujian</h2><p style='color:white;'>KKM = 75 | Nilai >= 75 = Tuntas | Nilai < 75 = Belum Tuntas</p></div>", unsafe_allow_html=True)
     st.write("")
     hasil = get_hasil(); ulang = get_ulang()
     daftar_tampil = [st.session_state["login_nama"]] if st.session_state["login_role"]=="siswa" else list(DATA_SISWA.keys())
@@ -1569,7 +1591,7 @@ if st.session_state["lihat_nilai"] and st.session_state["siswa_pilih"] is None:
                 time.sleep(0.5)
                 st.rerun()
     st.write("")
-    if st.button("⬅️ Tutup Daftar Nilai", use_container_width=True):
+    if st.button("⬅️ Tutup Daftar Nilai Ujian", use_container_width=True):
         st.session_state["lihat_nilai"]=False; st.rerun()
     st.stop()
 
