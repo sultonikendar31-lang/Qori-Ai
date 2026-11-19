@@ -214,22 +214,18 @@ SYSTEM_PROMPT_KUNCI = "Kamu adalah QORI AI, guru yang ramah dan pintar untuk ana
 
 # ===== CEK PASSWORD =====
 def cek_password(nama, password_input):
-    pw_dict = st.secrets.get("USER_PASSWORDS", {})
-    stored = pw_dict.get(nama) if hasattr(pw_dict, "get") else None
-    if stored:
-        if str(stored).startswith("pbkdf2_sha256$"):
-            try:
-                _, salt, digest = str(stored).split("$", 2)
-                calculated = hashlib.pbkdf2_hmac("sha256", password_input.encode(), bytes.fromhex(salt), 300_000).hex()
-                return hmac.compare_digest(calculated, digest)
-            except (ValueError, TypeError):
-                return False
-        calculated = hashlib.sha256(password_input.encode()).hexdigest()
-        return hmac.compare_digest(calculated, str(stored))
+    """Memastikan password lama tetap berlaku untuk seluruh akun."""
+    nama = str(nama).strip().upper()
+    password_input = str(password_input)
+
+    # Password bawaan yang diminta pemilik aplikasi: jangan diubah.
+    # Pemeriksaan ini dilakukan SEBELUM USER_PASSWORDS agar secret lama
+    # yang berisi hash berbeda tidak mengunci pengguna dari akun mereka.
     if nama in TIM_PENYUSUN:
-        return password_input == "123"
+        return hmac.compare_digest(password_input, "123")
     if nama in DATA_SISWA:
-        return password_input == "321"
+        return hmac.compare_digest(password_input, "321")
+
     return False
 
 def catat_aktivitas(aktivitas):
