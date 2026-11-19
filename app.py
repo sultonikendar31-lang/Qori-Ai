@@ -1594,34 +1594,26 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
     boleh_upload_setoran = mode_setoran_manual
     audio_file = None
     if boleh_upload_setoran:
-        # ===== CARA KIRIM SUARA DI HP - TETAP ADA =====
+        # ===== KOTAK CARA KIRIM SUARA - TULISAN HITAM TEBAL =====
         st.markdown("""
-        <div style='background:#FFF3CD; padding:12px; border-radius:12px; border:2px solid #FFC107;'>
-        <p style='color:#000000; font-weight:bold; margin:0;'>🎤 Cara Kirim Suara di HP:</p>
-        <p style='color:#000000; margin:0;'>1. Rekam bacaan menggunakan Perekam HP atau Voice Note WA.<br>
+        <div style='background:#FFD54F; padding:14px; border-radius:12px; border:3px solid #FF8F00;'>
+        <p style='color:#000000 !important; font-size:17px; font-weight:900; margin:0 0 6px 0;'>🎤 Cara Kirim Suara di HP:</p>
+        <p style='color:#000000 !important; font-size:15px; font-weight:700; line-height:1.6; margin:0;'>
+        1. Rekam bacaan menggunakan Perekam HP atau Voice Note WA.<br>
         2. Upload file rekaman di bawah ini.<br>
         3. Dengarkan kembali sebelum dikirim.</p>
         </div>
         """, unsafe_allow_html=True)
         st.write("")
-        # ===== 1. ATAS: UPLOAD SUARA =====
+        # ===== SATU KOTAK: UPLOAD REKAM SUARA LANGSUNG KIRIM =====
         audio_file = st.file_uploader(
-            "📥 Upload Suara Bacaan:",
+            "📥 Upload Rekam Suara Langsung Kirim:",
             type=["mp3", "wav", "m4a", "ogg", "webm", "opus", "aac"],
             key="audio_file_setoran"
         )
         if audio_file:
-            st.success(f"✅ Suara terpilih: {audio_file.name} - Putar dahulu untuk memastikan rekaman benar.")
+            st.success(f"✅ Suara terpilih: {audio_file.name} - Dengarkan dahulu sebelum dikirim.")
             st.audio(audio_file)
-
-        # ===== 2. BAWAH: UPLOAD FOTO / KAMERA (OPSIONAL) =====
-        foto_bukti = st.file_uploader(
-            "📷 Upload Foto / Kamera (Foto saat mengaji, opsional):",
-            type=["jpg", "jpeg", "png"],
-            key="foto_file_setoran"
-        )
-        if foto_bukti:
-            st.image(foto_bukti, caption="Foto Bukti Mengaji", use_container_width=True)
 
         if st.button("📩 Kirim Setoran ke Tim", use_container_width=True):
             judul_final = judul_setoran.strip()
@@ -1637,9 +1629,8 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
                 else:
                     label = f"{NAMA_LENGKAP_TIM.get(st.session_state['login_nama'], st.session_state['login_nama'])} | {TIM_PENYUSUN.get(st.session_state['login_nama'],'Tim')}"
                 audio_bytes = audio_file.getvalue(); audio_nama = audio_file.name
-                foto_bytes = foto_bukti.getvalue() if foto_bukti else None
-                foto_nama = foto_bukti.name if foto_bukti else ""
-                tambah_setoran(st.session_state["login_nama"], label, kat_setoran, judul_final, ket_setoran.strip(), foto_bytes, foto_nama, audio_bytes, audio_nama, time.strftime("%d/%m/%Y %H:%M", time.localtime(time.time())))
+                # Setoran ini hanya memakai rekaman suara; foto tidak diminta.
+                tambah_setoran(st.session_state["login_nama"], label, kat_setoran, judul_final, ket_setoran.strip(), None, "", audio_bytes, audio_nama, time.strftime("%d/%m/%Y %H:%M", time.localtime(time.time())))
                 catat_aktivitas(f"Kirim Setoran {kat_setoran} - {judul_final[:30]}")
                 st.success("✅ Setoran terkirim! Tim akan mendengarkan & mengoreksi.")
                 time.sleep(0.5); st.rerun()
