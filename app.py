@@ -49,10 +49,14 @@ st.markdown("""
 }
 [data-testid="stFileUploaderDropzone"] span { color: #000000 !important; }
 [data-testid="stAlert"] {
-    background-color: #FFF3CD !important;
+    background-color: #FFFFFF !important;
+    border: 2px solid #1A5C2A !important;
     color: #000000 !important;
 }
-[data-testid="stAlert"] * { color: #000000 !important; }
+[data-testid="stAlert"] * {
+    color: #000000 !important;
+    font-weight: 600 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1384,7 +1388,13 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
 
             bacaan_juz30_selesai = bool(st.session_state.get("setoran_juz30_selesai", False))
             if kat_setoran == "Tahsin":
-                st.info("📖 Mode Tahsin: baca ayat dengan memperhatikan makhraj, sifat huruf, panjang-pendek, dan hukum tajwid.")
+                st.markdown("""
+                <div style='background:#FFFFFF; padding:14px; border-radius:12px; border:3px solid #1A5C2A;'>
+                <p style='color:#000000 !important; font-size:16px; font-weight:800; line-height:1.6; margin:0;'>
+                📖 Mode Tahsin: baca ayat dengan memperhatikan makhraj, sifat huruf, panjang-pendek, dan hukum tajwid.
+                </p>
+                </div>
+                """, unsafe_allow_html=True)
             else:
                 st.info("🧠 Mode Tahfidz: baca dan hafalkan ayat secara bertahap. Gunakan tombol Next untuk melanjutkan.")
 
