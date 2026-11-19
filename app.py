@@ -43,6 +43,15 @@ def simpan_hasil(nama, nilai):
     CONN.execute("INSERT INTO hasil(nama,nilai,ulang) VALUES(?,?,?) ON CONFLICT(nama) DO UPDATE SET nilai=excluded.nilai, ulang=excluded.ulang", (nama, nilai, ulang))
     CONN.commit()
     return ulang
+# ===== RESET NILAI - KHUSUS TIM =====
+def hapus_hasil_satu(nama):
+    CONN.execute("DELETE FROM hasil WHERE nama=?", (nama,))
+    CONN.execute("DELETE FROM ujian_sesi WHERE nama=?", (nama,))
+    CONN.commit()
+def reset_semua_hasil():
+    CONN.execute("DELETE FROM hasil")
+    CONN.execute("DELETE FROM ujian_sesi")
+    CONN.commit()
 def get_aktivitas():
     return [{"nama":r[0],"kelas":r[1],"aktivitas":r[2],"jam":r[3],"lama":r[4]} for r in CONN.execute("SELECT nama,kelas,aktivitas,jam,lama FROM aktivitas ORDER BY id DESC")]
 def tambah_aktivitas(nama, kelas, aktivitas, jam, lama):
@@ -179,8 +188,6 @@ if st.session_state["login_nama"] is None:
         st.write("")
     st.markdown("""<div style='background-color: rgba(255,255,255,0.12); border: 1.5px solid #F9D423; padding: 20px; border-radius: 15px; margin-top: 15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>🔐 Silakan Masukkan Nama & Password</h2><p style='color:white; margin-top:8px;'>Untuk masuk ke QORI AI</p></div>""", unsafe_allow_html=True)
     st.write("")
-
-    # === KETERANGAN SALAH, HILANG SENDIRI 3 MENIT - TIDAK ADA LAGI KOTAK PUTIH SECRETS ===
     if st.session_state.get("login_error"):
         sisa = 180 - (time.time() - st.session_state["login_error_time"])
         if sisa > 0:
@@ -191,10 +198,8 @@ if st.session_state["login_nama"] is None:
             st.session_state["login_error"] = ""
             st.session_state["login_error_time"] = 0
             st.rerun()
-
     nama_input = st.text_input("✍️ Nama Lengkap:", placeholder="Tulis nama lengkapmu...", key="input_nama_login")
     pw_input = st.text_input("🔑 Password:", type="password", placeholder="Masukkan passwordmu...", key="input_pw_login")
-    # DIHAPUS: dulu di sini ada if not USER_PASSWORDS -> st.error Konfigurasi USER_PASSWORDS...
     if st.button("🚪 Masuk ke QORI AI", use_container_width=True):
         nama_bersih = nama_input.strip().upper()
         if not nama_bersih or not pw_input:
@@ -519,6 +524,36 @@ if st.session_state["lihat_nilai"] and st.session_state["siswa_pilih"] is None:
             nilai_export = hasil.get(nama_export)
             writer.writerow([nama_export, info_export["jk"], info_export["kategori"], nilai_export if nilai_export is not None else "", "Tuntas" if nilai_export is not None and nilai_export >= KKM else ("Belum Tuntas" if nilai_export is not None else "Belum Ujian"), ulang.get(nama_export, 0)])
         st.download_button("⬇️ Unduh Daftar Nilai (CSV - bisa dibuka di Excel)", data="\ufeff" + output.getvalue(), file_name="daftar_nilai_qori_ai.csv", mime="text/csv", use_container_width=True)
+
+    # ===== KOTAK RESET - KHUSUS TIM SAJA, SISWA TIDAK BISA LIHAT =====
+    if st.session_state["login_role"] == "tim":
+        st.write("")
+        st.markdown("<div style='background-color: rgba(120,20,20,0.9); padding:18px; border-radius:15px; text-align:center; border:2px solid #FF5252;'><h3 style='color:#FFFFFF; margin:0;'>🔄 Reset Nilai (Khusus Tim)</h3><p style='color:white; font-size:13px; margin:6px 0 0 0;'>Hati-hati! Nilai yang sudah direset tidak bisa dikembalikan.</p></div>", unsafe_allow_html=True)
+        st.write("")
+        st.markdown("<p style='color:white; font-weight:bold;'>Reset 1 siswa saja:</p>", unsafe_allow_html=True)
+        nama_reset = st.selectbox("Pilih siswa yang nilainya mau dihapus:", ["-- Pilih Siswa --"] + list(DATA_SISWA.keys()), key="pilih_reset_satu")
+        if st.button("🗑️ Hapus Nilai Siswa Ini", use_container_width=True):
+            if nama_reset == "-- Pilih Siswa --":
+                st.warning("⚠️ Pilih dulu siswanya!")
+            elif nama_reset not in hasil:
+                st.warning(f"⚠️ {nama_reset} belum punya nilai, jadi tidak ada yang dihapus.")
+            else:
+                hapus_hasil_satu(nama_reset)
+                st.success(f"✅ Nilai {nama_reset} sudah dihapus! Sekarang jadi Belum Mengerjakan lagi.")
+                time.sleep(0.5)
+                st.rerun()
+        st.write("")
+        st.markdown("<p style='color:white; font-weight:bold;'>Reset SEMUA siswa jadi Belum Mengerjakan:</p>", unsafe_allow_html=True)
+        konfirmasi = st.text_input("Ketik RESET untuk konfirmasi (huruf besar semua):", placeholder="Ketik RESET di sini...", key="konfirmasi_reset_all")
+        if st.button("🗑️ Reset SEMUA Nilai Jadi Kosong", use_container_width=True):
+            if konfirmasi.strip() != "RESET":
+                st.warning("⚠️ Ketik dulu RESET dengan huruf besar semua biar tidak kepencet tidak sengaja!")
+            else:
+                reset_semua_hasil()
+                st.success("✅ Semua nilai sudah direset! Semua siswa kembali jadi Belum Mengerjakan.")
+                time.sleep(0.5)
+                st.rerun()
+
     st.write("")
     if st.button("⬅️ Tutup Daftar Nilai", use_container_width=True):
         st.session_state["lihat_nilai"]=False; st.rerun()
