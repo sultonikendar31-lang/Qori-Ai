@@ -364,34 +364,92 @@ else:
     teks_selamat = f"👤 Selamat datang, {nama_tim} | {jabatan_tim}"
 st.markdown(f"<div style='background-color: rgba(0,0,0,0.6); padding:10px; border-radius:10px; text-align:center; margin-top:10px;'><b style='color:white;'>{teks_selamat}</b></div>", unsafe_allow_html=True)
 
-# ===== MENU GAME QORI AI =====
+# ===== MENU GAME QORI AI BERDASARKAN KATEGORI SISWA =====
 st.markdown("### 🎮 Game QORI AI")
-game_col1, game_col2, game_col3 = st.columns(3)
-with game_col1:
-    if st.button("🔤 Game Iqro'", use_container_width=True):
-        st.session_state["game"] = "iqro"
-        st.session_state["game_question"] = None
-        st.session_state["game_feedback"] = ""
-        st.rerun()
-with game_col2:
-    if st.button("📖 Game Tahsin", use_container_width=True):
-        st.session_state["game"] = "tahsin"
-        st.session_state["game_question"] = None
-        st.session_state["game_feedback"] = ""
-        st.rerun()
-with game_col3:
-    if st.button("🧠 Game Tahfidz", use_container_width=True):
-        st.session_state["game"] = "tahfidz"
-        st.session_state["game_question"] = None
-        st.session_state["game_feedback"] = ""
-        st.rerun()
+role_login = st.session_state.get("login_role")
+nama_login = st.session_state.get("login_nama")
+kategori_login = DATA_SISWA.get(nama_login, {}).get("kategori") if role_login == "siswa" else None
 
-# ===== HALAMAN GAME QORI AI =====
+# Siswa hanya melihat game yang sesuai kategori pada DATA_SISWA.
+# Tim dapat membuka semua game untuk keperluan pendampingan/pengujian.
+if role_login == "siswa":
+    game_diizinkan = {
+        "Iqro": [("iqro", "🔤 Game Iqro'")],
+        "Tahsin": [("tahsin", "📖 Game Tahsin")],
+        "Tahfidz": [("tahfidz", "🧠 Game Tahfidz")],
+    }.get(kategori_login, [])
+    if not game_diizinkan:
+        st.warning("Kategori akun siswa belum terdaftar. Silakan hubungi tim QORI AI.")
+    else:
+        game_key, game_label = game_diizinkan[0]
+        st.caption(f"Game khusus kategori kamu: **{kategori_login}**")
+        if st.button(game_label, use_container_width=True):
+            st.session_state["game"] = game_key
+            st.session_state["game_question"] = None
+            st.session_state["game_feedback"] = ""
+            st.rerun()
+elif role_login == "tim":
+    game_col1, game_col2, game_col3 = st.columns(3)
+    with game_col1:
+        if st.button("🔤 Game Iqro'", use_container_width=True):
+            st.session_state["game"] = "iqro"
+            st.session_state["game_question"] = None
+            st.session_state["game_feedback"] = ""
+            st.rerun()
+    with game_col2:
+        if st.button("📖 Game Tahsin", use_container_width=True):
+            st.session_state["game"] = "tahsin"
+            st.session_state["game_question"] = None
+            st.session_state["game_feedback"] = ""
+            st.rerun()
+    with game_col3:
+        if st.button("🧠 Game Tahfidz", use_container_width=True):
+            st.session_state["game"] = "tahfidz"
+            st.session_state["game_question"] = None
+            st.session_state["game_feedback"] = ""
+            st.rerun()
+
+# ===== HALAMAN GAME QORI AI: 25 SOAL PER PERMAINAN =====
 if st.session_state.get("game"):
     game_key = st.session_state["game"]
+    kategori_game = {"iqro": "Iqro", "tahsin": "Tahsin", "tahfidz": "Tahfidz"}
+
+    # Validasi akses kategori siswa setiap kali halaman game dirender.
+    if st.session_state.get("login_role") == "siswa":
+        kategori_akun = DATA_SISWA.get(st.session_state.get("login_nama"), {}).get("kategori")
+        if kategori_game.get(game_key) != kategori_akun:
+            st.session_state["game"] = None
+            st.session_state["game_question"] = None
+            st.session_state["game_questions"] = []
+            st.session_state["game_index"] = 0
+            st.session_state["game_feedback"] = ""
+            st.warning("Akses ditolak. Game ini tidak sesuai dengan kategori akun siswa kamu.")
+            st.stop()
+
+    # Enam tingkat kesulitan tersedia untuk setiap kategori game.
+    LEVEL_GAME = {
+        1: ("Pemula", "Paling mudah: pengenalan dasar dengan 3 pilihan."),
+        2: ("Dasar", "Mulai mengenali variasi dan tanda baca dengan 3 pilihan."),
+        3: ("Menengah Awal", "Soal lebih menantang dengan 4 pilihan."),
+        4: ("Menengah", "Membedakan materi yang mirip dengan 4 pilihan."),
+        5: ("Lanjutan", "Pengecoh lebih beragam dengan 5 pilihan."),
+        6: ("Mahir", "Tantangan tertinggi dengan konteks lebih sedikit dan hingga 6 pilihan."),
+    }
+    pilihan_level = [f"Level {i} – {LEVEL_GAME[i][0]}" for i in range(1, 7)]
+    level_label = st.selectbox(
+        "Pilih tingkat kesulitan",
+        pilihan_level,
+        index=0,
+        key=f"pilih_level_{game_key}"
+    )
+    level_game = int(level_label.split()[1])
+    st.caption(LEVEL_GAME[level_game][1])
+    opsi_level_info = {1: 3, 2: 3, 3: 4, 4: 4, 5: 5, 6: 6}
+    st.info(f"🎯 Level {level_game} – {LEVEL_GAME[level_game][0]} | 25 soal | hingga {opsi_level_info[level_game]} pilihan jawaban")
+
     if game_key == "iqro":
         st.markdown("## 🔤 Game Iqro' - Tebak Huruf Hijaiyah")
-        bank = [
+        bank_huruf = [
             ("ا","Alif"),("ب","Ba"),("ت","Ta"),("ث","Tsa"),("ج","Jim"),
             ("ح","Ha"),("خ","Kho"),("د","Dal"),("ذ","Dzal"),("ر","Ro"),
             ("ز","Za"),("س","Sin"),("ش","Syin"),("ص","Shod"),("ض","Dhod"),
@@ -399,91 +457,172 @@ if st.session_state.get("game"):
             ("ق","Qof"),("ك","Kaf"),("ل","Lam"),("م","Mim"),("ن","Nun"),
             ("و","Wau"),("ه","Ha"),("ء","Hamzah"),("ي","Ya")
         ]
+        bank = [(huruf, nama, random.sample([x[1] for x in bank_huruf if x[1] != nama], 2) + [nama]) for huruf, nama in bank_huruf]
         judul_game = "Game Iqro'"
+
     elif game_key == "tahsin":
         st.markdown("## 📖 Game Tahsin - Tebak Hukum Tajwid")
         bank = [
-            ("مِنْ شَرِّ","Ikhfa",["Idgham","Ikhfa","Iqlab"]),
-            ("مِنْ بَعْدِ","Iqlab",["Ikhfa","Iqlab","Izhar"]),
-            ("مَنْ آمَنَ","Izhar",["Ikhfa","Izhar","Idgham"]),
-            ("مِنْ رَبِّهِمْ","Idgham Bilaghunnah",["Idgham Bilaghunnah","Iqlab","Ikhfa"])
+            ("مِنْ شَرِّ", "Ikhfa", ["Ikhfa", "Izhar", "Iqlab"]),
+            ("مِنْ بَعْدِ", "Iqlab", ["Iqlab", "Ikhfa", "Idgham"]),
+            ("مَنْ آمَنَ", "Izhar", ["Izhar", "Ikhfa", "Iqlab"]),
+            ("مِنْ رَبِّهِمْ", "Idgham Bilaghunnah", ["Idgham Bilaghunnah", "Idgham Bighunnah", "Ikhfa"]),
+            ("مَنْ يَعْمَلْ", "Idgham Bighunnah", ["Idgham Bighunnah", "Izhar", "Iqlab"]),
+            ("مِنْ مَالٍ", "Idgham Bighunnah", ["Ikhfa", "Idgham Bighunnah", "Izhar"]),
+            ("مِنْ نِعْمَةٍ", "Idgham Bighunnah", ["Iqlab", "Idgham Bighunnah", "Izhar"]),
+            ("مِنْ هَادٍ", "Izhar", ["Izhar", "Ikhfa", "Idgham"]),
+            ("مِنْ عِلْمٍ", "Izhar", ["Iqlab", "Izhar", "Ikhfa"]),
+            ("مِنْ خَيْرٍ", "Izhar", ["Idgham", "Ikhfa", "Izhar"]),
+            ("مِنْ غِلٍّ", "Izhar", ["Izhar", "Iqlab", "Idgham"]),
+            ("مِنْ حَكِيمٍ", "Izhar", ["Ikhfa", "Izhar", "Idgham"]),
+            ("سَمِيعٌ بَصِيرٌ", "Iqlab", ["Idgham", "Iqlab", "Ikhfa"]),
+            ("عَلِيمٌ قَدِيرٌ", "Ikhfa", ["Izhar", "Ikhfa", "Iqlab"]),
+            ("غَفُورٌ رَحِيمٌ", "Idgham Bilaghunnah", ["Idgham Bilaghunnah", "Ikhfa", "Iqlab"]),
+            ("هُدًى لِلْمُتَّقِينَ", "Idgham Bilaghunnah", ["Izhar", "Idgham Bilaghunnah", "Iqlab"]),
+            ("وُجُوهٌ يَوْمَئِذٍ", "Idgham Bighunnah", ["Idgham Bighunnah", "Izhar", "Ikhfa"]),
+            ("قَوْمًا ظَالِمِينَ", "Ikhfa", ["Iqlab", "Ikhfa", "Izhar"]),
+            ("أَنْفُسَكُمْ", "Ikhfa", ["Ikhfa", "Izhar", "Idgham"]),
+            ("أَنْبِئْهُمْ", "Iqlab", ["Iqlab", "Ikhfa", "Izhar"]),
+            ("مِنْ دُونِ", "Ikhfa", ["Izhar", "Ikhfa", "Iqlab"]),
+            ("مِنْ تَحْتِهَا", "Ikhfa", ["Idgham", "Ikhfa", "Izhar"]),
+            ("مِنْ صَلْصَالٍ", "Ikhfa", ["Iqlab", "Izhar", "Ikhfa"]),
+            ("مِنْ ذَكَرٍ", "Ikhfa", ["Ikhfa", "Idgham", "Izhar"]),
+            ("مِنْ جُوعٍ", "Ikhfa", ["Izhar", "Iqlab", "Ikhfa"]),
         ]
         judul_game = "Game Tahsin"
+
     else:
         st.markdown("## 🧠 Game Tahfidz - Sambung Ayat")
         bank = [
-            ("قُلْ هُوَ اللَّهُ أَحَدٌ","اللَّهُ الصَّمَدُ",["لَمْ يَلِدْ","اللَّهُ الصَّمَدُ","وَلَمْ يُولَدْ"]),
-            ("وَالْعَصْرِ","إِنَّ الْإِنْسَانَ لَفِي خُسْرٍ",["وَتَوَاصَوْا بِالْحَقِّ","إِنَّ الْإِنْسَانَ لَفِي خُسْرٍ","إِلَّا الَّذِينَ آمَنُوا"]),
-            ("إِنَّا أَعْطَيْنَاكَ الْكَوْثَرَ","فَصَلِّ لِرَبِّكَ وَانْحَرْ",["إِنَّ شَانِئَكَ","فَصَلِّ لِرَبِّكَ وَانْحَرْ","وَالْعَصْرِ"])
+            ("قُلْ هُوَ اللَّهُ أَحَدٌ", "اللَّهُ الصَّمَدُ", ["اللَّهُ الصَّمَدُ", "لَمْ يَلِدْ", "وَلَمْ يُولَدْ"]),
+            ("اللَّهُ الصَّمَدُ", "لَمْ يَلِدْ وَلَمْ يُولَدْ", ["لَمْ يَلِدْ وَلَمْ يُولَدْ", "وَلَمْ يَكُنْ لَهُ", "قُلْ هُوَ اللَّهُ"]),
+            ("لَمْ يَلِدْ وَلَمْ يُولَدْ", "وَلَمْ يَكُنْ لَهُ كُفُوًا أَحَدٌ", ["وَلَمْ يَكُنْ لَهُ كُفُوًا أَحَدٌ", "اللَّهُ الصَّمَدُ", "قُلْ أَعُوذُ بِرَبِّ الْفَلَقِ"]),
+            ("قُلْ أَعُوذُ بِرَبِّ الْفَلَقِ", "مِنْ شَرِّ مَا خَلَقَ", ["مِنْ شَرِّ مَا خَلَقَ", "وَمِنْ شَرِّ غَاسِقٍ", "مِنَ الْجِنَّةِ وَالنَّاسِ"]),
+            ("مِنْ شَرِّ مَا خَلَقَ", "وَمِنْ شَرِّ غَاسِقٍ إِذَا وَقَبَ", ["وَمِنْ شَرِّ غَاسِقٍ إِذَا وَقَبَ", "قُلْ أَعُوذُ بِرَبِّ النَّاسِ", "وَمِنْ شَرِّ حَاسِدٍ"]),
+            ("قُلْ أَعُوذُ بِرَبِّ النَّاسِ", "مَلِكِ النَّاسِ", ["مَلِكِ النَّاسِ", "إِلَٰهِ النَّاسِ", "مِنْ شَرِّ الْوَسْوَاسِ"]),
+            ("مَلِكِ النَّاسِ", "إِلَٰهِ النَّاسِ", ["إِلَٰهِ النَّاسِ", "مِنَ الْجِنَّةِ وَالنَّاسِ", "قُلْ أَعُوذُ بِرَبِّ الْفَلَقِ"]),
+            ("وَالْعَصْرِ", "إِنَّ الْإِنْسَانَ لَفِي خُسْرٍ", ["إِنَّ الْإِنْسَانَ لَفِي خُسْرٍ", "إِلَّا الَّذِينَ آمَنُوا", "وَتَوَاصَوْا بِالصَّبْرِ"]),
+            ("إِنَّ الْإِنْسَانَ لَفِي خُسْرٍ", "إِلَّا الَّذِينَ آمَنُوا وَعَمِلُوا الصَّالِحَاتِ", ["إِلَّا الَّذِينَ آمَنُوا وَعَمِلُوا الصَّالِحَاتِ", "وَالْعَصْرِ", "وَتَوَاصَوْا بِالْحَقِّ"]),
+            ("إِلَّا الَّذِينَ آمَنُوا وَعَمِلُوا الصَّالِحَاتِ", "وَتَوَاصَوْا بِالْحَقِّ وَتَوَاصَوْا بِالصَّبْرِ", ["وَتَوَاصَوْا بِالْحَقِّ وَتَوَاصَوْا بِالصَّبْرِ", "إِنَّ الْإِنْسَانَ لَفِي خُسْرٍ", "وَالْعَصْرِ"]),
+            ("إِنَّا أَعْطَيْنَاكَ الْكَوْثَرَ", "فَصَلِّ لِرَبِّكَ وَانْحَرْ", ["فَصَلِّ لِرَبِّكَ وَانْحَرْ", "إِنَّ شَانِئَكَ هُوَ الْأَبْتَرُ", "قُلْ هُوَ اللَّهُ أَحَدٌ"]),
+            ("فَصَلِّ لِرَبِّكَ وَانْحَرْ", "إِنَّ شَانِئَكَ هُوَ الْأَبْتَرُ", ["إِنَّ شَانِئَكَ هُوَ الْأَبْتَرُ", "إِنَّا أَعْطَيْنَاكَ الْكَوْثَرَ", "وَالْعَصْرِ"]),
+            ("أَلْهَاكُمُ التَّكَاثُرُ", "حَتَّىٰ زُرْتُمُ الْمَقَابِرَ", ["حَتَّىٰ زُرْتُمُ الْمَقَابِرَ", "كَلَّا سَوْفَ تَعْلَمُونَ", "لَتَرَوُنَّ الْجَحِيمَ"]),
+            ("حَتَّىٰ زُرْتُمُ الْمَقَابِرَ", "كَلَّا سَوْفَ تَعْلَمُونَ", ["كَلَّا سَوْفَ تَعْلَمُونَ", "أَلْهَاكُمُ التَّكَاثُرُ", "ثُمَّ لَتُسْأَلُنَّ"]),
+            ("قُلْ يَا أَيُّهَا الْكَافِرُونَ", "لَا أَعْبُدُ مَا تَعْبُدُونَ", ["لَا أَعْبُدُ مَا تَعْبُدُونَ", "وَلَا أَنَا عَابِدٌ", "لَكُمْ دِينُكُمْ"]),
+            ("لَا أَعْبُدُ مَا تَعْبُدُونَ", "وَلَا أَنْتُمْ عَابِدُونَ مَا أَعْبُدُ", ["وَلَا أَنْتُمْ عَابِدُونَ مَا أَعْبُدُ", "لَكُمْ دِينُكُمْ", "قُلْ يَا أَيُّهَا الْكَافِرُونَ"]),
+            ("لَكُمْ دِينُكُمْ", "وَلِيَ دِينِ", ["وَلِيَ دِينِ", "لَا أَعْبُدُ مَا تَعْبُدُونَ", "وَلَا أَنَا عَابِدٌ"]),
+            ("إِذَا جَاءَ نَصْرُ اللَّهِ وَالْفَتْحُ", "وَرَأَيْتَ النَّاسَ يَدْخُلُونَ فِي دِينِ اللَّهِ أَفْوَاجًا", ["وَرَأَيْتَ النَّاسَ يَدْخُلُونَ فِي دِينِ اللَّهِ أَفْوَاجًا", "فَسَبِّحْ بِحَمْدِ رَبِّكَ", "إِنَّا أَعْطَيْنَاكَ الْكَوْثَرَ"]),
+            ("وَرَأَيْتَ النَّاسَ يَدْخُلُونَ فِي دِينِ اللَّهِ أَفْوَاجًا", "فَسَبِّحْ بِحَمْدِ رَبِّكَ وَاسْتَغْفِرْهُ", ["فَسَبِّحْ بِحَمْدِ رَبِّكَ وَاسْتَغْفِرْهُ", "إِذَا جَاءَ نَصْرُ اللَّهِ", "وَالْعَصْرِ"]),
+            ("تَبَّتْ يَدَا أَبِي لَهَبٍ وَتَبَّ", "مَا أَغْنَىٰ عَنْهُ مَالُهُ وَمَا كَسَبَ", ["مَا أَغْنَىٰ عَنْهُ مَالُهُ وَمَا كَسَبَ", "سَيَصْلَىٰ نَارًا ذَاتَ لَهَبٍ", "فِي جِيدِهَا حَبْلٌ"]),
+            ("مَا أَغْنَىٰ عَنْهُ مَالُهُ وَمَا كَسَبَ", "سَيَصْلَىٰ نَارًا ذَاتَ لَهَبٍ", ["سَيَصْلَىٰ نَارًا ذَاتَ لَهَبٍ", "تَبَّتْ يَدَا أَبِي لَهَبٍ", "وَامْرَأَتُهُ حَمَّالَةَ الْحَطَبِ"]),
+            ("وَالشَّمْسِ وَضُحَاهَا", "وَالْقَمَرِ إِذَا تَلَاهَا", ["وَالْقَمَرِ إِذَا تَلَاهَا", "وَالنَّهَارِ إِذَا جَلَّاهَا", "وَاللَّيْلِ إِذَا يَغْشَاهَا"]),
+            ("وَالْقَمَرِ إِذَا تَلَاهَا", "وَالنَّهَارِ إِذَا جَلَّاهَا", ["وَالنَّهَارِ إِذَا جَلَّاهَا", "وَالشَّمْسِ وَضُحَاهَا", "وَالسَّمَاءِ وَمَا بَنَاهَا"]),
+            ("وَالضُّحَىٰ", "وَاللَّيْلِ إِذَا سَجَىٰ", ["وَاللَّيْلِ إِذَا سَجَىٰ", "مَا وَدَّعَكَ رَبُّكَ", "وَلَلْآخِرَةُ خَيْرٌ"]),
+            ("أَلَمْ نَشْرَحْ لَكَ صَدْرَكَ", "وَوَضَعْنَا عَنْكَ وِزْرَكَ", ["وَوَضَعْنَا عَنْكَ وِزْرَكَ", "الَّذِي أَنْقَضَ ظَهْرَكَ", "وَرَفَعْنَا لَكَ ذِكْرَكَ"]),
         ]
         judul_game = "Game Tahfidz"
 
+    # Sesuaikan tantangan dengan level: semakin tinggi level, semakin banyak
+    # pilihan jawaban. Pada Tahfidz, petunjuk ayat dipersingkat pada level tinggi.
+    jumlah_soal = 25
+    jumlah_opsi_per_level = {1: 3, 2: 3, 3: 4, 4: 4, 5: 5, 6: 6}
+    jumlah_opsi = jumlah_opsi_per_level[level_game]
+    semua_jawaban = list(dict.fromkeys(item[1] for item in bank))
+    bank_level = []
+    for prompt_asli, jawaban_asli, opsi_asli in bank:
+        prompt_level = prompt_asli
+        if game_key == "iqro" and level_game >= 2:
+            tanda = {2: "َ", 3: "ِ", 4: "ُ", 5: "ْ", 6: "ّ"}.get(level_game, "")
+            prompt_level = prompt_asli + tanda
+        elif game_key == "tahfidz" and level_game >= 2:
+            kata = prompt_asli.split()
+            jumlah_kata = {2: 5, 3: 4, 4: 3, 5: 2, 6: 1}[level_game]
+            prompt_level = " ".join(kata[-jumlah_kata:])
+
+        kandidat = list(dict.fromkeys([jawaban_asli] + list(opsi_asli) + semua_jawaban))
+        pengecoh = [x for x in kandidat if x != jawaban_asli]
+        random.shuffle(pengecoh)
+        opsi_level = [jawaban_asli] + pengecoh[:max(0, jumlah_opsi - 1)]
+        random.shuffle(opsi_level)
+        bank_level.append((prompt_level, jawaban_asli, opsi_level))
+
+    judul_game_level = f"{judul_game} - Level {level_game}"
+    session_key_baru = f"{game_key}_level_{level_game}"
+    if st.session_state.get("game_session_key") != session_key_baru:
+        st.session_state["game_session_key"] = session_key_baru
+        st.session_state["game_questions"] = random.sample(bank_level, jumlah_soal)
+        st.session_state["game_index"] = 0
+        st.session_state["game_question"] = None
+        st.session_state["game_feedback"] = ""
+        st.session_state["game_session_score"] = 0
+
+    indeks = st.session_state.get("game_index", 0)
+    if indeks >= jumlah_soal:
+        st.success("🎉 MasyaAllah! Kamu telah menyelesaikan 25 soal.")
+        st.metric("Skor sesi ini", st.session_state.get("game_session_score", 0))
+        st.write("Skor maksimal: 250 poin.")
+        if st.button("🔁 Main Lagi (25 Soal Baru)", use_container_width=True):
+            st.session_state["game_questions"] = random.sample(bank_level, jumlah_soal)
+            st.session_state["game_index"] = 0
+            st.session_state["game_question"] = None
+            st.session_state["game_feedback"] = ""
+            st.session_state["game_session_score"] = 0
+            st.rerun()
+        if st.button("❌ Tutup Game", use_container_width=True):
+            st.session_state["game"] = None
+            st.session_state["game_session_key"] = None
+            st.session_state["game_question"] = None
+            st.rerun()
+        st.stop()
+
     if st.session_state.get("game_question") is None:
-        item = random.choice(bank)
-        if game_key == "iqro":
-            prompt_game, jawaban_benar = item
-            pilihan_game = random.sample([x[1] for x in bank], 3)
-            if jawaban_benar not in pilihan_game:
-                pilihan_game[random.randrange(3)] = jawaban_benar
-        else:
-            prompt_game, jawaban_benar, pilihan_asli = item
-            pilihan_game = list(pilihan_asli)
+        item = st.session_state["game_questions"][indeks]
+        prompt_game, jawaban_benar, pilihan_asli = item
+        pilihan_game = list(pilihan_asli)
         random.shuffle(pilihan_game)
-        st.session_state["game_question"] = {
-            "prompt":prompt_game, "answer":jawaban_benar, "options":pilihan_game
-        }
-        st.session_state["game_question_no"] += 1
+        st.session_state["game_question"] = {"prompt": prompt_game, "answer": jawaban_benar, "options": pilihan_game}
         st.session_state["game_feedback"] = ""
 
     q = st.session_state["game_question"]
+    st.progress(indeks / jumlah_soal, text=f"Soal {indeks + 1} dari {jumlah_soal}")
     if game_key == "iqro":
-        st.markdown(
-            f"<div style='background:white;color:#111;padding:28px;border-radius:15px;text-align:center;font-size:100px;'>{q['prompt']}</div>",
-            unsafe_allow_html=True
-        )
+        st.markdown(f"<div style='background:white;color:#111;padding:28px;border-radius:15px;text-align:center;font-size:100px;'>{q['prompt']}</div>", unsafe_allow_html=True)
         st.write("Apa nama huruf hijaiyah di atas?")
     else:
-        st.markdown(
-            f"<div style='background:white;color:#111;padding:22px;border-radius:15px;text-align:center;font-size:34px;direction:rtl;'>{q['prompt']}{' ... ؟' if game_key == 'tahfidz' else ''}</div>",
-            unsafe_allow_html=True
-        )
+        st.markdown(f"<div style='background:white;color:#111;padding:22px;border-radius:15px;text-align:center;font-size:34px;direction:rtl;'>{q['prompt']}{' ... ؟' if game_key == 'tahfidz' else ''}</div>", unsafe_allow_html=True)
         st.write("Apa hukum tajwid dari lafaz di atas?" if game_key == "tahsin" else "Apa lanjutan ayat yang benar?")
 
     if st.session_state.get("game_feedback"):
         st.info(st.session_state["game_feedback"])
 
     for idx, opsi_jawaban in enumerate(q["options"]):
-        if st.button(opsi_jawaban, key=f"game_{game_key}_{st.session_state['game_question_no']}_{idx}", use_container_width=True):
+        if st.button(opsi_jawaban, key=f"game_{game_key}_{indeks}_{idx}", use_container_width=True):
             if opsi_jawaban == q["answer"]:
+                st.session_state["game_session_score"] += 10
                 nama_login = st.session_state.get("login_nama") or "Pengguna"
-                kelas_login = DATA_SISWA.get(nama_login, {}).get("kategori", st.session_state.get("login_jabatan", "Tim"))
-                simpan_skor_game(nama_login, kelas_login, judul_game, 10)
-                st.session_state["game_feedback"] = "Benar! MasyaAllah. Kamu mendapat 10 poin."
+                if st.session_state.get("login_role") == "siswa":
+                    kelas_login = DATA_SISWA.get(nama_login, {}).get("kategori", "-")
+                    if kelas_login == kategori_game.get(game_key):
+                        simpan_skor_game(nama_login, kelas_login, judul_game_level, 10)
+                st.session_state["game_index"] += 1
                 st.session_state["game_question"] = None
+                st.session_state["game_feedback"] = "Benar! MasyaAllah, kamu mendapat 10 poin."
                 st.rerun()
             else:
-                st.session_state["game_feedback"] = "Belum tepat. Coba lagi, perhatikan pilihan jawabannya."
+                st.session_state["game_feedback"] = "Belum tepat. Coba lagi; soal ini belum berpindah."
                 st.rerun()
 
-    total_skor = CONN.execute(
-        "SELECT COALESCE(SUM(skor),0) FROM game_scores WHERE nama=?",
-        (st.session_state.get("login_nama") or "",)
-    ).fetchone()[0]
-    st.metric("⭐ Total Skor Kamu", total_skor)
-    col_next, col_close = st.columns(2)
-    with col_next:
-        if st.button("🔄 Soal Baru", use_container_width=True):
-            st.session_state["game_question"] = None
-            st.session_state["game_feedback"] = ""
-            st.rerun()
-    with col_close:
-        if st.button("❌ Tutup Game", use_container_width=True):
-            st.session_state["game"] = None
-            st.session_state["game_question"] = None
-            st.session_state["game_feedback"] = ""
-            st.rerun()
+    st.metric("⭐ Skor sesi ini", st.session_state.get("game_session_score", 0))
+    st.caption("Jawaban benar bernilai 10 poin. Jawaban salah boleh dicoba kembali dan tidak mengurangi skor.")
+    if st.button("❌ Tutup Game", use_container_width=True):
+        st.session_state["game"] = None
+        st.session_state["game_session_key"] = None
+        st.session_state["game_question"] = None
+        st.session_state["game_questions"] = []
+        st.session_state["game_index"] = 0
+        st.session_state["game_feedback"] = ""
+        st.rerun()
     st.stop()
-
 
 if st.session_state["login_role"] == "siswa" and not st.session_state["sudah_catat_masuk"]:
     st.session_state["sudah_catat_masuk"] = True
