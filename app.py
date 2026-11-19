@@ -1316,6 +1316,9 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
     kat_setoran = st.selectbox("Kategori Setoran:", ["Iqro","Tahsin","Tahfidz"], index=idx_kat, key="kat_setoran")
     surat_juz30 = st.selectbox("📖 Pilih Surat Juz 30 (untuk setoran Tahsin / Tahfidz):", ["-- Ketik Sendiri / Bukan Juz 30 --"] + JUZ30_SURAH, key="surat_juz30")
 
+    judul_setoran = st.text_input("Materi / Ayat / Judul Setoran:", placeholder="Contoh: Iqro 2 Hal. 5 atau keterangan tambahan setoran", key="judul_setoran")
+    ket_setoran = st.text_area("Keterangan (opsional):", placeholder="Contoh: Mohon dikoreksi makhraj huruf... / Ayat yang ingin diperhatikan...", height=70, key="ket_setoran")
+
     # ===== BACAAN LENGKAP JUZ 30 UNTUK TAHSIN & TAHFIDZ =====
     # Iqro tetap menggunakan cara lama: isi halaman/materi secara manual, tanpa teks surat.
     bacaan_juz30_selesai = False
@@ -1325,8 +1328,10 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
             st.info("Pilih surat Juz 30 terlebih dahulu. Teks Arab lengkap akan muncul otomatis untuk Tahsin dan Tahfidz.")
         else:
             # Perubahan pilihan surat oleh pengguna memulai sesi baca baru dari ayat pertama.
-            if st.session_state.get("setoran_surat_pilihan_terakhir") != surat_juz30:
+            if (st.session_state.get("setoran_surat_pilihan_terakhir") != surat_juz30
+                    or st.session_state.get("setoran_kategori_terakhir") != kat_setoran):
                 st.session_state["setoran_surat_pilihan_terakhir"] = surat_juz30
+                st.session_state["setoran_kategori_terakhir"] = kat_setoran
                 st.session_state["setoran_surat_mulai"] = surat_juz30
                 st.session_state["setoran_surat_aktif"] = surat_juz30
                 st.session_state["setoran_ayat_ke"] = 0
@@ -1380,6 +1385,65 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
 
                     st.progress(min(akhir_ayat / max(len(daftar_ayat), 1), 1.0))
                     st.caption(f"Progress surat: {akhir_ayat}/{len(daftar_ayat)} ayat")
+
+                    # ===== ALUR PER POTONG: BACA -> UPLOAD SUARA -> NEXT =====
+                    # Setiap potongan berisi maksimal 5 ayat dan disimpan sebagai setoran tersendiri.
+                    nama_pengguna = st.session_state.get("login_nama", "Siswa")
+                    nama_key = re.sub(r"[^A-Za-z0-9_-]", "_", str(nama_pengguna))
+                    kunci_potong = f"{nama_key}_{kat_setoran}_{nomor_surat_aktif}_{mulai_ayat}"
+                    flag_upload = f"setoran_terunggah_{kunci_potong}"
+                    rentang_ayat = f"Ayat {mulai_ayat + 1}-{akhir_ayat}"
+                    judul_dasar_potong = f"{surat_aktif} - {rentang_ayat}"
+                    judul_potong = judul_dasar_potong
+                    if judul_setoran.strip():
+                        judul_potong += f" - {judul_setoran.strip()}"
+                    # Cek database juga, agar status upload tidak hilang setelah refresh/login ulang.
+                    sudah_tersimpan_db = CONN.execute(
+                        "SELECT 1 FROM setoran WHERE pengirim=? AND kategori=? AND judul LIKE ? LIMIT 1",
+                        (nama_pengguna, kat_setoran, judul_dasar_potong + "%"),
+                    ).fetchone() is not None
+                    if sudah_tersimpan_db:
+                        st.session_state[flag_upload] = True
+
+                    if not st.session_state.get(flag_upload, False):
+                        st.markdown("### 🎤 Langkah 1: Baca, lalu upload suara untuk potongan ini")
+                        st.caption(f"Rekaman ini khusus untuk {surat_aktif}, {rentang_ayat}.")
+                        audio_potong = st.file_uploader(
+                            "📤 Upload Suara Bacaan (maksimal 5 ayat):",
+                            type=["mp3", "wav", "m4a", "ogg", "webm", "opus", "aac"],
+                            key=f"uploader_potong_{kunci_potong}",
+                        )
+                        if audio_potong:
+                            st.audio(audio_potong)
+                            if st.button(
+                                "✅ Simpan Suara Potongan Ini",
+                                key=f"simpan_potong_{kunci_potong}",
+                                use_container_width=True,
+                            ):
+                                if st.session_state.get("login_role") == "siswa":
+                                    label_potong = f"{nama_pengguna} | Kelas: {DATA_SISWA.get(nama_pengguna, {}).get('kategori', kat_setoran)}"
+                                else:
+                                    label_potong = f"{NAMA_LENGKAP_TIM.get(nama_pengguna, nama_pengguna)} | {TIM_PENYUSUN.get(nama_pengguna, 'Tim')}"
+                                tambah_setoran(
+                                    nama_pengguna,
+                                    label_potong,
+                                    kat_setoran,
+                                    judul_potong,
+                                    ket_setoran.strip(),
+                                    None,
+                                    "",
+                                    audio_potong.getvalue(),
+                                    audio_potong.name,
+                                    time.strftime("%d/%m/%Y %H:%M", time.localtime()),
+                                )
+                                catat_aktivitas(f"Kirim Setoran {kat_setoran} - {judul_potong}")
+                                st.session_state[flag_upload] = True
+                                st.success(f"Suara {rentang_ayat} berhasil disimpan ke Daftar Setoran.")
+                                st.rerun()
+                        st.info("⏳ Tombol Next akan terbuka setelah suara untuk potongan ini disimpan.")
+                    else:
+                        st.success(f"✅ Suara {rentang_ayat} sudah tersimpan di Daftar Setoran.")
+
                     b_prev, b_next = st.columns(2)
                     tombol_prev_disabled = (mulai_ayat == 0 and indeks_surat == indeks_mulai)
                     with b_prev:
@@ -1394,14 +1458,18 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
                                 st.session_state["setoran_ayat_ke"] = ((len(ayat_sebelumnya) - 1) // 5) * 5
                             st.rerun()
                     with b_next:
-                        if st.button("➡️ Next / Lanjut Bacaan", key=f"next_{nomor_surat_aktif}_{mulai_ayat}", use_container_width=True):
+                        if st.button(
+                            "➡️ Next / Lanjut Bacaan" if st.session_state.get(flag_upload, False) else "🔒 Next / Upload Suara Dulu",
+                            key=f"next_{nomor_surat_aktif}_{mulai_ayat}",
+                            use_container_width=True,
+                            disabled=not st.session_state.get(flag_upload, False),
+                        ):
                             if akhir_ayat < len(daftar_ayat):
                                 st.session_state["setoran_ayat_ke"] = akhir_ayat
                             elif indeks_surat + 1 < len(JUZ30_SURAH):
                                 st.session_state["setoran_surat_aktif"] = JUZ30_SURAH[indeks_surat + 1]
                                 st.session_state["setoran_ayat_ke"] = 0
                             else:
-                                # Baru dihitung selesai Juz 30 jika dimulai dari An-Naba.
                                 if st.session_state.get("setoran_surat_mulai") == JUZ30_SURAH[0]:
                                     st.session_state["setoran_juz30_selesai"] = True
                                 else:
@@ -1410,16 +1478,67 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
 
             if st.session_state.get("setoran_juz30_selesai", False):
                 bacaan_juz30_selesai = True
-                st.success("🎉 JUZ 30 SELESAI! Kamu sudah membaca dari An-Naba sampai An-Nas. Sekarang upload suara setoranmu di bawah.")
+                st.balloons()
+                st.success("🎉 JUZ 30 SELESAI! Seluruh potongan suara dari An-Naba sampai An-Nas sudah dikirim satu per satu ke Daftar Setoran.")
             elif st.session_state.get("setoran_rentang_selesai", False):
-                st.success("Bacaan dari surat yang dipilih sampai An-Nas sudah selesai.")
-                st.warning("Untuk menandai seluruh Juz 30 selesai dan membuka upload setoran, pilih Surah An-Naba (78) lalu lanjutkan sampai An-Nas.")
+                st.success("✅ Rangkaian bacaan dari surat yang dipilih sampai An-Nas selesai. Semua potongan suara sudah dikirim satu per satu ke Daftar Setoran.")
 
-    judul_setoran = st.text_input("Materi / Ayat / Judul Setoran:", placeholder="Contoh: Iqro 2 Hal. 5 atau keterangan tambahan setoran", key="judul_setoran")
-    ket_setoran = st.text_area("Keterangan (opsional):", placeholder="Contoh: Mohon dikoreksi makhraj huruf... / Ayat yang ingin diperhatikan...", height=70, key="ket_setoran")
+    # ===== IQRO: SETORAN PER HALAMAN =====
+    if kat_setoran == "Iqro":
+        iqro_level_pilih = st.selectbox("Pilih jilid:", list(IQRO_BACA.keys()), key="setoran_iqro_level")
+        if st.session_state.get("setoran_iqro_level_terakhir") != iqro_level_pilih:
+            st.session_state["setoran_iqro_level_terakhir"] = iqro_level_pilih
+            st.session_state["setoran_iqro_halaman"] = 1
+        if "setoran_iqro_halaman" not in st.session_state:
+            st.session_state["setoran_iqro_halaman"] = 1
+        halaman_iqro = int(st.session_state["setoran_iqro_halaman"])
+        nama_pengguna_iqro = st.session_state.get("login_nama", "Siswa")
+        nama_key_iqro = re.sub(r"[^A-Za-z0-9_-]", "_", str(nama_pengguna_iqro))
+        kunci_iqro = f"{nama_key_iqro}_{iqro_level_pilih.replace(' ', '_')}_{halaman_iqro}"
+        flag_iqro = f"setoran_iqro_terunggah_{kunci_iqro}"
+        judul_iqro = f"{iqro_level_pilih} - Halaman {halaman_iqro}"
+        sudah_iqro_db = CONN.execute(
+            "SELECT 1 FROM setoran WHERE pengirim=? AND kategori='Iqro' AND judul LIKE ? LIMIT 1",
+            (nama_pengguna_iqro, judul_iqro + "%"),
+        ).fetchone() is not None
+        if sudah_iqro_db:
+            st.session_state[flag_iqro] = True
+        st.markdown(f"### 📖 {judul_iqro}")
+        st.info("Baca halaman yang sedang dipelajari dari buku Iqro, kemudian upload rekaman khusus halaman ini.")
+        audio_iqro = st.file_uploader(
+            f"📤 Upload suara {judul_iqro}:",
+            type=["mp3", "wav", "m4a", "ogg", "webm", "opus", "aac"],
+            key=f"uploader_{kunci_iqro}",
+        ) if not st.session_state.get(flag_iqro, False) else None
+        if st.session_state.get(flag_iqro, False):
+            st.success(f"✅ Rekaman {judul_iqro} sudah tersimpan di Daftar Setoran.")
+        elif audio_iqro:
+            st.audio(audio_iqro)
+            if st.button("✅ Simpan Suara Halaman Ini", key=f"simpan_{kunci_iqro}", use_container_width=True):
+                if st.session_state.get("login_role") == "siswa":
+                    label_iqro = f"{nama_pengguna_iqro} | Kelas: {DATA_SISWA.get(nama_pengguna_iqro, {}).get('kategori', 'Iqro')}"
+                else:
+                    label_iqro = f"{NAMA_LENGKAP_TIM.get(nama_pengguna_iqro, nama_pengguna_iqro)} | {TIM_PENYUSUN.get(nama_pengguna_iqro, 'Tim')}"
+                judul_simpan_iqro = judul_iqro + (f" - {judul_setoran.strip()}" if judul_setoran.strip() else "")
+                tambah_setoran(
+                    nama_pengguna_iqro, label_iqro, "Iqro", judul_simpan_iqro,
+                    ket_setoran.strip(), None, "", audio_iqro.getvalue(), audio_iqro.name,
+                    time.strftime("%d/%m/%Y %H:%M", time.localtime()),
+                )
+                catat_aktivitas(f"Kirim Setoran Iqro - {judul_simpan_iqro}")
+                st.session_state[flag_iqro] = True
+                st.success("Rekaman halaman Iqro berhasil disimpan.")
+                st.rerun()
+        if st.session_state.get(flag_iqro, False):
+            if st.button("➡️ Next Halaman Iqro", key=f"next_{kunci_iqro}", use_container_width=True):
+                st.session_state["setoran_iqro_halaman"] = halaman_iqro + 1
+                st.rerun()
+        else:
+            st.info("⏳ Simpan suara halaman ini terlebih dahulu untuk membuka tombol Next Halaman.")
 
-    # Upload suara Tahsin/Tahfidz baru dibuka setelah bacaan Juz 30 selesai.
-    boleh_upload_setoran = (kat_setoran == "Iqro") or (kat_setoran in ("Tahsin", "Tahfidz") and bacaan_juz30_selesai)
+    # Untuk Tahsin/Tahfidz yang bukan bacaan Juz 30, tetap sediakan unggah manual.
+    mode_setoran_manual = kat_setoran in ("Tahsin", "Tahfidz") and surat_juz30 == "-- Ketik Sendiri / Bukan Juz 30 --"
+    boleh_upload_setoran = mode_setoran_manual
     foto_up = None
     audio_file = None
     if boleh_upload_setoran:
@@ -1431,14 +1550,9 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
             st.success(f"✅ Suara terpilih: {audio_file.name} - Putar dahulu untuk memastikan rekaman benar.")
             st.audio(audio_file)
         if st.button("📩 Kirim Setoran ke Tim", use_container_width=True):
-            if kat_setoran in ("Tahsin", "Tahfidz") and bacaan_juz30_selesai:
-                judul_final = "Juz 30 lengkap (An-Naba sampai An-Nas)"
-                if judul_setoran.strip():
-                    judul_final += f" - {judul_setoran.strip()}"
-            else:
-                judul_final = judul_setoran.strip()
-                if kat_setoran in ("Tahsin", "Tahfidz") and surat_juz30 != "-- Ketik Sendiri / Bukan Juz 30 --":
-                    judul_final = f"{surat_juz30} - {judul_final}" if judul_final else surat_juz30
+            judul_final = judul_setoran.strip()
+            if mode_setoran_manual and not judul_final:
+                judul_final = "Setoran non-Juz 30"
             if not judul_final:
                 st.warning("⚠️ Isi materi / halaman Iqro yang disetorkan terlebih dahulu.")
             elif not audio_file:
@@ -1455,11 +1569,8 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
                 catat_aktivitas(f"Kirim Setoran {kat_setoran} - {judul_final[:30]}")
                 st.success("✅ Setoran terkirim! Tim akan mendengarkan & mengoreksi.")
                 time.sleep(0.5); st.rerun()
-    else:
-        if kat_setoran in ("Tahsin", "Tahfidz"):
-            st.warning("🔒 Upload suara akan terbuka setelah seluruh bacaan Juz 30 selesai dari surat yang dipilih sampai An-Nas. Tekan Next / Lanjut Bacaan sampai selesai.")
-        else:
-            st.info("Untuk Iqro, isi materi atau halaman Iqro yang dibaca. Teks surat Juz 30 tidak ditampilkan.")
+    elif surat_juz30 != "-- Ketik Sendiri / Bukan Juz 30 --":
+        st.caption("Setoran Tahsin/Tahfidz Juz 30 dikirim per potongan maksimal 5 ayat. Upload suara potongan di bawah teks ayat, lalu tekan Next.")
     st.markdown("<hr>", unsafe_allow_html=True)
     st.markdown("<p style='color:white; font-weight:bold; font-size:17px;'>📋 Daftar Setoran:</p>", unsafe_allow_html=True)
     filter_kat = st.selectbox("Filter:", ["Semua","Iqro","Tahsin","Tahfidz"], key="filter_setoran")
