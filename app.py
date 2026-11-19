@@ -265,7 +265,7 @@ DATA_SISWA = {
     "IMAM MANSYUR IBNU HULKAN": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki"},
 }
 
-for k, v in [("login_nama",None),("login_role",None),("login_jabatan",None),("kategori_pilih",None),("messages",[]),("siswa_pilih",None),("seed_acak",1),("soal_acak",None),("kunci_acak",None),("kat_acak",None),("waktu_mulai",None),("waktu_habis",False),("ujian_selesai",False),("hasil_ujian",None),("lihat_nilai",False),("lihat_nilai_game",False),("lihat_riwayat",False),("lihat_saran",False),("lihat_setoran",False),("lihat_baca",False),("lihat_video",True),("waktu_login",None),("sudah_catat_masuk",False),("jawaban_tersimpan",{}),("login_error",""),("login_error_time",0),("game",None),("game_question",None),("game_feedback",""),("game_question_no",0)]:
+for k, v in [("login_nama",None),("login_role",None),("login_jabatan",None),("kategori_pilih",None),("messages",[]),("siswa_pilih",None),("seed_acak",1),("soal_acak",None),("kunci_acak",None),("kat_acak",None),("waktu_mulai",None),("waktu_habis",False),("ujian_selesai",False),("hasil_ujian",None),("lihat_nilai",False),("lihat_nilai_game",False),("lihat_riwayat",False),("lihat_saran",False),("lihat_setoran",False),("lihat_baca",False),("lihat_video",True),("waktu_login",None),("sudah_catat_masuk",False),("jawaban_tersimpan",{}),("login_error",""),("login_error_time",0),("preview_tim_ujian",False),("preview_kategori_ujian",None),("game",None),("game_question",None),("game_feedback",""),("game_question_no",0)]:
     if k not in st.session_state:
         st.session_state[k] = v
 
@@ -682,6 +682,8 @@ with col_out2:
         st.session_state["login_role"] = None
         st.session_state["login_jabatan"] = None
         st.session_state["siswa_pilih"] = None
+        st.session_state["preview_tim_ujian"] = False
+        st.session_state["preview_kategori_ujian"] = None
         st.session_state["kategori_pilih"] = None
         st.session_state["lihat_nilai"] = False
         st.session_state["lihat_nilai_game"] = False
@@ -1089,22 +1091,53 @@ def buat_soal_acak(kat, seed):
     return soal_baru, kunci_baru
 
 def tampilkan_daftar(kategori):
-    if st.session_state["login_role"]=="siswa":
-        if DATA_SISWA.get(st.session_state["login_nama"],{}).get("kategori")!=kategori: return
-        daftar=[st.session_state["login_nama"]]
+    """Siswa memulai ujian atas namanya sendiri; Tim hanya mendapat satu tombol preview."""
+    role = st.session_state.get("login_role")
+
+    if role == "siswa":
+        nama_siswa = st.session_state.get("login_nama", "")
+        if DATA_SISWA.get(nama_siswa, {}).get("kategori") != kategori:
+            st.warning("Akses dibatasi: kategori ujian tidak sesuai dengan akun siswa.")
+            return
+        label = f"▶️ Mulai Ujian - {nama_siswa}"
+        key_tombol = f"mulai_ujian_siswa_{kategori}_{nama_siswa}"
+    elif role == "tim":
+        # Tim tidak memilih nama siswa. Satu tombol membuka soal kategori terpilih.
+        label = f"▶️ Mulai Ujian - Preview Tim ({kategori})"
+        key_tombol = f"mulai_ujian_preview_tim_{kategori}"
     else:
-        if kategori=="Iqro":
-            daftar=["MUHAMAD HARTANTO","DAFFAN OKTAFFIL HIDAYAT"]
-        elif kategori=="Tahsin":
-            daftar=["FRISCHA BUNGA LESTARI","RAIHAN","ANGGA FADILLAH","ANDY RAMADANI ABDULLAH"]
+        return
+
+    if st.button(label, use_container_width=True, key=key_tombol):
+        st.session_state["seed_acak"] += 1
+        st.session_state["soal_acak"] = None
+        st.session_state["kunci_acak"] = None
+        st.session_state["kat_acak"] = None
+        st.session_state["waktu_mulai"] = time.time()
+        st.session_state["waktu_habis"] = False
+        st.session_state["ujian_selesai"] = False
+        st.session_state["hasil_ujian"] = None
+        st.session_state["lihat_nilai"] = False
+        st.session_state["lihat_riwayat"] = False
+        st.session_state["lihat_saran"] = False
+        st.session_state["lihat_setoran"] = False
+        st.session_state["lihat_baca"] = False
+        st.session_state["jawaban_tersimpan"] = {}
+
+        if role == "tim":
+            # Identitas sementara hanya untuk mengaktifkan layar ujian.
+            # Tidak dibuat sesi SQLite dan tidak menyimpan nilai siswa.
+            st.session_state["preview_tim_ujian"] = True
+            st.session_state["preview_kategori_ujian"] = kategori
+            st.session_state["siswa_pilih"] = f"__PREVIEW_TIM_{kategori.upper()}__"
+            catat_aktivitas(f"Preview Ujian {kategori} oleh Tim")
         else:
-            daftar=[k for k,v in DATA_SISWA.items() if v["kategori"]=="Tahfidz"]
-    for item in daftar:
-        label = item if st.session_state["login_role"]=="tim" else f"▶️ Mulai Ujian - {item}"
-        if st.button(label, key=f"{kategori}-{item}"):
-            st.session_state["siswa_pilih"]=item; st.session_state["seed_acak"]+=1; st.session_state["soal_acak"]=None; st.session_state["waktu_mulai"]=time.time(); simpan_sesi_ujian(item, st.session_state["waktu_mulai"], st.session_state["seed_acak"]); st.session_state["waktu_habis"]=False; st.session_state["ujian_selesai"]=False; st.session_state["hasil_ujian"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; st.session_state["lihat_baca"]=False; st.session_state["jawaban_tersimpan"]={}
+            st.session_state["preview_tim_ujian"] = False
+            st.session_state["preview_kategori_ujian"] = None
+            st.session_state["siswa_pilih"] = st.session_state["login_nama"]
+            simpan_sesi_ujian(st.session_state["siswa_pilih"], st.session_state["waktu_mulai"], st.session_state["seed_acak"])
             catat_aktivitas(f"Mulai Ujian - {kategori}")
-            st.rerun()
+        st.rerun()
 
 # ===== MENU UTAMA: TIM SEMUA KATEGORI, SISWA SESUAI KATEGORI AKUN =====
 if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai"]:
@@ -1113,42 +1146,31 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
     kategori_menu_siswa = DATA_SISWA.get(nama_menu, {}).get("kategori")
 
     if role_menu == "tim":
-        # TIM: tombol kategori di Menu Utama langsung membuka SOAL GAME,
-        # bukan membuka daftar nama siswa. Soal memakai mesin game yang sama
-        # dengan akun siswa; percobaan TIM hanya untuk preview dan tidak disimpan.
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
+        # TIM: pilih kategori, lalu tampil satu tombol Mulai Ujian Preview Tim.
+        m1, m2, m3, m4 = st.columns(4)
+        with m1:
             klik_iqro = st.button("📖 Iqro", use_container_width=True, key="menu_utama_iqro_tim")
-        with c2:
+        with m2:
             klik_tahsin = st.button("📗 Tahsin", use_container_width=True, key="menu_utama_tahsin_tim")
-        with c3:
+        with m3:
             klik_tahfidz = st.button("⭐ Tahfidz", use_container_width=True, key="menu_utama_tahfidz_tim")
-        with c4:
+        with m4:
             klik_nilai = st.button("📊 Daftar Hasil Nilai", use_container_width=True, key="menu_utama_nilai_tim")
 
-        game_tim_dipilih = (
-            "iqro" if klik_iqro else
-            "tahsin" if klik_tahsin else
-            "tahfidz" if klik_tahfidz else None
+        kategori_tim_dipilih = (
+            "Iqro" if klik_iqro else
+            "Tahsin" if klik_tahsin else
+            "Tahfidz" if klik_tahfidz else None
         )
-        if game_tim_dipilih:
-            st.session_state["game"] = game_tim_dipilih
-            st.session_state["game_session_key"] = None
-            st.session_state["game_index"] = 0
-            st.session_state["game_question"] = None
-            st.session_state["game_questions"] = []
-            st.session_state["game_feedback"] = ""
-            st.session_state["game_session_score"] = 0
-            st.session_state["game_attempt_id"] = None
-            st.session_state["kategori_pilih"] = None
+        if kategori_tim_dipilih:
+            st.session_state["kategori_pilih"] = kategori_tim_dipilih
+            st.session_state["game"] = None
             st.session_state["lihat_nilai_game"] = False
             st.session_state["lihat_nilai"] = False
             st.session_state["lihat_riwayat"] = False
             st.session_state["lihat_saran"] = False
             st.session_state["lihat_setoran"] = False
             st.session_state["lihat_baca"] = False
-            catat_aktivitas(f"Preview Game {game_tim_dipilih.capitalize()} oleh Tim")
-            st.rerun()
 
         if klik_nilai:
             st.session_state["lihat_nilai_game"] = True
@@ -1209,18 +1231,15 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
             st.session_state["lihat_baca"] = False
             catat_aktivitas("Buka Daftar Hasil Nilai")
 
-    # Daftar nama siswa tidak lagi ditampilkan dari tombol kategori Tim.
-    # Untuk siswa, kategori tetap dibatasi sesuai kelas akun yang sedang login.
-    if role_menu == "siswa" and st.session_state.get("kategori_pilih"):
+    # Siswa hanya dapat membuka kategori sendiri. Tim melihat satu tombol preview,
+    # bukan daftar nama siswa.
+    if st.session_state.get("kategori_pilih"):
         kategori_aktif = st.session_state["kategori_pilih"]
-        if kategori_aktif != kategori_menu_siswa:
+        if role_menu == "siswa" and kategori_aktif != kategori_menu_siswa:
             st.session_state["kategori_pilih"] = None
             st.warning("Akses dibatasi: kamu hanya dapat membuka kategori kelasmu sendiri.")
         else:
             tampilkan_daftar(kategori_aktif)
-    elif role_menu == "tim":
-        # Bersihkan pilihan kategori lama agar daftar nama lama tidak muncul lagi.
-        st.session_state["kategori_pilih"] = None
 
 if st.session_state["login_role"]=="tim" and st.session_state["siswa_pilih"] is None:
     if st.button("📋 Riwayat / Story Siswa (Khusus Tim)", use_container_width=True):
@@ -1583,26 +1602,41 @@ if st.session_state["lihat_nilai"] and st.session_state["siswa_pilih"] is None:
 # ===== UJIAN =====
 if st.session_state["siswa_pilih"]:
     nama = st.session_state["siswa_pilih"]
-    if st.session_state["login_role"]=="siswa" and nama!=st.session_state["login_nama"]:
+    preview_tim = bool(st.session_state.get("preview_tim_ujian")) and st.session_state.get("login_role") == "tim"
+
+    if st.session_state["login_role"] == "siswa" and nama != st.session_state["login_nama"]:
         st.error("⛔ Kamu hanya boleh ujian atas nama sendiri!")
-        if st.button("Kembali"): st.session_state["siswa_pilih"]=None; st.rerun()
+        if st.button("Kembali", key="kembali_akses_ujian"):
+            st.session_state["siswa_pilih"] = None
+            st.rerun()
         st.stop()
-    info = DATA_SISWA.get(nama, {"kategori":"Iqro","level":"Pemula","jk":"-"})
-    kat = info["kategori"]
+
+    if preview_tim:
+        kat = st.session_state.get("preview_kategori_ujian", "Tahsin")
+        nama_tampil = f"Preview Tim ({kat})"
+    else:
+        info = DATA_SISWA.get(nama, {"kategori": "Iqro", "level": "Pemula", "jk": "-"})
+        kat = info["kategori"]
+        nama_tampil = nama
+
     if st.session_state["waktu_mulai"] is None:
-        sesi_tersimpan = ambil_sesi_ujian(nama)
+        if not preview_tim:
+            sesi_tersimpan = ambil_sesi_ujian(nama)
+        else:
+            sesi_tersimpan = None
         if sesi_tersimpan:
             st.session_state["waktu_mulai"] = sesi_tersimpan[0]
             st.session_state["seed_acak"] = sesi_tersimpan[1]
         else:
             st.session_state["waktu_mulai"] = time.time()
-            simpan_sesi_ujian(nama, st.session_state["waktu_mulai"], st.session_state["seed_acak"])
+            if not preview_tim:
+                simpan_sesi_ujian(nama, st.session_state["waktu_mulai"], st.session_state["seed_acak"])
     sisa = DURASI_UJIAN - (time.time()-st.session_state["waktu_mulai"])
     if sisa<=0: sisa=0; st.session_state["waktu_habis"]=True
     if not st.session_state["ujian_selesai"] and st_autorefresh:
         st_autorefresh(interval=1000, key="timer_refresh")
     menit=int(sisa//60); detik=int(sisa%60)
-    st.markdown(f"<div style='background-color: rgba(20,50,35,0.92); padding:20px; border-radius:15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>Assalamualaikum, {nama} 👋</h2><p style='color:white;'>Kelas: {kat} | Soal: 25 | Nilai: Benar x 4 | Waktu: 10 Menit | KKM: 75 | Sisa: {menit:02d}:{detik:02d}</p></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='background-color: rgba(20,50,35,0.92); padding:20px; border-radius:15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>{'Preview Soal Tim' if preview_tim else 'Assalamualaikum, ' + nama_tampil} 👋</h2><p style='color:white;'>Kelas: {kat} | Soal: 25 | Nilai: Benar x 4 | Waktu: 10 Menit | KKM: 75 | Sisa: {menit:02d}:{detik:02d}</p></div>", unsafe_allow_html=True)
     if not st.session_state["ujian_selesai"]:
         st.warning("🔒 Jangan tutup tab saat ujian! Jawabanmu tersimpan otomatis di sesi ini.")
     if st.session_state["soal_acak"] is None or st.session_state["kat_acak"]!=kat:
@@ -1616,8 +1650,15 @@ if st.session_state["siswa_pilih"]:
             pilih = st.session_state["jawaban_tersimpan"].get(i)
             if pilih and pilih[0]==kunci[i]: benar+=1
         nilai=int((benar/25)*100)
-        st.session_state["ujian_selesai"]=True; st.session_state["hasil_ujian"]={"benar":benar,"nilai":nilai}
-        simpan_hasil(nama, nilai); hapus_sesi_ujian(nama); catat_aktivitas(f"Selesai Ujian (Waktu Habis) - Nilai {nilai}"); st.rerun()
+        st.session_state["ujian_selesai"] = True
+        st.session_state["hasil_ujian"] = {"benar": benar, "nilai": nilai}
+        if not preview_tim:
+            simpan_hasil(nama, nilai)
+            hapus_sesi_ujian(nama)
+            catat_aktivitas(f"Selesai Ujian (Waktu Habis) - Nilai {nilai}")
+        else:
+            st.info("Mode Preview Tim: hasil percobaan ini tidak disimpan ke nilai siswa.")
+        st.rerun()
     st.markdown(f"<h2 style='color:white; background-color: rgba(0,0,0,0.65); padding:10px; border-radius:10px; text-align:center;'>📝 Soal {kat} - Kelas XI MA</h2>", unsafe_allow_html=True)
     jawaban=[]
     for i,(soal,opsi) in enumerate(soal_list):
@@ -1630,27 +1671,58 @@ if st.session_state["siswa_pilih"]:
         if st.button("✅ LIHAT NILAI SAYA - SELESAI", use_container_width=True):
             benar=sum(1 for i,p in enumerate(jawaban) if p and p[0]==kunci[i])
             nilai=int((benar/25)*100)
-            st.session_state["ujian_selesai"]=True; st.session_state["hasil_ujian"]={"benar":benar,"nilai":nilai}
-            simpan_hasil(nama, nilai); hapus_sesi_ujian(nama); catat_aktivitas(f"Selesai Ujian - Nilai {nilai}"); st.rerun()
+            st.session_state["ujian_selesai"] = True
+            st.session_state["hasil_ujian"] = {"benar": benar, "nilai": nilai}
+            if not preview_tim:
+                simpan_hasil(nama, nilai)
+                hapus_sesi_ujian(nama)
+                catat_aktivitas(f"Selesai Ujian - Nilai {nilai}")
+            else:
+                catat_aktivitas(f"Preview Ujian {kat} selesai oleh Tim (nilai tidak disimpan)")
+            st.rerun()
     if st.session_state["ujian_selesai"] and st.session_state["hasil_ujian"]:
         h=st.session_state["hasil_ujian"]; benar=h["benar"]; nilai=h["nilai"]
         warna="#FF5252" if nilai<KKM else "#FFFFFF"
-        st.success(f"🎉 HASIL {nama} - Kelas {kat}")
+        st.success(f"🎉 {'HASIL PREVIEW TIM' if preview_tim else 'HASIL ' + nama} - Kelas {kat}")
         st.markdown(f"<div style='background-color: rgba(0,0,0,0.65); padding:15px; border-radius:10px; text-align:center;'><h1 style='color:{warna};'>Nilai: {nilai}</h1><p style='color:white;'>Benar: {benar} / 25 | KKM: 75 | {'❌ Belum Tuntas - Klik Remedial di bawah!' if nilai<KKM else '✅ Tuntas!'}</p><p style='color:white;'>Perhitungan: ({benar} ÷ 25) × 100 = {nilai}</p></div>", unsafe_allow_html=True)
         if nilai==100: st.balloons()
         st.markdown("<div style='background-color: rgba(0,0,0,0.65); padding:10px; border-radius:10px;'><p style='color:white; font-weight:bold;'>Pembahasan Kunci Jawaban:</p></div>", unsafe_allow_html=True)
         for i in range(25): st.markdown(f"<p style='color:white;'>No.{i+1} = {kunci[i]}</p>", unsafe_allow_html=True)
         col_r,col_k = st.columns(2)
         with col_r:
-            if nilai<KKM:
+            if nilai < KKM:
                 if st.button("🔁 Remedial - Ulangi Lagi", use_container_width=True):
                     for k in list(st.session_state.keys()):
-                        if k.startswith("soal_"): del st.session_state[k]
-                    st.session_state["seed_acak"]+=1; st.session_state["soal_acak"]=None; st.session_state["waktu_mulai"]=time.time(); simpan_sesi_ujian(nama, st.session_state["waktu_mulai"], st.session_state["seed_acak"]); st.session_state["waktu_habis"]=False; st.session_state["ujian_selesai"]=False; st.session_state["hasil_ujian"]=None; st.session_state["jawaban_tersimpan"]={}; st.rerun()
+                        if k.startswith("soal_"):
+                            del st.session_state[k]
+                    st.session_state["seed_acak"] += 1
+                    st.session_state["soal_acak"] = None
+                    st.session_state["kat_acak"] = None
+                    st.session_state["waktu_mulai"] = time.time()
+                    if not preview_tim:
+                        simpan_sesi_ujian(nama, st.session_state["waktu_mulai"], st.session_state["seed_acak"])
+                    st.session_state["waktu_habis"] = False
+                    st.session_state["ujian_selesai"] = False
+                    st.session_state["hasil_ujian"] = None
+                    st.session_state["jawaban_tersimpan"] = {}
+                    st.rerun()
         with col_k:
             if st.button("🏠 Kembali ke Beranda", use_container_width=True):
-                hapus_sesi_ujian(nama)
-                st.session_state["siswa_pilih"]=None; st.session_state["soal_acak"]=None; st.session_state["waktu_mulai"]=None; st.session_state["waktu_habis"]=False; st.session_state["ujian_selesai"]=False; st.session_state["hasil_ujian"]=None; st.session_state["kategori_pilih"]=None; st.session_state["jawaban_tersimpan"]={}; st.rerun()
+                if not preview_tim:
+                    hapus_sesi_ujian(nama)
+                st.session_state["siswa_pilih"] = None
+                st.session_state["preview_tim_ujian"] = False
+                st.session_state["preview_kategori_ujian"] = None
+                st.session_state["soal_acak"] = None
+                st.session_state["kunci_acak"] = None
+                st.session_state["kat_acak"] = None
+                st.session_state["waktu_mulai"] = None
+                st.session_state["waktu_habis"] = False
+                st.session_state["ujian_selesai"] = False
+                st.session_state["hasil_ujian"] = None
+                st.session_state["kategori_pilih"] = None
+                st.session_state["jawaban_tersimpan"] = {}
+                st.rerun()
     st.stop()
 
 # ===== CHAT QORI AI =====
