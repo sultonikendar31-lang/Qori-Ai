@@ -5,6 +5,10 @@ import random
 import time
 import os
 import hashlib
+import hmac
+import html
+import csv
+import io
 import sqlite3
 from openai import OpenAI
 try:
@@ -16,12 +20,15 @@ st.set_page_config(page_title="QORI AI", page_icon="🕌", layout="wide")
 api_key = st.secrets.get("OPENAI_API_KEY", "")
 
 # ===== DATABASE SQLITE =====
-DB = "qori_ai.db"
+DB = os.environ.get("QORI_DB_PATH", "qori_ai.db")
 def db():
-    c = sqlite3.connect(DB, check_same_thread=False)
+    c = sqlite3.connect(DB, check_same_thread=False, timeout=30)
+    c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA foreign_keys=ON")
     c.execute("CREATE TABLE IF NOT EXISTS hasil (nama TEXT PRIMARY KEY, nilai INTEGER, ulang INTEGER)")
     c.execute("CREATE TABLE IF NOT EXISTS aktivitas (id INTEGER PRIMARY KEY AUTOINCREMENT, nama TEXT, kelas TEXT, aktivitas TEXT, jam TEXT, lama TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS saran (id INTEGER PRIMARY KEY AUTOINCREMENT, pengirim TEXT, label TEXT, role TEXT, jenis TEXT, isi TEXT, jam TEXT, balasan TEXT, pembalas TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS ujian_sesi (nama TEXT PRIMARY KEY, mulai REAL NOT NULL, seed INTEGER NOT NULL)")
     c.commit()
     return c
 CONN = db()
@@ -51,6 +58,14 @@ def balas_saran(sid, balasan, pembalas):
     CONN.commit()
 def hapus_saran(sid):
     CONN.execute("DELETE FROM saran WHERE id=?", (sid,))
+    CONN.commit()
+def simpan_sesi_ujian(nama, mulai, seed):
+    CONN.execute("INSERT INTO ujian_sesi(nama,mulai,seed) VALUES(?,?,?) ON CONFLICT(nama) DO UPDATE SET mulai=excluded.mulai, seed=excluded.seed", (nama, mulai, seed))
+    CONN.commit()
+def ambil_sesi_ujian(nama):
+    return CONN.execute("SELECT mulai,seed FROM ujian_sesi WHERE nama=?", (nama,)).fetchone()
+def hapus_sesi_ujian(nama):
+    CONN.execute("DELETE FROM ujian_sesi WHERE nama=?", (nama,))
     CONN.commit()
 
 # ===== TIM =====
@@ -101,12 +116,22 @@ SYSTEM_PROMPT_KUNCI = "Kamu adalah QORI AI, guru yang ramah dan pintar untuk ana
 # ===== CEK PASSWORD =====
 def cek_password(nama, password_input):
     pw_dict = st.secrets.get("USER_PASSWORDS", {})
-    if pw_dict and nama in pw_dict:
-        return hashlib.sha256(password_input.encode()).hexdigest() == pw_dict[nama]
+    stored = pw_dict.get(nama) if hasattr(pw_dict, "get") else None
+    if stored:
+        if str(stored).startswith("pbkdf2_sha256$"):
+            try:
+                _, salt, digest = str(stored).split("$", 2)
+                calculated = hashlib.pbkdf2_hmac("sha256", password_input.encode(), bytes.fromhex(salt), 300_000).hex()
+                return hmac.compare_digest(calculated, digest)
+            except (ValueError, TypeError):
+                return False
+        calculated = hashlib.sha256(password_input.encode()).hexdigest()
+        return hmac.compare_digest(calculated, str(stored))
     if nama in TIM_PENYUSUN:
         return password_input == "123"
-    else:
+    if nama in DATA_SISWA:
         return password_input == "321"
+    return False
 
 def catat_aktivitas(aktivitas):
     if st.session_state.get("login_role") != "siswa": return
@@ -155,7 +180,7 @@ if st.session_state["login_nama"] is None:
     st.markdown("""<div style='background-color: rgba(255,255,255,0.12); border: 1.5px solid #F9D423; padding: 20px; border-radius: 15px; margin-top: 15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>🔐 Silakan Masukkan Nama & Password</h2><p style='color:white; margin-top:8px;'>Untuk masuk ke QORI AI</p></div>""", unsafe_allow_html=True)
     st.write("")
 
-    # === KETERANGAN SALAH, HILANG SENDIRI 3 MENIT ===
+    # === KETERANGAN SALAH, HILANG SENDIRI 3 MENIT - TIDAK ADA LAGI KOTAK PUTIH SECRETS ===
     if st.session_state.get("login_error"):
         sisa = 180 - (time.time() - st.session_state["login_error_time"])
         if sisa > 0:
@@ -169,6 +194,7 @@ if st.session_state["login_nama"] is None:
 
     nama_input = st.text_input("✍️ Nama Lengkap:", placeholder="Tulis nama lengkapmu...", key="input_nama_login")
     pw_input = st.text_input("🔑 Password:", type="password", placeholder="Masukkan passwordmu...", key="input_pw_login")
+    # DIHAPUS: dulu di sini ada if not USER_PASSWORDS -> st.error Konfigurasi USER_PASSWORDS...
     if st.button("🚪 Masuk ke QORI AI", use_container_width=True):
         nama_bersih = nama_input.strip().upper()
         if not nama_bersih or not pw_input:
@@ -237,6 +263,18 @@ with col_out2:
 
 if st.session_state["siswa_pilih"] is None and st.session_state["login_role"] == "tim":
     tampilkan_tim_pembuat()
+    hasil_dashboard = get_hasil()
+    jumlah_tuntas = sum(1 for v in hasil_dashboard.values() if v >= KKM)
+    jumlah_belum = sum(1 for v in hasil_dashboard.values() if v < KKM)
+    jumlah_belum_ujian = max(0, len(DATA_SISWA) - len(hasil_dashboard))
+    st.markdown("### 📊 Ringkasan Dashboard Tim")
+    d1, d2, d3, d4 = st.columns(4)
+    d1.metric("Jumlah Siswa", len(DATA_SISWA))
+    d2.metric("Sudah Ujian", len(hasil_dashboard))
+    d3.metric("Tuntas", jumlah_tuntas)
+    d4.metric("Belum Ujian", jumlah_belum_ujian)
+    if jumlah_belum:
+        st.info(f"{jumlah_belum} siswa memperoleh nilai di bawah KKM dan perlu tindak lanjut/remedial.")
 st.write("")
 
 # ===== DATA SOAL =====
@@ -367,7 +405,7 @@ def tampilkan_daftar(kategori):
     for item in daftar:
         label = item if st.session_state["login_role"]=="tim" else f"▶️ Mulai Ujian - {item}"
         if st.button(label, key=f"{kategori}-{item}"):
-            st.session_state["siswa_pilih"]=item; st.session_state["seed_acak"]+=1; st.session_state["soal_acak"]=None; st.session_state["waktu_mulai"]=time.time(); st.session_state["waktu_habis"]=False; st.session_state["ujian_selesai"]=False; st.session_state["hasil_ujian"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["jawaban_tersimpan"]={}
+            st.session_state["siswa_pilih"]=item; st.session_state["seed_acak"]+=1; st.session_state["soal_acak"]=None; st.session_state["waktu_mulai"]=time.time(); simpan_sesi_ujian(item, st.session_state["waktu_mulai"], st.session_state["seed_acak"]); st.session_state["waktu_habis"]=False; st.session_state["ujian_selesai"]=False; st.session_state["hasil_ujian"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["jawaban_tersimpan"]={}
             catat_aktivitas(f"Mulai Ujian - {kategori}")
             st.rerun()
 
@@ -421,8 +459,8 @@ if st.session_state.get("lihat_saran") and st.session_state["siswa_pilih"] is No
     if not daftar: st.info("Belum ada pesan.")
     else:
         for s in daftar:
-            st.markdown(f"<div style='background-color: rgba(255,255,255,0.12); border:1.5px solid rgba(255,255,255,0.5); padding:14px; border-radius:12px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>{s['jenis']} - {s['label']}</p><p style='color:#AAAAAA; font-size:12px;'>{s['jam']}</p><p style='color:white;'>{s['isi']}</p></div>", unsafe_allow_html=True)
-            if s["balasan"]: st.markdown(f"<div style='background-color: rgba(20,50,35,0.9); border:1.5px solid #F9D423; padding:12px; border-radius:12px; margin:5px 0 12px 20px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>↩️ Balasan dari {s['pembalas']}:</p><p style='color:white;'>{s['balasan']}</p></div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='background-color: rgba(255,255,255,0.12); border:1.5px solid rgba(255,255,255,0.5); padding:14px; border-radius:12px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>{html.escape(str(s['jenis']))} - {html.escape(str(s['label']))}</p><p style='color:#AAAAAA; font-size:12px;'>{html.escape(str(s['jam']))}</p><p style='color:white;'>{html.escape(str(s['isi']))}</p></div>", unsafe_allow_html=True)
+            if s["balasan"]: st.markdown(f"<div style='background-color: rgba(20,50,35,0.9); border:1.5px solid #F9D423; padding:12px; border-radius:12px; margin:5px 0 12px 20px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>↩️ Balasan dari {html.escape(str(s['pembalas']))}:</p><p style='color:white;'>{html.escape(str(s['balasan']))}</p></div>", unsafe_allow_html=True)
             if st.session_state["login_role"]=="tim":
                 balas = st.text_input("Balas pesan ini (Tim):", key=f"balas_{s['id']}")
                 cb1,cb2 = st.columns(2)
@@ -448,7 +486,7 @@ if st.session_state.get("lihat_riwayat") and st.session_state["siswa_pilih"] is 
     else:
         rows=""
         for i,r in enumerate(riw,1):
-            rows+=f"<tr><td style='padding:10px; text-align:center; color:white;'>{i}</td><td style='padding:10px; color:white; font-weight:bold;'>{r['nama']}</td><td style='padding:10px; text-align:center; color:white;'>{r['kelas']}</td><td style='padding:10px; color:white;'>{r['aktivitas']}</td><td style='padding:10px; text-align:center; color:white;'>{r['jam']}</td><td style='padding:10px; text-align:center; color:#F9D423;'>{r['lama']}</td></tr>"
+            rows+=f"<tr><td style='padding:10px; text-align:center; color:white;'>{i}</td><td style='padding:10px; color:white; font-weight:bold;'>{html.escape(str(r['nama']))}</td><td style='padding:10px; text-align:center; color:white;'>{html.escape(str(r['kelas']))}</td><td style='padding:10px; color:white;'>{html.escape(str(r['aktivitas']))}</td><td style='padding:10px; text-align:center; color:white;'>{html.escape(str(r['jam']))}</td><td style='padding:10px; text-align:center; color:#F9D423;'>{html.escape(str(r['lama']))}</td></tr>"
         st.markdown(f"<div style='background-color: rgba(0,0,0,0.75); padding:15px; border-radius:15px;'><table style='width:100%;'><tr style='background-color:#F9D423;'><th style='padding:10px; color:#000;'>No</th><th style='padding:10px; color:#000;'>Nama</th><th style='padding:10px; color:#000;'>Kelas</th><th style='padding:10px; color:#000;'>Buka Apa</th><th style='padding:10px; color:#000;'>Jam</th><th style='padding:10px; color:#000;'>Lama</th></tr>{rows}</table></div>", unsafe_allow_html=True)
     st.write("")
     if st.button("⬅️ Tutup Riwayat", use_container_width=True):
@@ -472,6 +510,15 @@ if st.session_state["lihat_nilai"] and st.session_state["siswa_pilih"] is None:
             else: warna="#FF5252"; ket="❌ Belum Tuntas"; wk="#FF5252"; belum+=1
             rows+=f"<tr><td style='padding:10px; text-align:center; color:white;'>{no}</td><td style='padding:10px; color:white; font-weight:bold;'>{nama}</td><td style='padding:10px; text-align:center; color:white;'>{info['jk']}</td><td style='padding:10px; text-align:center; color:white;'>{info['kategori']}</td><td style='padding:10px; text-align:center; color:{warna}; font-weight:bold; font-size:20px;'>{nilai}</td><td style='padding:10px; text-align:center; color:{wk}; font-weight:bold;'>{ket}</td><td style='padding:10px; text-align:center; color:white;'>{u}x</td></tr>"
     st.markdown(f"<div style='background-color: rgba(0,0,0,0.75); padding:15px; border-radius:15px;'><p style='color:white; text-align:center;'>Total: {len(daftar_tampil)} | ⏳ Belum: {belum_ujian} | ✅ Tuntas: {tuntas} | ❌ Belum Tuntas: {belum}</p><table style='width:100%;'><tr style='background-color:#F9D423;'><th style='padding:10px; color:#000;'>No</th><th style='padding:10px; color:#000;'>Nama</th><th style='padding:10px; color:#000;'>JK</th><th style='padding:10px; color:#000;'>Kategori</th><th style='padding:10px; color:#000;'>Nilai</th><th style='padding:10px; color:#000;'>Ket</th><th style='padding:10px; color:#000;'>Ulang</th></tr>{rows}</table></div>", unsafe_allow_html=True)
+    if st.session_state["login_role"] == "tim":
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["Nama", "Jenis Kelamin", "Kategori", "Nilai", "Status", "Jumlah Ujian"])
+        for nama_export in daftar_tampil:
+            info_export = DATA_SISWA[nama_export]
+            nilai_export = hasil.get(nama_export)
+            writer.writerow([nama_export, info_export["jk"], info_export["kategori"], nilai_export if nilai_export is not None else "", "Tuntas" if nilai_export is not None and nilai_export >= KKM else ("Belum Tuntas" if nilai_export is not None else "Belum Ujian"), ulang.get(nama_export, 0)])
+        st.download_button("⬇️ Unduh Daftar Nilai (CSV - bisa dibuka di Excel)", data="\ufeff" + output.getvalue(), file_name="daftar_nilai_qori_ai.csv", mime="text/csv", use_container_width=True)
     st.write("")
     if st.button("⬅️ Tutup Daftar Nilai", use_container_width=True):
         st.session_state["lihat_nilai"]=False; st.rerun()
@@ -486,7 +533,14 @@ if st.session_state["siswa_pilih"]:
         st.stop()
     info = DATA_SISWA.get(nama, {"kategori":"Iqro","level":"Pemula","jk":"-"})
     kat = info["kategori"]
-    if st.session_state["waktu_mulai"] is None: st.session_state["waktu_mulai"]=time.time()
+    if st.session_state["waktu_mulai"] is None:
+        sesi_tersimpan = ambil_sesi_ujian(nama)
+        if sesi_tersimpan:
+            st.session_state["waktu_mulai"] = sesi_tersimpan[0]
+            st.session_state["seed_acak"] = sesi_tersimpan[1]
+        else:
+            st.session_state["waktu_mulai"] = time.time()
+            simpan_sesi_ujian(nama, st.session_state["waktu_mulai"], st.session_state["seed_acak"])
     sisa = DURASI_UJIAN - (time.time()-st.session_state["waktu_mulai"])
     if sisa<=0: sisa=0; st.session_state["waktu_habis"]=True
     if not st.session_state["ujian_selesai"] and st_autorefresh:
@@ -507,7 +561,7 @@ if st.session_state["siswa_pilih"]:
             if pilih and pilih[0]==kunci[i]: benar+=1
         nilai=int((benar/25)*100)
         st.session_state["ujian_selesai"]=True; st.session_state["hasil_ujian"]={"benar":benar,"nilai":nilai}
-        simpan_hasil(nama, nilai); catat_aktivitas(f"Selesai Ujian (Waktu Habis) - Nilai {nilai}"); st.rerun()
+        simpan_hasil(nama, nilai); hapus_sesi_ujian(nama); catat_aktivitas(f"Selesai Ujian (Waktu Habis) - Nilai {nilai}"); st.rerun()
     st.markdown(f"<h2 style='color:white; background-color: rgba(0,0,0,0.65); padding:10px; border-radius:10px; text-align:center;'>📝 Soal {kat} - Kelas XI MA</h2>", unsafe_allow_html=True)
     jawaban=[]
     for i,(soal,opsi) in enumerate(soal_list):
@@ -521,7 +575,7 @@ if st.session_state["siswa_pilih"]:
             benar=sum(1 for i,p in enumerate(jawaban) if p and p[0]==kunci[i])
             nilai=int((benar/25)*100)
             st.session_state["ujian_selesai"]=True; st.session_state["hasil_ujian"]={"benar":benar,"nilai":nilai}
-            simpan_hasil(nama, nilai); catat_aktivitas(f"Selesai Ujian - Nilai {nilai}"); st.rerun()
+            simpan_hasil(nama, nilai); hapus_sesi_ujian(nama); catat_aktivitas(f"Selesai Ujian - Nilai {nilai}"); st.rerun()
     if st.session_state["ujian_selesai"] and st.session_state["hasil_ujian"]:
         h=st.session_state["hasil_ujian"]; benar=h["benar"]; nilai=h["nilai"]
         warna="#FF5252" if nilai<KKM else "#FFFFFF"
@@ -536,9 +590,10 @@ if st.session_state["siswa_pilih"]:
                 if st.button("🔁 Remedial - Ulangi Lagi", use_container_width=True):
                     for k in list(st.session_state.keys()):
                         if k.startswith("soal_"): del st.session_state[k]
-                    st.session_state["seed_acak"]+=1; st.session_state["soal_acak"]=None; st.session_state["waktu_mulai"]=time.time(); st.session_state["waktu_habis"]=False; st.session_state["ujian_selesai"]=False; st.session_state["hasil_ujian"]=None; st.session_state["jawaban_tersimpan"]={}; st.rerun()
+                    st.session_state["seed_acak"]+=1; st.session_state["soal_acak"]=None; st.session_state["waktu_mulai"]=time.time(); simpan_sesi_ujian(nama, st.session_state["waktu_mulai"], st.session_state["seed_acak"]); st.session_state["waktu_habis"]=False; st.session_state["ujian_selesai"]=False; st.session_state["hasil_ujian"]=None; st.session_state["jawaban_tersimpan"]={}; st.rerun()
         with col_k:
             if st.button("🏠 Kembali ke Beranda", use_container_width=True):
+                hapus_sesi_ujian(nama)
                 st.session_state["siswa_pilih"]=None; st.session_state["soal_acak"]=None; st.session_state["waktu_mulai"]=None; st.session_state["waktu_habis"]=False; st.session_state["ujian_selesai"]=False; st.session_state["hasil_ujian"]=None; st.session_state["kategori_pilih"]=None; st.session_state["jawaban_tersimpan"]={}; st.rerun()
     st.stop()
 
@@ -562,6 +617,8 @@ if kirim and prompt:
         else:
             try:
                 client=OpenAI(api_key=api_key)
-                res=client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system","content":SYSTEM_PROMPT_KUNCI},{"role":"user","content":prompt}], temperature=0.7, max_tokens=800)
+                riwayat_chat = [m for m in st.session_state["messages"][-20:] if m.get("role") in ("user", "assistant")]
+                res=client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system","content":SYSTEM_PROMPT_KUNCI}] + riwayat_chat, temperature=0.7, max_tokens=800, timeout=45)
                 jawaban=res.choices[0].message.content; st.markdown(jawaban); st.session_state.messages.append({"role":"assistant","content":jawaban})
-            except Exception as e: st.markdown(f"Maaf, ada gangguan. ({e})")
+            except Exception:
+                st.error("Maaf, QORI AI sedang mengalami gangguan. Silakan coba kembali beberapa saat lagi.")
