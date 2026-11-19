@@ -188,12 +188,19 @@ if st.session_state["login_nama"] is None:
         st.write("")
     st.markdown("""<div style='background-color: rgba(255,255,255,0.12); border: 1.5px solid #F9D423; padding: 20px; border-radius: 15px; margin-top: 15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>🔐 Silakan Masukkan Nama & Password</h2><p style='color:white; margin-top:8px;'>Untuk masuk ke QORI AI</p></div>""", unsafe_allow_html=True)
     st.write("")
+    # === KETERANGAN SALAH, HILANG SENDIRI 5 DETIK ===
     if st.session_state.get("login_error"):
-        sisa = 180 - (time.time() - st.session_state["login_error_time"])
+        sisa = 5 - (time.time() - st.session_state["login_error_time"])
         if sisa > 0:
             st.error(st.session_state["login_error"])
             if st_autorefresh:
-                st_autorefresh(interval=5000, key="cek_error_hilang")
+                st_autorefresh(interval=1000, key="cek_error_hilang")
+            else:
+                # Cadangan kalau streamlit-autorefresh belum terinstall: tunggu 5 detik lalu hapus
+                time.sleep(5)
+                st.session_state["login_error"] = ""
+                st.session_state["login_error_time"] = 0
+                st.rerun()
         else:
             st.session_state["login_error"] = ""
             st.session_state["login_error_time"] = 0
