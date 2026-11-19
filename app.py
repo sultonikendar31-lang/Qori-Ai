@@ -1340,7 +1340,7 @@ if st.session_state.get("lihat_baca") and st.session_state["siswa_pilih"] is Non
 
 # ===== SETORAN SUARA - HANYA UPLOAD =====
 if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is None:
-    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>🎙️ Setoran Suara / Koreksi Bacaan</h2><p style='color:white;'>Iqro | Tahsin | Tahfidz - Pilih Surat Juz 30 + Upload Foto + Upload Suara</p></div>", unsafe_allow_html=True)
+    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>🎙️ Setoran Suara / Koreksi Bacaan</h2><p style='color:white;'>Iqro | Tahsin | Tahfidz - Pilih Surat Juz 30 + Upload Suara</p></div>", unsafe_allow_html=True)
     st.write("")
     st.markdown("<p style='color:white; font-weight:bold; font-size:17px;'>📤 Kirim Setoran Baru:</p>", unsafe_allow_html=True)
     if st.session_state["login_role"]=="siswa":
@@ -1592,16 +1592,37 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
     # Untuk Tahsin/Tahfidz yang bukan bacaan Juz 30, tetap sediakan unggah manual.
     mode_setoran_manual = kat_setoran in ("Tahsin", "Tahfidz") and surat_juz30 == "-- Ketik Sendiri / Bukan Juz 30 --"
     boleh_upload_setoran = mode_setoran_manual
-    foto_up = None
     audio_file = None
     if boleh_upload_setoran:
-        st.markdown("<div style='background-color: rgba(249,212,35,0.15); border:1.5px solid #F9D423; padding:12px; border-radius:12px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>🎤 Cara Kirim Suara di HP:</p><p style='color:white; margin:5px 0 0 0;'>1. Rekam bacaan menggunakan Perekam HP atau Voice Note WA.<br>2. Upload file rekaman di bawah ini.<br>3. Dengarkan kembali sebelum dikirim.</p></div>", unsafe_allow_html=True)
+        # ===== CARA KIRIM SUARA DI HP - TETAP ADA =====
+        st.markdown("""
+        <div style='background:#FFF3CD; padding:12px; border-radius:12px; border:2px solid #FFC107;'>
+        <p style='color:#000000; font-weight:bold; margin:0;'>🎤 Cara Kirim Suara di HP:</p>
+        <p style='color:#000000; margin:0;'>1. Rekam bacaan menggunakan Perekam HP atau Voice Note WA.<br>
+        2. Upload file rekaman di bawah ini.<br>
+        3. Dengarkan kembali sebelum dikirim.</p>
+        </div>
+        """, unsafe_allow_html=True)
         st.write("")
-        foto_up = st.file_uploader("📷 Upload Foto (halaman Iqro / tulisan / mushaf) - Opsional:", type=["jpg","jpeg","png","webp"], key="foto_setoran")
-        audio_file = st.file_uploader("📤 Upload File Suara (WA / Perekam HP):", type=["mp3","wav","m4a","ogg","webm","opus","aac"], key="audio_file_setoran")
+        # ===== 1. ATAS: UPLOAD SUARA =====
+        audio_file = st.file_uploader(
+            "📥 Upload Suara Bacaan:",
+            type=["mp3", "wav", "m4a", "ogg", "webm", "opus", "aac"],
+            key="audio_file_setoran"
+        )
         if audio_file:
             st.success(f"✅ Suara terpilih: {audio_file.name} - Putar dahulu untuk memastikan rekaman benar.")
             st.audio(audio_file)
+
+        # ===== 2. BAWAH: UPLOAD FOTO / KAMERA (OPSIONAL) =====
+        foto_bukti = st.file_uploader(
+            "📷 Upload Foto / Kamera (Foto saat mengaji, opsional):",
+            type=["jpg", "jpeg", "png"],
+            key="foto_file_setoran"
+        )
+        if foto_bukti:
+            st.image(foto_bukti, caption="Foto Bukti Mengaji", use_container_width=True)
+
         if st.button("📩 Kirim Setoran ke Tim", use_container_width=True):
             judul_final = judul_setoran.strip()
             if mode_setoran_manual and not judul_final:
@@ -1615,9 +1636,9 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
                     label = f"{st.session_state['login_nama']} | Kelas: {DATA_SISWA.get(st.session_state['login_nama'],{}).get('kategori','-')}"
                 else:
                     label = f"{NAMA_LENGKAP_TIM.get(st.session_state['login_nama'], st.session_state['login_nama'])} | {TIM_PENYUSUN.get(st.session_state['login_nama'],'Tim')}"
-                foto_bytes = foto_up.getvalue() if foto_up else None
-                foto_nama = foto_up.name if foto_up else ""
                 audio_bytes = audio_file.getvalue(); audio_nama = audio_file.name
+                foto_bytes = foto_bukti.getvalue() if foto_bukti else None
+                foto_nama = foto_bukti.name if foto_bukti else ""
                 tambah_setoran(st.session_state["login_nama"], label, kat_setoran, judul_final, ket_setoran.strip(), foto_bytes, foto_nama, audio_bytes, audio_nama, time.strftime("%d/%m/%Y %H:%M", time.localtime(time.time())))
                 catat_aktivitas(f"Kirim Setoran {kat_setoran} - {judul_final[:30]}")
                 st.success("✅ Setoran terkirim! Tim akan mendengarkan & mengoreksi.")
