@@ -1101,25 +1101,112 @@ def tampilkan_daftar(kategori):
             catat_aktivitas(f"Mulai Ujian - {kategori}")
             st.rerun()
 
-# ===== MENU UTAMA =====
+# ===== MENU UTAMA: TIM SEMUA KATEGORI, SISWA SESUAI KATEGORI AKUN =====
 if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai"]:
-    c1,c2,c3,c4 = st.columns(4)
-    with c1: klik_iqro = st.button("📖 Iqro", use_container_width=True)
-    with c2: klik_tahsin = st.button("📗 Tahsin", use_container_width=True)
-    with c3: klik_tahfidz = st.button("⭐ Tahfidz", use_container_width=True)
-    with c4: klik_nilai = st.button("📊 Daftar Hasil Nilai", use_container_width=True)
-    if klik_iqro: st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"]=="Iqro" else "Iqro"; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; st.session_state["lihat_baca"]=False; catat_aktivitas("Buka Kelas Iqro")
-    if klik_tahsin: st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"]=="Tahsin" else "Tahsin"; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; st.session_state["lihat_baca"]=False; catat_aktivitas("Buka Kelas Tahsin")
-    if klik_tahfidz: st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"]=="Tahfidz" else "Tahfidz"; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; st.session_state["lihat_baca"]=False; catat_aktivitas("Buka Kelas Tahfidz")
-    if klik_nilai: st.session_state["lihat_nilai"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; st.session_state["lihat_baca"]=False; catat_aktivitas("Buka Daftar Hasil Nilai")
-    if st.session_state["kategori_pilih"]:
-        cc1,cc2,cc3 = st.columns(3)
-        if st.session_state["kategori_pilih"]=="Iqro":
-            with cc1: tampilkan_daftar("Iqro")
-        if st.session_state["kategori_pilih"]=="Tahsin":
-            with cc2: tampilkan_daftar("Tahsin")
-        if st.session_state["kategori_pilih"]=="Tahfidz":
-            with cc3: tampilkan_daftar("Tahfidz")
+    role_menu = st.session_state.get("login_role")
+    nama_menu = st.session_state.get("login_nama", "")
+    kategori_menu_siswa = DATA_SISWA.get(nama_menu, {}).get("kategori")
+
+    if role_menu == "tim":
+        # TIM tetap dapat mengakses ketiga kategori dan daftar nilai.
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            klik_iqro = st.button("📖 Iqro", use_container_width=True, key="menu_utama_iqro_tim")
+        with c2:
+            klik_tahsin = st.button("📗 Tahsin", use_container_width=True, key="menu_utama_tahsin_tim")
+        with c3:
+            klik_tahfidz = st.button("⭐ Tahfidz", use_container_width=True, key="menu_utama_tahfidz_tim")
+        with c4:
+            klik_nilai = st.button("📊 Daftar Hasil Nilai", use_container_width=True, key="menu_utama_nilai_tim")
+
+        if klik_iqro:
+            st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Iqro" else "Iqro"
+            st.session_state["lihat_nilai"] = False
+            st.session_state["lihat_riwayat"] = False
+            st.session_state["lihat_saran"] = False
+            st.session_state["lihat_setoran"] = False
+            st.session_state["lihat_baca"] = False
+            catat_aktivitas("Buka Kelas Iqro")
+        if klik_tahsin:
+            st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Tahsin" else "Tahsin"
+            st.session_state["lihat_nilai"] = False
+            st.session_state["lihat_riwayat"] = False
+            st.session_state["lihat_saran"] = False
+            st.session_state["lihat_setoran"] = False
+            st.session_state["lihat_baca"] = False
+            catat_aktivitas("Buka Kelas Tahsin")
+        if klik_tahfidz:
+            st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Tahfidz" else "Tahfidz"
+            st.session_state["lihat_nilai"] = False
+            st.session_state["lihat_riwayat"] = False
+            st.session_state["lihat_saran"] = False
+            st.session_state["lihat_setoran"] = False
+            st.session_state["lihat_baca"] = False
+            catat_aktivitas("Buka Kelas Tahfidz")
+        if klik_nilai:
+            st.session_state["lihat_nilai"] = True
+            st.session_state["kategori_pilih"] = None
+            st.session_state["lihat_riwayat"] = False
+            st.session_state["lihat_saran"] = False
+            st.session_state["lihat_setoran"] = False
+            st.session_state["lihat_baca"] = False
+            catat_aktivitas("Buka Daftar Hasil Nilai")
+
+    else:
+        # SISWA hanya melihat tombol kategori miliknya + Daftar Hasil Nilai.
+        konfigurasi_menu = {
+            "Iqro": ("📖 Iqro", "Iqro"),
+            "Tahsin": ("📗 Tahsin", "Tahsin"),
+            "Tahfidz": ("⭐ Tahfidz", "Tahfidz"),
+        }
+        if kategori_menu_siswa not in konfigurasi_menu:
+            st.warning("Kategori akun belum terdaftar. Silakan hubungi Tim QORI AI.")
+            klik_kategori_siswa = False
+            klik_nilai = False
+        else:
+            label_menu_siswa, kategori_pilih_siswa = konfigurasi_menu[kategori_menu_siswa]
+            s1, s2 = st.columns(2)
+            with s1:
+                klik_kategori_siswa = st.button(
+                    label_menu_siswa,
+                    use_container_width=True,
+                    key="menu_utama_kategori_siswa",
+                )
+            with s2:
+                klik_nilai = st.button(
+                    "📋 Daftar Hasil Nilai",
+                    use_container_width=True,
+                    key="menu_utama_nilai_siswa",
+                )
+
+            if klik_kategori_siswa:
+                st.session_state["kategori_pilih"] = (
+                    None if st.session_state["kategori_pilih"] == kategori_pilih_siswa else kategori_pilih_siswa
+                )
+                st.session_state["lihat_nilai"] = False
+                st.session_state["lihat_riwayat"] = False
+                st.session_state["lihat_saran"] = False
+                st.session_state["lihat_setoran"] = False
+                st.session_state["lihat_baca"] = False
+                catat_aktivitas(f"Buka Kelas {kategori_pilih_siswa}")
+
+        if klik_nilai:
+            st.session_state["lihat_nilai"] = True
+            st.session_state["kategori_pilih"] = None
+            st.session_state["lihat_riwayat"] = False
+            st.session_state["lihat_saran"] = False
+            st.session_state["lihat_setoran"] = False
+            st.session_state["lihat_baca"] = False
+            catat_aktivitas("Buka Daftar Hasil Nilai")
+
+    # Tampilkan daftar peserta sesuai kategori yang dipilih.
+    if st.session_state.get("kategori_pilih"):
+        kategori_aktif = st.session_state["kategori_pilih"]
+        if role_menu == "siswa" and kategori_aktif != kategori_menu_siswa:
+            st.session_state["kategori_pilih"] = None
+            st.warning("Akses dibatasi: kamu hanya dapat membuka kategori kelasmu sendiri.")
+        else:
+            tampilkan_daftar(kategori_aktif)
 
 if st.session_state["login_role"]=="tim" and st.session_state["siswa_pilih"] is None:
     if st.button("📋 Riwayat / Story Siswa (Khusus Tim)", use_container_width=True):
