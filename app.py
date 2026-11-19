@@ -1076,7 +1076,49 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
     kategori_menu_siswa = DATA_SISWA.get(nama_menu, {}).get("kategori")
 
     if role_menu == "tim":
-        # TIM: pilih kategori, lalu tampil satu tombol Mulai Ujian Preview Tim.
+        # TIM memiliki dua menu yang berbeda:
+        # Baris 1 = Game edukatif (bank soal game: huruf, tajwid, sambung ayat).
+        # Baris 2 = Ujian akademik (bank soal ujian) dan daftar hasil nilai.
+        st.markdown("### 🎮 Soal Game")
+        g1, g2, g3 = st.columns(3)
+        with g1:
+            klik_game_iqro = st.button(
+                "🎮 Game Iqro", use_container_width=True, key="tim_game_iqro"
+            )
+        with g2:
+            klik_game_tahsin = st.button(
+                "🎮 Game Tahsin", use_container_width=True, key="tim_game_tahsin"
+            )
+        with g3:
+            klik_game_tahfidz = st.button(
+                "🎮 Game Tahfidz", use_container_width=True, key="tim_game_tahfidz"
+            )
+
+        game_tim_dipilih = (
+            "iqro" if klik_game_iqro else
+            "tahsin" if klik_game_tahsin else
+            "tahfidz" if klik_game_tahfidz else None
+        )
+        if game_tim_dipilih:
+            # Game memakai mesin dan bank soal game yang sama dengan siswa.
+            # Role Tim otomatis menjadi preview; skor tidak disimpan ke nilai siswa.
+            st.session_state["game"] = game_tim_dipilih
+            st.session_state["game_session_key"] = None
+            st.session_state["game_question"] = None
+            st.session_state["game_questions"] = []
+            st.session_state["game_index"] = 0
+            st.session_state["game_feedback"] = ""
+            st.session_state["game_session_score"] = 0
+            st.session_state["kategori_pilih"] = None
+            st.session_state["lihat_nilai_game"] = False
+            st.session_state["lihat_nilai"] = False
+            st.session_state["lihat_riwayat"] = False
+            st.session_state["lihat_saran"] = False
+            st.session_state["lihat_setoran"] = False
+            st.session_state["lihat_baca"] = False
+            st.rerun()
+
+        st.markdown("### 📝 Soal Ujian")
         m1, m2, m3, m4 = st.columns(4)
         with m1:
             klik_iqro = st.button("📖 Iqro", use_container_width=True, key="menu_utama_iqro_tim")
@@ -1095,6 +1137,7 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
         if kategori_tim_dipilih:
             st.session_state["kategori_pilih"] = kategori_tim_dipilih
             st.session_state["game"] = None
+            st.session_state["game_session_key"] = None
             st.session_state["lihat_nilai_game"] = False
             st.session_state["lihat_nilai"] = False
             st.session_state["lihat_riwayat"] = False
@@ -1105,6 +1148,7 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
         if klik_nilai:
             st.session_state["lihat_nilai_game"] = True
             st.session_state["game"] = None
+            st.session_state["game_session_key"] = None
             st.session_state["kategori_pilih"] = None
             st.session_state["lihat_nilai"] = False
             st.session_state["lihat_riwayat"] = False
