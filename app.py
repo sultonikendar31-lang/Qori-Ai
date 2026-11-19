@@ -4,182 +4,325 @@ import base64
 import random
 import time
 import os
+import sqlite3
 import hashlib
 import hmac
 import html
-import csv
-import io
-import sqlite3
+from contextlib import closing
 from openai import OpenAI
-try:
-    from streamlit_autorefresh import st_autorefresh
-except:
-    st_autorefresh = None
+from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="QORI AI", page_icon="🕌", layout="wide")
+
 api_key = st.secrets.get("OPENAI_API_KEY", "")
 
-# ===== DATABASE SQLITE =====
-DB = os.environ.get("QORI_DB_PATH", "qori_ai.db")
-def db():
-    c = sqlite3.connect(DB, check_same_thread=False, timeout=30)
-    c.execute("PRAGMA journal_mode=WAL")
-    c.execute("PRAGMA foreign_keys=ON")
-    c.execute("CREATE TABLE IF NOT EXISTS hasil (nama TEXT PRIMARY KEY, nilai INTEGER, ulang INTEGER)")
-    c.execute("CREATE TABLE IF NOT EXISTS aktivitas (id INTEGER PRIMARY KEY AUTOINCREMENT, nama TEXT, kelas TEXT, aktivitas TEXT, jam TEXT, lama TEXT)")
-    c.execute("CREATE TABLE IF NOT EXISTS saran (id INTEGER PRIMARY KEY AUTOINCREMENT, pengirim TEXT, label TEXT, role TEXT, jenis TEXT, isi TEXT, jam TEXT, balasan TEXT, pembalas TEXT)")
-    c.execute("CREATE TABLE IF NOT EXISTS ujian_sesi (nama TEXT PRIMARY KEY, mulai REAL NOT NULL, seed INTEGER NOT NULL)")
-    c.execute("""CREATE TABLE IF NOT EXISTS setoran (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        pengirim TEXT, label TEXT, kategori TEXT, judul TEXT, keterangan TEXT,
-        foto BLOB, foto_nama TEXT, audio BLOB, audio_nama TEXT,
-        jam TEXT, koreksi TEXT, pembalas TEXT, nilai_setoran TEXT
-    )""")
-    c.commit()
-    return c
-CONN = db()
-def get_hasil():
-    return {r[0]: r[1] for r in CONN.execute("SELECT nama,nilai FROM hasil")}
-def get_ulang():
-    return {r[0]: r[1] for r in CONN.execute("SELECT nama,ulang FROM hasil")}
-def simpan_hasil(nama, nilai):
-    cur = CONN.execute("SELECT ulang FROM hasil WHERE nama=?", (nama,))
-    row = cur.fetchone()
-    ulang = (row[0]+1) if row else 1
-    CONN.execute("INSERT INTO hasil(nama,nilai,ulang) VALUES(?,?,?) ON CONFLICT(nama) DO UPDATE SET nilai=excluded.nilai, ulang=excluded.ulang", (nama, nilai, ulang))
-    CONN.commit()
-    return ulang
-def hapus_hasil_satu(nama):
-    CONN.execute("DELETE FROM hasil WHERE nama=?", (nama,))
-    CONN.execute("DELETE FROM ujian_sesi WHERE nama=?", (nama,))
-    CONN.commit()
-def reset_semua_hasil():
-    CONN.execute("DELETE FROM hasil")
-    CONN.execute("DELETE FROM ujian_sesi")
-    CONN.commit()
-def get_aktivitas():
-    return [{"nama":r[0],"kelas":r[1],"aktivitas":r[2],"jam":r[3],"lama":r[4]} for r in CONN.execute("SELECT nama,kelas,aktivitas,jam,lama FROM aktivitas ORDER BY id DESC")]
-def tambah_aktivitas(nama, kelas, aktivitas, jam, lama):
-    CONN.execute("INSERT INTO aktivitas(nama,kelas,aktivitas,jam,lama) VALUES(?,?,?,?,?)", (nama, kelas, aktivitas, jam, lama))
-    CONN.commit()
-def hapus_riwayat_satu(nama):
-    CONN.execute("DELETE FROM aktivitas WHERE nama=?", (nama,))
-    CONN.commit()
-def reset_semua_riwayat():
-    CONN.execute("DELETE FROM aktivitas")
-    CONN.commit()
-def get_saran():
-    return [{"id":r[0],"pengirim":r[1],"label":r[2],"role":r[3],"jenis":r[4],"isi":r[5],"jam":r[6],"balasan":r[7] or "","pembalas":r[8] or ""} for r in CONN.execute("SELECT id,pengirim,label,role,jenis,isi,jam,balasan,pembalas FROM saran ORDER BY id DESC")]
-def tambah_saran(pengirim, label, role, jenis, isi, jam):
-    CONN.execute("INSERT INTO saran(pengirim,label,role,jenis,isi,jam,balasan,pembalas) VALUES(?,?,?,?,?,?,?,?)", (pengirim, label, role, jenis, isi, jam, "", ""))
-    CONN.commit()
-def balas_saran(sid, balasan, pembalas):
-    CONN.execute("UPDATE saran SET balasan=?, pembalas=? WHERE id=?", (balasan, pembalas, sid))
-    CONN.commit()
-def hapus_saran(sid):
-    CONN.execute("DELETE FROM saran WHERE id=?", (sid,))
-    CONN.commit()
-def tambah_setoran(pengirim, label, kategori, judul, keterangan, foto_bytes, foto_nama, audio_bytes, audio_nama, jam):
-    CONN.execute("INSERT INTO setoran(pengirim,label,kategori,judul,keterangan,foto,foto_nama,audio,audio_nama,jam,koreksi,pembalas,nilai_setoran) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (pengirim, label, kategori, judul, keterangan, foto_bytes, foto_nama, audio_bytes, audio_nama, jam, "", "", ""))
-    CONN.commit()
-def get_setoran():
-    rows = CONN.execute("SELECT id,pengirim,label,kategori,judul,keterangan,foto,foto_nama,audio,audio_nama,jam,koreksi,pembalas,nilai_setoran FROM setoran ORDER BY id DESC").fetchall()
-    out = []
-    for r in rows:
-        out.append({"id":r[0],"pengirim":r[1],"label":r[2],"kategori":r[3],"judul":r[4],"keterangan":r[5] or "","foto":r[6],"foto_nama":r[7] or "","audio":r[8],"audio_nama":r[9] or "","jam":r[10],"koreksi":r[11] or "","pembalas":r[12] or "","nilai":r[13] or ""})
-    return out
-def koreksi_setoran(sid, koreksi, pembalas, nilai_setoran):
-    CONN.execute("UPDATE setoran SET koreksi=?, pembalas=?, nilai_setoran=? WHERE id=?", (koreksi, pembalas, nilai_setoran, sid))
-    CONN.commit()
-def hapus_setoran(sid):
-    CONN.execute("DELETE FROM setoran WHERE id=?", (sid,))
-    CONN.commit()
-def simpan_sesi_ujian(nama, mulai, seed):
-    CONN.execute("INSERT INTO ujian_sesi(nama,mulai,seed) VALUES(?,?,?) ON CONFLICT(nama) DO UPDATE SET mulai=excluded.mulai, seed=excluded.seed", (nama, mulai, seed))
-    CONN.commit()
-def ambil_sesi_ujian(nama):
-    return CONN.execute("SELECT mulai,seed FROM ujian_sesi WHERE nama=?", (nama,)).fetchone()
-def hapus_sesi_ujian(nama):
-    CONN.execute("DELETE FROM ujian_sesi WHERE nama=?", (nama,))
-    CONN.commit()
-
-# ===== TIM =====
+# ===== PINTU MASUK / KUNCI NAMA =====
 TIM_PENYUSUN = {
     "MUHAMAD RAIS": "Guru Pamong",
     "MUHAMAD SIDDIQ ASYHARI": "Dosen Pembimbing",
     "SYAMSUL HADI": "Kepala MA Al-Barokah",
-    "KENDAR SULTONI": "Mahasiswa",
+    "KENDAR SULTONI": "Mahasiswa / Pembuat Aplikasi",
 }
+
 NAMA_LENGKAP_TIM = {
     "MUHAMAD RAIS": "Bapak Muhamad Rais, S.Pd.I",
     "MUHAMAD SIDDIQ ASYHARI": "Dr. Muhamad Siddiq Asyhari, M.Pd",
     "SYAMSUL HADI": "Bapak Syamsul Hadi, S.Pd.I",
     "KENDAR SULTONI": "Kendar Sultoni",
 }
-JUZ30_SURAH = [
-    "Surah An-Naba (78)", "Surah An-Nazi'at (79)", "Surah 'Abasa (80)",
-    "Surah At-Takwir (81)", "Surah Al-Infitar (82)", "Surah Al-Mutaffifin (83)",
-    "Surah Al-Insyiqaq (84)", "Surah Al-Buruj (85)", "Surah At-Tariq (86)",
-    "Surah Al-A'la (87)", "Surah Al-Ghasyiyah (88)", "Surah Al-Fajr (89)",
-    "Surah Al-Balad (90)", "Surah Asy-Syams (91)", "Surah Al-Lail (92)",
-    "Surah Ad-Dhuha (93)", "Surah Asy-Syarh (94)", "Surah At-Tin (95)",
-    "Surah Al-'Alaq (96)", "Surah Al-Qadr (97)", "Surah Al-Bayyinah (98)",
-    "Surah Az-Zalzalah (99)", "Surah Al-'Adiyat (100)", "Surah Al-Qari'ah (101)",
-    "Surah At-Takasur (102)", "Surah Al-'Asr (103)", "Surah Al-Humazah (104)",
-    "Surah Al-Fil (105)", "Surah Quraisy (106)", "Surah Al-Ma'un (107)",
-    "Surah Al-Kautsar (108)", "Surah Al-Kafirun (109)", "Surah An-Nasr (110)",
-    "Surah Al-Lahab (111)", "Surah Al-Ikhlas (112)", "Surah Al-Falaq (113)",
-    "Surah An-Nas (114)",
+
+if "login_nama" not in st.session_state:
+    st.session_state["login_nama"] = None
+if "login_role" not in st.session_state:
+    st.session_state["login_role"] = None
+if "login_jabatan" not in st.session_state:
+    st.session_state["login_jabatan"] = None
+if "kategori_pilih" not in st.session_state:
+    st.session_state["kategori_pilih"] = None
+if "messages" not in st.session_state:
+    st.session_state["messages"] = []
+if "siswa_pilih" not in st.session_state:
+    st.session_state["siswa_pilih"] = None
+if "seed_acak" not in st.session_state:
+    st.session_state["seed_acak"] = 1
+if "soal_acak" not in st.session_state:
+    st.session_state["soal_acak"] = None
+if "kunci_acak" not in st.session_state:
+    st.session_state["kunci_acak"] = None
+if "kat_acak" not in st.session_state:
+    st.session_state["kat_acak"] = None
+if "waktu_mulai" not in st.session_state:
+    st.session_state["waktu_mulai"] = None
+if "waktu_habis" not in st.session_state:
+    st.session_state["waktu_habis"] = False
+if "ujian_selesai" not in st.session_state:
+    st.session_state["ujian_selesai"] = False
+if "hasil_ujian" not in st.session_state:
+    st.session_state["hasil_ujian"] = None
+if "curang_refresh" not in st.session_state:
+    st.session_state["curang_refresh"] = None
+if "lihat_nilai" not in st.session_state:
+    st.session_state["lihat_nilai"] = False
+if "hasil_semua" not in st.session_state:
+    st.session_state["hasil_semua"] = {}
+if "hitung_ulang" not in st.session_state:
+    st.session_state["hitung_ulang"] = {}
+if "sudah_bersihkan_no7" not in st.session_state:
+    st.session_state["sudah_bersihkan_no7"] = False
+if "riwayat_aktivitas" not in st.session_state:
+    st.session_state["riwayat_aktivitas"] = []
+if "waktu_login" not in st.session_state:
+    st.session_state["waktu_login"] = None
+if "lihat_riwayat" not in st.session_state:
+    st.session_state["lihat_riwayat"] = False
+if "sudah_catat_masuk" not in st.session_state:
+    st.session_state["sudah_catat_masuk"] = False
+if "saran_list" not in st.session_state:
+    st.session_state["saran_list"] = []
+if "lihat_saran" not in st.session_state:
+    st.session_state["lihat_saran"] = False
+
+if not st.session_state["sudah_bersihkan_no7"]:
+    st.session_state["sudah_bersihkan_no7"] = True
+    if "ZALFATUSSYIFA RAMADANTI" in st.session_state.get("hasil_semua", {}):
+        del st.session_state["hasil_semua"]["ZALFATUSSYIFA RAMADANTI"]
+    if "ZALFATUSSYIFA RAMADANTI" in st.session_state.get("hitung_ulang", {}):
+        del st.session_state["hitung_ulang"]["ZALFATUSSYIFA RAMADANTI"]
+
+
+DURASI_UJIAN = 10 * 60
+KKM = 75
+prompt_awal = None
+
+# ===== DATABASE PERSISTEN QORI AI =====
+# Untuk server lokal gunakan qori_ai.db. Pada deployment cloud multi-instance,
+# arahkan QORI_DB_PATH ke volume persisten atau ganti adapter dengan PostgreSQL/Supabase.
+DB_PATH = os.getenv("QORI_DB_PATH", "qori_ai.db")
+
+def db_connect():
+    conn = sqlite3.connect(DB_PATH, timeout=20, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+def init_database():
+    with closing(db_connect()) as conn:
+        conn.executescript("""
+        CREATE TABLE IF NOT EXISTS exam_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_name TEXT NOT NULL,
+            category TEXT NOT NULL,
+            score INTEGER NOT NULL,
+            correct_count INTEGER NOT NULL,
+            attempt_no INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_exam_student ON exam_results(student_name, id);
+        CREATE TABLE IF NOT EXISTS activity_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_name TEXT NOT NULL,
+            category TEXT,
+            activity TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            duration TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS suggestions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender TEXT NOT NULL,
+            sender_label TEXT NOT NULL,
+            role TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            body TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            reply TEXT DEFAULT '',
+            replied_by TEXT DEFAULT ''
+        );
+        """)
+        conn.commit()
+
+def load_persistent_data():
+    """Muat ulang data bersama setiap rerun agar perubahan sesi lain terlihat."""
+    init_database()
+    with closing(db_connect()) as conn:
+        latest = conn.execute("""
+            SELECT e.* FROM exam_results e
+            INNER JOIN (SELECT student_name, MAX(id) AS max_id
+                        FROM exam_results GROUP BY student_name) x
+            ON e.id=x.max_id
+        """).fetchall()
+        attempts = conn.execute("""
+            SELECT student_name, COUNT(*) AS n FROM exam_results GROUP BY student_name
+        """).fetchall()
+        activities = conn.execute("""
+            SELECT student_name AS nama, category AS kelas, activity AS aktivitas,
+                   created_at AS jam, duration AS lama
+            FROM activity_log ORDER BY id
+        """).fetchall()
+        suggestions = conn.execute("""
+            SELECT id, sender AS pengirim, sender_label AS label, role, kind AS jenis,
+                   body AS isi, created_at AS jam, reply AS balasan, replied_by AS pembalas
+            FROM suggestions ORDER BY id
+        """).fetchall()
+    st.session_state["hasil_semua"] = {r["student_name"]: int(r["score"]) for r in latest}
+    st.session_state["hitung_ulang"] = {r["student_name"]: int(r["n"]) for r in attempts}
+    st.session_state["riwayat_aktivitas"] = [dict(r) for r in activities]
+    st.session_state["saran_list"] = [dict(r) for r in suggestions]
+
+def simpan_hasil_database(nama, kategori, nilai, benar, percobaan):
+    with closing(db_connect()) as conn:
+        conn.execute("""
+            INSERT INTO exam_results(student_name, category, score, correct_count, attempt_no, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (nama, kategori, int(nilai), int(benar), int(percobaan),
+              time.strftime("%Y-%m-%d %H:%M:%S")))
+        conn.commit()
+
+def verifikasi_password(nama, password):
+    """USER_PASSWORDS berisi SHA-256 password, bukan password teks biasa."""
+    users = st.secrets.get("USER_PASSWORDS", {})
+    hash_tersimpan = users.get(nama, "")
+    if not hash_tersimpan:
+        return False
+    hash_input = hashlib.sha256(password.encode("utf-8")).hexdigest()
+    return hmac.compare_digest(str(hash_tersimpan), hash_input)
+
+
+# Deteksi refresh berbasis query string dihapus karena mudah dimanipulasi dan dapat memberi nilai 0 kepada siswa lain.
+
+SYSTEM_PROMPT_KUNCI = """
+Kamu adalah QORI AI, guru yang ramah dan pintar untuk anak Madrasah Aliyah Al-Barokah.
+Kamu BEBAS menjawab pertanyaan apa saja: Iqro, Tahsin, Tahfidz, pelajaran sekolah, agama, umum, dll.
+Keahlian utamamu tetap Iqro, Tahsin, dan Tahfidz, tapi kalau ditanya hal lain, jawab saja dengan baik, jangan menolak.
+Jawab dengan Bahasa Indonesia yang mudah, sopan, dan islami.
+Kalau menyebut huruf hijaiyah, WAJIB pakai format: 1. Alif (ا) - dibaca "A". Jangan tulis huruf Arab berderet-deret tanpa nama Latinnya.
+"""
+
+HIJAIYAH_IQRO1 = [
+    ("1", "Alif", "ا", "A"),("2", "Ba", "ب", "Ba"),("3", "Ta", "ت", "Ta"),("4", "Tsa", "ث", "Tsa"),
+    ("5", "Jim", "ج", "Ja"),("6", "Ha", "ح", "Ha"),("7", "Kha", "خ", "Kha"),("8", "Dal", "د", "Da"),
+    ("9", "Dzal", "ذ", "Dza"),("10", "Ra", "ر", "Ra"),("11", "Zai", "ز", "Za"),("12", "Sin", "س", "Sa"),
+    ("13", "Syin", "ش", "Sya"),("14", "Shad", "ص", "Sha"),("15", "Dhad", "ض", "Dha"),("16", "Tha", "ط", "Tha"),
+    ("17", "Zha", "ظ", "Zha"),("18", "Ain", "ع", "A"),("19", "Ghain", "غ", "Gha"),("20", "Fa", "ف", "Fa"),
+    ("21", "Qaf", "ق", "Qa"),("22", "Kaf", "ك", "Ka"),("23", "Lam", "ل", "La"),("24", "Mim", "م", "Ma"),
+    ("25", "Nun", "ن", "Na"),("26", "Wau", "و", "Wa"),("27", "Ha", "ه", "Ha"),("28", "Hamzah / Ya", "ء / ي", "A / Ya"),
 ]
-# ===== ISI BACAAN JUZ 30 - ARAB + LATIN + ARTI (UNTUK TAHSIN & TAHFIDZ) =====
-JUZ30_BACA = {
-    "Surah An-Naba (78)": {"ayat": "40 ayat", "arab": "عَمَّ يَتَسَاءَلُونَ (1) عَنِ النَّبَإِ الْعَظِيمِ (2) الَّذِي هُمْ فِيهِ مُخْتَلِفُونَ (3) كَلَّا سَيَعْلَمُونَ (4) ثُمَّ كَلَّا سَيَعْلَمُونَ (5) ... lanjutkan sampai ayat 40 di mushaf ya!", "latin": "Amma yatasaa-aluun. 'Anin naba-il 'azhiim. Alladzii hum fiihi mukhtalifuun. Kallaa saya'lamuun. Tsumma kallaa saya'lamuun...", "arti": "Tentang apakah mereka saling bertanya-tanya? Tentang berita yang besar, yang mereka perselisihkan. Sekali-kali tidak, kelak mereka akan mengetahui."},
-    "Surah An-Nazi'at (79)": {"ayat": "46 ayat", "arab": "وَالنَّازِعَاتِ غَرْقًا (1) وَالنَّاشِطَاتِ نَشْطًا (2) وَالسَّابِحَاتِ سَبْحًا (3) فَالسَّابِقَاتِ سَبْقًا (4) فَالْمُدَبِّرَاتِ أَمْرًا (5) ... lanjutkan di mushaf!", "latin": "Wan naazi'aati gharqaa. Wan naasyithaati nasythaa. Was saabihhaati sabhaa. Fas saabiquaati sabqaa. Fal mudabbiraati amraa...", "arti": "Demi (malaikat) yang mencabut nyawa dengan keras, yang mencabut dengan lemah lembut, yang turun dari langit dengan cepat..."},
-    "Surah 'Abasa (80)": {"ayat": "42 ayat", "arab": "عَبَسَ وَتَوَلَّىٰ (1) أَنْ جَاءَهُ الْأَعْمَىٰ (2) وَمَا يُدْرِيكَ لَعَلَّهُ يَزَّكَّىٰ (3) أَوْ يَذَّكَّرُ فَتَنْفَعَهُ الذِّكْرَىٰ (4) ... lanjutkan di mushaf!", "latin": "'Abasa wa tawallaa. An jaa-ahul a'maa. Wa maa yudriika la'allahu yazzakkaa. Au yadzdzakkaru fatanfa'ahudz dzikraa...", "arti": "Dia bermuka masam dan berpaling, karena telah datang seorang buta kepadanya. Tahukah kamu, barangkali ia ingin membersihkan dirinya."},
-    "Surah At-Takwir (81)": {"ayat": "29 ayat", "arab": "إِذَا الشَّمْسُ كُوِّرَتْ (1) وَإِذَا النُّجُومُ انْكَدَرَتْ (2) وَإِذَا الْجِبَالُ سُيِّرَتْ (3) وَإِذَا الْعِشَارُ عُطِّلَتْ (4) ... lanjutkan di mushaf!", "latin": "Idzasy syamsu kuwwirat. Wa idzan nujuumu-nkadarat. Wa idzal jibaalu suyyirat. Wa idzal 'isyaaru 'uththilat...", "arti": "Apabila matahari digulung, dan apabila bintang-bintang berjatuhan, dan apabila gunung-gunung dihancurkan..."},
-    "Surah Al-Infitar (82)": {"ayat": "19 ayat", "arab": "إِذَا السَّمَاءُ انْفَطَرَتْ (1) وَإِذَا الْكَوَاكِبُ انْتَثَرَتْ (2) وَإِذَا الْبِحَارُ فُجِّرَتْ (3) وَإِذَا الْقُبُورُ بُعْثِرَتْ (4) ... lanjutkan di mushaf!", "latin": "Idzas samaa-u-nfatharat. Wa idzal kawaakibu-ntatsarat. Wa idzal bihaaru fujjirat. Wa idzal qubuuru bu'tsirat...", "arti": "Apabila langit terbelah, dan apabila bintang-bintang jatuh berserakan, dan apabila lautan dijadikan meluap..."},
-    "Surah Al-Mutaffifin (83)": {"ayat": "36 ayat", "arab": "وَيْلٌ لِلْمُطَفِّفِينَ (1) الَّذِينَ إِذَا اكْتَالُوا عَلَى النَّاسِ يَسْتَوْفُونَ (2) وَإِذَا كَالُوهُمْ أَوْ وَزَنُوهُمْ يُخْسِرُونَ (3) ... lanjutkan di mushaf!", "latin": "Wailul lil muthaffifiin. Alladziina idzaktaaluu 'alan naasi yastaufuun. Wa idzaa kaaluuhum au wazanuuhum yukhsiruun...", "arti": "Celakalah orang-orang yang curang, yang apabila menerima takaran dari orang lain mereka minta dipenuhi, dan apabila mereka menakar untuk orang lain, mereka mengurangi."},
-    "Surah Al-Insyiqaq (84)": {"ayat": "25 ayat", "arab": "إِذَا السَّمَاءُ انْشَقَّتْ (1) وَأَذِنَتْ لِرَبِّهَا وَحُقَّتْ (2) وَإِذَا الْأَرْضُ مُدَّتْ (3) وَأَلْقَتْ مَا فِيهَا وَتَخَلَّتْ (4) ... lanjutkan di mushaf!", "latin": "Idzas samaa-u-nsyaqqat. Wa adzinat lirabbihaa wa huqqat. Wa idzal ardhu muddat. Wa alqat maa fiihaa wa takhallat...", "arti": "Apabila langit terbelah, dan patuh kepada Tuhannya, dan sudah semestinya langit itu patuh, dan apabila bumi diratakan..."},
-    "Surah Al-Buruj (85)": {"ayat": "22 ayat", "arab": "وَالسَّمَاءِ ذَاتِ الْبُرُوجِ (1) وَالْيَوْمِ الْمَوْعُودِ (2) وَشَاهِدٍ وَمَشْهُودٍ (3) قُتِلَ أَصْحَابُ الْأُخْدُودِ (4) ... lanjutkan di mushaf!", "latin": "Was samaa-i dzaatil buruuj. Wal yaumil mau'uud. Wa syaahidin wa masyhuud. Qutila ash-haabul ukhduud...", "arti": "Demi langit yang mempunyai gugusan bintang, dan hari yang dijanjikan, dan yang menyaksikan dan yang disaksikan. Binasa dan terlaknatlah orang-orang yang membuat parit."},
-    "Surah At-Tariq (86)": {"ayat": "17 ayat", "arab": "وَالسَّمَاءِ وَالطَّارِقِ (1) وَمَا أَدْرَاكَ مَا الطَّارِقُ (2) النَّجْمُ الثَّاقِبُ (3) إِنْ كُلُّ نَفْسٍ لَمَّا عَلَيْهَا حَافِظٌ (4) ... lanjutkan di mushaf!", "latin": "Was samaa-i wath thaariq. Wa maa adraaka math thaariq. An najmu-ts tsaaqib. In kullu nafsil lammaa 'alaihaa haafizh...", "arti": "Demi langit dan yang datang pada malam hari. Tahukah kamu apakah yang datang pada malam hari itu? Yaitu bintang yang cahayanya menembus. Tidak ada satu jiwa pun melainkan ada penjaganya."},
-    "Surah Al-A'la (87)": {"ayat": "19 ayat", "arab": "سَبِّحِ اسْمَ رَبِّكَ الْأَعْلَى (1) الَّذِي خَلَقَ فَسَوَّىٰ (2) وَالَّذِي قَدَّرَ فَهَدَىٰ (3) وَالَّذِي أَخْرَجَ الْمَرْعَىٰ (4) فَجَعَلَهُ غُثَاءً أَحْوَىٰ (5) سَنُقْرِئُكَ فَلَا تَنْسَىٰ (6) إِلَّا مَا شَاءَ اللَّهُ ۚ إِنَّهُ يَعْلَمُ الْجَهْرَ وَمَا يَخْفَىٰ (7) وَنُيَسِّرُكَ لِلْيُسْرَىٰ (8) فَذَكِّرْ إِنْ نَفَعَتِ الذِّكْرَىٰ (9) سَيَذَّكَّرُ مَنْ يَخْشَىٰ (10) وَيَتَجَنَّبُهَا الْأَشْقَى (11) الَّذِي يَصْلَى النَّارَ الْكُبْرَىٰ (12) ثُمَّ لَا يَمُوتُ فِيهَا وَلَا يَحْيَىٰ (13) قَدْ أَفْلَحَ مَنْ تَزَكَّىٰ (14) وَذَكَرَ اسْمَ رَبِّهِ فَصَلَّىٰ (15) بَلْ تُؤْثِرُونَ الْحَيَاةَ الدُّنْيَا (16) وَالْآخِرَةُ خَيْرٌ وَأَبْقَىٰ (17) إِنَّ هَٰذَا لَفِي الصُّحُفِ الْأُولَىٰ (18) صُحُفِ إِبْرَاهِيمَ وَمُوسَىٰ (19)", "latin": "Sabbihisma rabbikal a'laa. Alladzii khalaqa fasawwaa. Walladzii qaddara fahadaa. Walladzii akhrajal mar'aa. Faja'alahu ghutsaa-an ahwaa. Sanuqri-uka falaa tansaa. Illaa maa syaa-allaah. Innahu ya'lamul jahra wa maa yakhfaa. Wa nuyassiruka lilyusraa. Fadzakkir in nafa'atidz dzikraa. Sayadzdzakkaru man yakhsyaa. Wa yatajannabuhal asyqaa. Alladzii yashlan naaral kubraa. Tsumma laa yamuutu fiihaa wa laa yahyaa. Qad aflaha man tazakkaa. Wa dzakara-sma rabbihi fashallaa. Bal tu'tsiruunal hayaatad dunyaa. Wal aakhiratu khairun wa abqaa. Inna haadzaa lafis shuhufil uulaa. Shuhufi ibraahiima wa muusaa.", "arti": "Sucikanlah nama Tuhanmu Yang Maha Tinggi. Yang menciptakan, lalu menyempurnakan. Yang menentukan kadar, lalu memberi petunjuk."},
-    "Surah Al-Ghasyiyah (88)": {"ayat": "26 ayat", "arab": "هَلْ أَتَاكَ حَدِيثُ الْغَاشِيَةِ (1) وُجُوهٌ يَوْمَئِذٍ خَاشِعَةٌ (2) عَامِلَةٌ نَاصِبَةٌ (3) تَصْلَىٰ نَارًا حَامِيَةً (4) تُسْقَىٰ مِنْ عَيْنٍ آنِيَةٍ (5) ... lanjutkan di mushaf!", "latin": "Hal ataaka hadiitsul ghaasyiyah. Wujuuhun yauma-idzin khaasyi'ah. 'Aamilatun naashibah. Tashlaa naaran haamiyah. Tusqaa min 'ainin aaniyah...", "arti": "Sudah datangkah kepadamu berita tentang hari pembalasan? Banyak muka pada hari itu tunduk terhina, bekerja keras lagi kepayahan, memasuki api yang sangat panas."},
-    "Surah Al-Fajr (89)": {"ayat": "30 ayat", "arab": "وَالْفَجْرِ (1) وَلَيَالٍ عَشْرٍ (2) وَالشَّفْعِ وَالْوَتْرِ (3) وَاللَّيْلِ إِذَا يَسْرِ (4) هَلْ فِي ذَٰلِكَ قَسَمٌ لِذِي حِجْرٍ (5) ... lanjutkan di mushaf!", "latin": "Wal fajr. Wa layaalin 'asyr. Wasy syaf'i wal watr. Wal laili idzaa yasr. Hal fii dzaalika qasamul lidzii hijr...", "arti": "Demi fajar, dan malam yang sepuluh, dan yang genap dan yang ganjil, dan malam bila berlalu. Pada yang demikian itu terdapat sumpah bagi orang yang berakal."},
-    "Surah Al-Balad (90)": {"ayat": "20 ayat", "arab": "لَا أُقْسِمُ بِهَٰذَا الْبَلَدِ (1) وَأَنْتَ حِلٌّ بِهَٰذَا الْبَلَدِ (2) وَوَالِدٍ وَمَا وَلَدَ (3) لَقَدْ خَلَقْنَا الْإِنْسَانَ فِي كَبَدٍ (4) ... lanjutkan di mushaf!", "latin": "Laa uqsimu bihaadzal balad. Wa anta hillum bihaadzal balad. Wa waalidin wa maa walad. Laqad khalaqnal insaana fii kabad...", "arti": "Aku benar-benar bersumpah dengan kota ini (Mekah), dan kamu bertempat di kota ini, dan demi bapak dan anaknya. Sesungguhnya Kami telah menciptakan manusia berada dalam susah payah."},
-    "Surah Asy-Syams (91)": {"ayat": "15 ayat", "arab": "وَالشَّمْسِ وَضُحَاهَا (1) وَالْقَمَرِ إِذَا تَلَاهَا (2) وَالنَّهَارِ إِذَا جَلَّاهَا (3) وَاللَّيْلِ إِذَا يَغْشَاهَا (4) وَالسَّمَاءِ وَمَا بَنَاهَا (5) وَالْأَرْضِ وَمَا طَحَاهَا (6) وَنَفْسٍ وَمَا سَوَّاهَا (7) فَأَلْهَمَهَا فُجُورَهَا وَتَقْوَاهَا (8) قَدْ أَفْلَحَ مَنْ زَكَّاهَا (9) وَقَدْ خَابَ مَنْ دَسَّاهَا (10) كَذَّبَتْ ثَمُودُ بِطَغْوَاهَا (11) إِذِ انْبَعَثَ أَشْقَاهَا (12) فَقَالَ لَهُمْ رَسُولُ اللَّهِ نَاقَةَ اللَّهِ وَسُقْيَاهَا (13) فَكَذَّبُوهُ فَعَقَرُوهَا فَدَمْدَمَ عَلَيْهِمْ رَبُّهُمْ بِذَنْبِهِمْ فَسَوَّاهَا (14) وَلَا يَخَافُ عُقْبَاهَا (15)", "latin": "Wasy syamsi wa dhuhaahaa. Wal qamari idzaa talaahaa. Wan nahaari idzaa jallaahaa. Wal laili idzaa yaghsyaahaa. Was samaa-i wa maa banaahaa. Wal ardhi wa maa thahaahaa. Wa nafsiw wa maa sawwaahaa. Fa-alhamahaa fujuurahaa wa taqwaahaa. Qad aflaha man zakkaahaa. Wa qad khaaba man dassaahaa. Kadzdzabat tsamuudu bithaghwaahaa. Idzi-nba'atsa asyqaahaa. Faqaala lahum rasuulullaahi naaqatallaahi wa suqyaahaa. Fakadzdzabuuhu fa'aqaruuhaa fadamdama 'alaihim rabbuhum bidzanbihim fasawwaahaa. Wa laa yakhaafu 'uqbaahaa.", "arti": "Demi matahari dan cahayanya di pagi hari, dan bulan apabila mengiringinya, dan siang apabila menampakkannya..."},
-    "Surah Al-Lail (92)": {"ayat": "21 ayat", "arab": "وَاللَّيْلِ إِذَا يَغْشَىٰ (1) وَالنَّهَارِ إِذَا تَجَلَّىٰ (2) وَمَا خَلَقَ الذَّكَرَ وَالْأُنْثَىٰ (3) إِنَّ سَعْيَكُمْ لَشَتَّىٰ (4) ... lanjutkan di mushaf!", "latin": "Wal laili idzaa yaghsyaa. Wan nahaari idzaa tajallaa. Wa maa khalaqadz dzakara wal untsaa. Inna sa'yakum lasyattaa...", "arti": "Demi malam apabila menutupi, dan siang apabila terang benderang, dan penciptaan laki-laki dan perempuan. Sesungguhnya usaha kamu memang berbeda-beda."},
-    "Surah Ad-Dhuha (93)": {"ayat": "11 ayat", "arab": "وَالضُّحَىٰ (1) وَاللَّيْلِ إِذَا سَجَىٰ (2) مَا وَدَّعَكَ رَبُّكَ وَمَا قَلَىٰ (3) وَلَلْآخِرَةُ خَيْرٌ لَكَ مِنَ الْأُولَىٰ (4) وَلَسَوْفَ يُعْطِيكَ رَبُّكَ فَتَرْضَىٰ (5) أَلَمْ يَجِدْكَ يَتِيمًا فَآوَىٰ (6) وَوَجَدَكَ ضَالًّا فَهَدَىٰ (7) وَوَجَدَكَ عَائِلًا فَأَغْنَىٰ (8) فَأَمَّا الْيَتِيمَ فَلَا تَقْهَرْ (9) وَأَمَّا السَّائِلَ فَلَا تَنْهَرْ (10) وَأَمَّا بِنِعْمَةِ رَبِّكَ فَحَدِّثْ (11)", "latin": "Wadh dhuhaa. Wal laili idzaa sajaa. Maa wadda'aka rabbuka wa maa qalaa. Walal aakhiratu khairul laka minal uulaa. Wa lasaufa yu'thiika rabbuka fatardhaa. Alam yajidka yatiiman fa-aawaa. Wa wajadaka dhaallan fahadaa. Wa wajadaka 'aa-ilan fa-aghnaa. Fa-ammal yatiima falaa taqhar. Wa ammas saa-ila falaa tanhar. Wa ammaa bini'mati rabbika fahaddits.", "arti": "Demi waktu matahari sepenggalahan naik, dan demi malam apabila telah sunyi. Tuhanmu tiada meninggalkan kamu dan tiada (pula) benci kepadamu."},
-    "Surah Asy-Syarh (94)": {"ayat": "8 ayat", "arab": "أَلَمْ نَشْرَحْ لَكَ صَدْرَكَ (1) وَوَضَعْنَا عَنْكَ وِزْرَكَ (2) الَّذِي أَنْقَضَ ظَهْرَكَ (3) وَرَفَعْنَا لَكَ ذِكْرَكَ (4) فَإِنَّ مَعَ الْعُسْرِ يُسْرًا (5) إِنَّ مَعَ الْعُسْرِ يُسْرًا (6) فَإِذَا فَرَغْتَ فَانْصَبْ (7) وَإِلَىٰ رَبِّكَ فَارْغَبْ (8)", "latin": "Alam nasyrah laka shadrak. Wa wadha'naa 'anka wizrak. Alladzii anqadha zhahrak. Wa rafa'naa laka dzikrak. Fa-inna ma'al 'usri yusraa. Inna ma'al 'usri yusraa. Fa-idzaa faraghta fanshab. Wa ilaa rabbika farghab.", "arti": "Bukankah Kami telah melapangkan untukmu dadamu? Dan Kami telah menghilangkan daripadamu bebanmu. Sesungguhnya sesudah kesulitan itu ada kemudahan."},
-    "Surah At-Tin (95)": {"ayat": "8 ayat", "arab": "وَالتِّينِ وَالزَّيْتُونِ (1) وَطُورِ سِينِينَ (2) وَهَٰذَا الْبَلَدِ الْأَمِينِ (3) لَقَدْ خَلَقْنَا الْإِنْسَانَ فِي أَحْسَنِ تَقْوِيمٍ (4) ثُمَّ رَدَدْنَاهُ أَسْفَلَ سَافِلِينَ (5) إِلَّا الَّذِينَ آمَنُوا وَعَمِلُوا الصَّالِحَاتِ فَلَهُمْ أَجْرٌ غَيْرُ مَمْنُونٍ (6) فَمَا يُكَذِّبُكَ بَعْدُ بِالدِّينِ (7) أَلَيْسَ اللَّهُ بِأَحْكَمِ الْحَاكِمِينَ (8)", "latin": "Wattiini waz zaituun. Wa thuuri siiniin. Wa haadzal baladil amiin. Laqad khalaqnal insaana fii ahsani taqwiim. Tsumma radadnaahu asfala saafiliin. Illal ladziina aamanuu wa 'amilush shaalihaati falahum ajrun ghairu mamnuun. Famaa yukadzdzibuka ba'du biddiin. Alaisallaahu bi-ahkamil haakimiin.", "arti": "Demi buah tin dan buah zaitun, dan demi bukit Sinai, dan demi kota ini yang aman. Sesungguhnya Kami telah menciptakan manusia dalam bentuk yang sebaik-baiknya."},
-    "Surah Al-'Alaq (96)": {"ayat": "19 ayat", "arab": "اقْرَأْ بِاسْمِ رَبِّكَ الَّذِي خَلَقَ (1) خَلَقَ الْإِنْسَانَ مِنْ عَلَقٍ (2) اقْرَأْ وَرَبُّكَ الْأَكْرَمُ (3) الَّذِي عَلَّمَ بِالْقَلَمِ (4) عَلَّمَ الْإِنْسَانَ مَا لَمْ يَعْلَمْ (5) ... lanjutkan ayat 6-19 di mushaf!", "latin": "Iqra' bismi rabbikal ladzii khalaq. Khalaqal insaana min 'alaq. Iqra' wa rabbukal akram. Alladzii 'allama bil qalam. 'Allamal insaana maa lam ya'lam...", "arti": "Bacalah dengan menyebut nama Tuhanmu Yang menciptakan. Dia telah menciptakan manusia dari segumpal darah. Bacalah, dan Tuhanmulah Yang Maha Pemurah."},
-    "Surah Al-Qadr (97)": {"ayat": "5 ayat", "arab": "إِنَّا أَنْزَلْنَاهُ فِي لَيْلَةِ الْقَدْرِ (1) وَمَا أَدْرَاكَ مَا لَيْلَةُ الْقَدْرِ (2) لَيْلَةُ الْقَدْرِ خَيْرٌ مِنْ أَلْفِ شَهْرٍ (3) تَنَزَّلُ الْمَلَائِكَةُ وَالرُّوحُ فِيهَا بِإِذْنِ رَبِّهِمْ مِنْ كُلِّ أَمْرٍ (4) سَلَامٌ هِيَ حَتَّىٰ مَطْلَعِ الْفَجْرِ (5)", "latin": "Innaa anzalnaahu fii lailatil qadr. Wa maa adraaka maa lailatul qadr. Lailatul qadri khairum min alfi syahr. Tanazzalul malaa-ikatu war ruuhu fiihaa bi-idzni rabbihim min kulli amr. Salaamun hiya hattaa mathla'il fajr.", "arti": "Sesungguhnya Kami telah menurunkannya (Al-Qur'an) pada malam kemuliaan. Dan tahukah kamu apakah malam kemuliaan itu? Malam kemuliaan itu lebih baik dari seribu bulan."},
-    "Surah Al-Bayyinah (98)": {"ayat": "8 ayat", "arab": "لَمْ يَكُنِ الَّذِينَ كَفَرُوا مِنْ أَهْلِ الْكِتَابِ وَالْمُشْرِكِينَ مُنْفَكِّينَ حَتَّىٰ تَأْتِيَهُمُ الْبَيِّنَةُ (1) رَسُولٌ مِنَ اللَّهِ يَتْلُو صُحُفًا مُطَهَّرَةً (2) فِيهَا كُتُبٌ قَيِّمَةٌ (3) وَمَا تَفَرَّقَ الَّذِينَ أُوتُوا الْكِتَابَ إِلَّا مِنْ بَعْدِ مَا جَاءَتْهُمُ الْبَيِّنَةُ (4) وَمَا أُمِرُوا إِلَّا لِيَعْبُدُوا اللَّهَ مُخْلِصِينَ لَهُ الدِّينَ حُنَفَاءَ وَيُقِيمُوا الصَّلَاةَ وَيُؤْتُوا الزَّكَاةَ ۚ وَذَٰلِكَ دِينُ الْقَيِّمَةِ (5) إِنَّ الَّذِينَ كَفَرُوا مِنْ أَهْلِ الْكِتَابِ وَالْمُشْرِكِينَ فِي نَارِ جَهَنَّمَ خَالِدِينَ فِيهَا ۚ أُولَٰئِكَ هُمْ شَرُّ الْبَرِيَّةِ (6) إِنَّ الَّذِينَ آمَنُوا وَعَمِلُوا الصَّالِحَاتِ أُولَٰئِكَ هُمْ خَيْرُ الْبَرِيَّةِ (7) جَزَاؤُهُمْ عِنْدَ رَبِّهِمْ جَنَّاتُ عَدْنٍ تَجْرِي مِنْ تَحْتِهَا الْأَنْهَارُ خَالِدِينَ فِيهَا أَبَدًا ۖ رَضِيَ اللَّهُ عَنْهُمْ وَرَضُوا عَنْهُ ۚ ذَٰلِكَ لِمَنْ خَشِيَ رَبَّهُ (8)", "latin": "Lam yakunil ladziina kafaruu min ahlil kitaabi wal musyrikiina munfakkiina hattaa ta'tiyahumul bayyinah. Rasuulum minallaahi yatluu shuhufam muthahharah. Fiihaa kutubun qayyimah. Wa maa tafarraqal ladziina uutul kitaaba illaa mim ba'di maa jaa-at-humul bayyinah. Wa maa umiruu illaa liya'budullaaha mukhlishiina lahud diina hunafaa-a wa yuqiimush shalaata wa yu-tuz zakaah. Wa dzaalika diinul qayyimah. Innal ladziina kafaruu min ahlil kitaabi wal musyrikiina fii naari jahannama khaalidiina fiihaa. Ulaa-ika hum syarrul bariyyah. Innal ladziina aamanuu wa 'amilush shaalihaati ulaa-ika hum khairul bariyyah. Jazaa-uhum 'inda rabbihim jannaatu 'adnin tajrii min tahtihal anhaaru khaalidiina fiihaa abadaa. Radhiyallaahu 'anhum wa radhuu 'anh. Dzaalika liman khasyiya rabbah.", "arti": "Orang-orang kafir dari Ahli Kitab dan orang-orang musyrik tidak akan meninggalkan agama mereka sampai datang kepada mereka bukti yang nyata."},
-    "Surah Az-Zalzalah (99)": {"ayat": "8 ayat", "arab": "إِذَا زُلْزِلَتِ الْأَرْضُ زِلْزَالَهَا (1) وَأَخْرَجَتِ الْأَرْضُ أَثْقَالَهَا (2) وَقَالَ الْإِنْسَانُ مَا لَهَا (3) يَوْمَئِذٍ تُحَدِّثُ أَخْبَارَهَا (4) بِأَنَّ رَبَّكَ أَوْحَىٰ لَهَا (5) يَوْمَئِذٍ يَصْدُرُ النَّاسُ أَشْتَاتًا لِيُرَوْا أَعْمَالَهُمْ (6) فَمَنْ يَعْمَلْ مِثْقَالَ ذَرَّةٍ خَيْرًا يَرَهُ (7) وَمَنْ يَعْمَلْ مِثْقَالَ ذَرَّةٍ شَرًّا يَرَهُ (8)", "latin": "Idzaa zulzilatil ardhu zilzaalahaa. Wa akhrajatil ardhu atsqoolahaa. Wa qaalal insaanu maa lahaa. Yauma-idzin tuhadditsu akhbaarahaa. Bi-anna rabbaka auhaa lahaa. Yauma-idzin yashdurun naasu asytaatal liyurau a'maalahum. Faman ya'mal mitsqaala dzarratin khairay yarah. Wa man ya'mal mitsqaala dzarratin syarray yarah.", "arti": "Apabila bumi digoncangkan dengan goncangan yang dahsyat, dan bumi telah mengeluarkan beban-beban beratnya, dan manusia bertanya: Mengapa bumi jadi begini?"},
-    "Surah Al-'Adiyat (100)": {"ayat": "11 ayat", "arab": "وَالْعَادِيَاتِ ضَبْحًا (1) فَالْمُورِيَاتِ قَدْحًا (2) فَالْمُغِيرَاتِ صُبْحًا (3) فَأَثَرْنَ بِهِ نَقْعًا (4) فَوَسَطْنَ بِهِ جَمْعًا (5) إِنَّ الْإِنْسَانَ لِرَبِّهِ لَكَنُودٌ (6) وَإِنَّهُ عَلَىٰ ذَٰلِكَ لَشَهِيدٌ (7) وَإِنَّهُ لِحُبِّ الْخَيْرِ لَشَدِيدٌ (8) أَفَلَا يَعْلَمُ إِذَا بُعْثِرَ مَا فِي الْقُبُورِ (9) وَحُصِّلَ مَا فِي الصُّدُورِ (10) إِنَّ رَبَّهُمْ بِهِمْ يَوْمَئِذٍ لَخَبِيرٌ (11)", "latin": "Wal 'aadiyaati dhabhaa. Fal muuriyaati qadhaa. Fal mughiiraati shubhaa. Fa-atsarna bihii naq'aa. Fa-wasathna bihii jam'aa. Innal insaana lirabbihii lakanuud. Wa innahuu 'alaa dzaalika lasyahiid. Wa innahuu lihubbil khairi lasyadiid. Afalaa ya'lamu idzaa bu'tsira maa fil qubuur. Wa hushshila maa fish shuduur. Inna rabbahum bihim yauma-idzil lakhbiir.", "arti": "Demi kuda perang yang berlari kencang dengan terengah-engah, dan kuda yang mencetuskan api dengan pukulan kuku kakinya..."},
-    "Surah Al-Qari'ah (101)": {"ayat": "11 ayat", "arab": "الْقَارِعَةُ (1) مَا الْقَارِعَةُ (2) وَمَا أَدْرَاكَ مَا الْقَارِعَةُ (3) يَوْمَ يَكُونُ النَّاسُ كَالْفَرَاشِ الْمَبْثُوثِ (4) وَتَكُونُ الْجِبَالُ كَالْعِهْنِ الْمَنْفُوشِ (5) فَأَمَّا مَنْ ثَقُلَتْ مَوَازِينُهُ (6) فَهُوَ فِي عِيشَةٍ رَاضِيَةٍ (7) وَأَمَّا مَنْ خَفَّتْ مَوَازِينُهُ (8) فَأُمُّهُ هَاوِيَةٌ (9) وَمَا أَدْرَاكَ مَا هِيَهْ (10) نَارٌ حَامِيَةٌ (11)", "latin": "Al qaari'ah. Mal qaari'ah. Wa maa adraaka mal qaari'ah. Yauma yakuunun naasu kal faraasyil mabtsuuts. Wa takuunul jibaalu kal 'ihnil manfuusy. Fa-ammaa man tsaqulat mawaaziinuh. Fahuwa fii 'iisyatir raadhiyah. Wa ammaa man khaffat mawaaziinuh. Fa-ummuhuu haawiyah. Wa maa adraaka maa hiyah. Naarun haamiyah.", "arti": "Hari Kiamat. Apakah hari Kiamat itu? Dan tahukah kamu apakah hari Kiamat itu? Pada hari itu manusia seperti anai-anai yang bertebaran."},
-    "Surah At-Takasur (102)": {"ayat": "8 ayat", "arab": "أَلْهَاكُمُ التَّكَاثُرُ (1) حَتَّىٰ زُرْتُمُ الْمَقَابِرَ (2) كَلَّا سَوْفَ تَعْلَمُونَ (3) ثُمَّ كَلَّا سَوْفَ تَعْلَمُونَ (4) كَلَّا لَوْ تَعْلَمُونَ عِلْمَ الْيَقِينِ (5) لَتَرَوُنَّ الْجَحِيمَ (6) ثُمَّ لَتَرَوُنَّهَا عَيْنَ الْيَقِينِ (7) ثُمَّ لَتُسْأَلُنَّ يَوْمَئِذٍ عَنِ النَّعِيمِ (8)", "latin": "Alhaakumut takaa-tsur. Hattaa zurtumul maqaabir. Kallaa saufa ta'lamuun. Tsumma kallaa saufa ta'lamuun. Kallaa lau ta'lamuuna 'ilmal yaqiin. Latarawunnal jahiim. Tsumma latarawunnahaa 'ainal yaqiin. Tsumma latus-alunna yauma-idzin 'anin na'iim.", "arti": "Bermegah-megahan telah melalaikan kamu, sampai kamu masuk ke dalam kubur. Janganlah begitu, kelak kamu akan mengetahui."},
-    "Surah Al-'Asr (103)": {"ayat": "3 ayat", "arab": "وَالْعَصْرِ (1) إِنَّ الْإِنْسَانَ لَفِي خُسْرٍ (2) إِلَّا الَّذِينَ آمَنُوا وَعَمِلُوا الصَّالِحَاتِ وَتَوَاصَوْا بِالْحَقِّ وَتَوَاصَوْا بِالصَّبْرِ (3)", "latin": "Wal 'ashr. Innal insaana lafii khusr. Illal ladziina aamanuu wa 'amilush shaalihaati wa tawaashau bil haqqi wa tawaashau bish shabr.", "arti": "Demi masa. Sesungguhnya manusia itu benar-benar dalam kerugian, kecuali orang-orang yang beriman dan mengerjakan amal saleh dan saling menasihati supaya menaati kebenaran dan saling menasihati supaya menetapi kesabaran."},
-    "Surah Al-Humazah (104)": {"ayat": "9 ayat", "arab": "وَيْلٌ لِكُلِّ هُمَزَةٍ لُمَزَةٍ (1) الَّذِي جَمَعَ مَالًا وَعَدَّدَهُ (2) يَحْسَبُ أَنَّ مَالَهُ أَخْلَدَهُ (3) كَلَّا ۖ لَيُنْبَذَنَّ فِي الْحُطَمَةِ (4) وَمَا أَدْرَاكَ مَا الْحُطَمَةُ (5) نَارُ اللَّهِ الْمُوقَدَةُ (6) الَّتِي تَطَّلِعُ عَلَى الْأَفْئِدَةِ (7) إِنَّهَا عَلَيْهِمْ مُؤْصَدَةٌ (8) فِي عَمَدٍ مُمَدَّدَةٍ (9)", "latin": "Wailul likulli humazatil lumazah. Alladzii jama'a maalan wa 'addadah. Yahsabu anna maalahuu akhladah. Kallaa layunbadzanna fil huthamah. Wa maa adraaka mal huthamah. Naarullaahil muuqadah. Allatii taththali'u 'alal af-idah. Innahaa 'alaihim mu'shadah. Fii 'amadim mumaddadah.", "arti": "Kecelakaanlah bagi setiap pengumpat lagi pencela, yang mengumpulkan harta dan menghitung-hitung. Dia mengira bahwa hartanya itu dapat mengekalkannya."},
-    "Surah Al-Fil (105)": {"ayat": "5 ayat", "arab": "أَلَمْ تَرَ كَيْفَ فَعَلَ رَبُّكَ بِأَصْحَابِ الْفِيلِ (1) أَلَمْ يَجْعَلْ كَيْدَهُمْ فِي تَضْلِيلٍ (2) وَأَرْسَلَ عَلَيْهِمْ طَيْرًا أَبَابِيلَ (3) تَرْمِيهِمْ بِحِجَارَةٍ مِنْ سِجِّيلٍ (4) فَجَعَلَهُمْ كَعَصْفٍ مَأْكُولٍ (5)", "latin": "Alam tara kaifa fa'ala rabbuka bi-ash-haabil fiil. Alam yaj'al kaidahum fii tadhliil. Wa arsala 'alaihim thairan abaabiil. Tarmiihim bihijaaratim min sijjiil. Faja'alahum ka'ashfim ma'kuul.", "arti": "Apakah kamu tidak memperhatikan bagaimana Tuhanmu telah bertindak terhadap tentara bergajah? Bukankah Dia telah menjadikan tipu daya mereka itu sia-sia?"},
-    "Surah Quraisy (106)": {"ayat": "4 ayat", "arab": "لِإِيلَافِ قُرَيْشٍ (1) إِيلَافِهِمْ رِحْلَةَ الشِّتَاءِ وَالصَّيْفِ (2) فَلْيَعْبُدُوا رَبَّ هَٰذَا الْبَيْتِ (3) الَّذِي أَطْعَمَهُمْ مِنْ جُوعٍ وَآمَنَهُمْ مِنْ خَوْفٍ (4)", "latin": "Li-iilaafi quraisy. Iilaafihim rihlatasy syitaa-i wash shaif. Falya'buduu rabba haadzal bait. Alladzii ath'amahum min juu'in wa aamanahum min khauf.", "arti": "Karena kebiasaan orang-orang Quraisy, yaitu kebiasaan mereka bepergian pada musim dingin dan musim panas. Maka hendaklah mereka menyembah Tuhan Pemilik rumah ini (Ka'bah)."},
-    "Surah Al-Ma'un (107)": {"ayat": "7 ayat", "arab": "أَرَأَيْتَ الَّذِي يُكَذِّبُ بِالدِّينِ (1) فَذَٰلِكَ الَّذِي يَدُعُّ الْيَتِيمَ (2) وَلَا يَحُضُّ عَلَىٰ طَعَامِ الْمِسْكِينِ (3) فَوَيْلٌ لِلْمُصَلِّينَ (4) الَّذِينَ هُمْ عَنْ صَلَاتِهِمْ سَاهُونَ (5) الَّذِينَ هُمْ يُرَاءُونَ (6) وَيَمْنَعُونَ الْمَاعُونَ (7)", "latin": "Ara-aital ladzii yukadzdzibu biddiin. Fadzaalikal ladzii yadu'ul yatiim. Wa laa yahudhdhu 'alaa tha'aamil miskiin. Fawailul lil mushalliin. Alladziina hum 'an shalaatihim saahuun. Alladziina hum yuraa-uun. Wa yamna'uunal maa'uun.", "arti": "Tahukah kamu orang yang mendustakan agama? Itulah orang yang menghardik anak yatim, dan tidak menganjurkan memberi makan orang miskin."},
-    "Surah Al-Kautsar (108)": {"ayat": "3 ayat", "arab": "إِنَّا أَعْطَيْنَاكَ الْكَوْثَرَ (1) فَصَلِّ لِرَبِّكَ وَانْحَرْ (2) إِنَّ شَانِئَكَ هُوَ الْأَبْتَرُ (3)", "latin": "Innaa a'thainaakal kautsar. Fashalli lirabbika wanhar. Inna syaani-aka huwal abtar.", "arti": "Sesungguhnya Kami telah memberikan kepadamu nikmat yang banyak. Maka dirikanlah shalat karena Tuhanmu, dan berkorbanlah. Sesungguhnya orang-orang yang membenci kamu dialah yang terputus."},
-    "Surah Al-Kafirun (109)": {"ayat": "6 ayat", "arab": "قُلْ يَا أَيُّهَا الْكَافِرُونَ (1) لَا أَعْبُدُ مَا تَعْبُدُونَ (2) وَلَا أَنْتُمْ عَابِدُونَ مَا أَعْبُدُ (3) وَلَا أَنَا عَابِدٌ مَا عَبَدْتُمْ (4) وَلَا أَنْتُمْ عَابِدُونَ مَا أَعْبُدُ (5) لَكُمْ دِينُكُمْ وَلِيَ دِينِ (6)", "latin": "Qul yaa ayyuhal kaafiruun. Laa a'budu maa ta'buduun. Wa laa antum 'aabiduuna maa a'bud. Wa laa ana 'aabidum maa 'abattum. Wa laa antum 'aabiduuna maa a'bud. Lakum diinukum wa liya diin.", "arti": "Katakanlah: Hai orang-orang kafir, aku tidak akan menyembah apa yang kamu sembah. Dan kamu bukan penyembah Tuhan yang aku sembah."},
-    "Surah An-Nasr (110)": {"ayat": "3 ayat", "arab": "إِذَا جَاءَ نَصْرُ اللَّهِ وَالْفَتْحُ (1) وَرَأَيْتَ النَّاسَ يَدْخُلُونَ فِي دِينِ اللَّهِ أَفْوَاجًا (2) فَسَبِّحْ بِحَمْدِ رَبِّكَ وَاسْتَغْفِرْهُ ۚ إِنَّهُ كَانَ تَوَّابًا (3)", "latin": "Idzaa jaa-a nashrullaahi wal fath. Wa ra-aitan naasa yadkhuluuna fii diinillaahi afwaajaa. Fasabbih bihamdi rabbika wastaghfirh. Innahuu kaana tawwaabaa.", "arti": "Apabila telah datang pertolongan Allah dan kemenangan, dan kamu lihat manusia masuk agama Allah dengan berbondong-bondong, maka bertasbihlah dengan memuji Tuhanmu dan mohonlah ampun kepada-Nya."},
-    "Surah Al-Lahab (111)": {"ayat": "5 ayat", "arab": "تَبَّتْ يَدَا أَبِي لَهَبٍ وَتَبَّ (1) مَا أَغْنَىٰ عَنْهُ مَالُهُ وَمَا كَسَبَ (2) سَيَصْلَىٰ نَارًا ذَاتَ لَهَبٍ (3) وَامْرَأَتُهُ حَمَّالَةَ الْحَطَبِ (4) فِي جِيدِهَا حَبْلٌ مِنْ مَسَدٍ (5)", "latin": "Tabbat yadaa abii lahabin wa tabb. Maa aghnaa 'anhu maaluhuu wa maa kasab. Sayashlaa naaran dzaata lahab. Wamra-atuhuu hammaalatal hathab. Fii jiidihaa hablum mim masad.", "arti": "Binasalah kedua tangan Abu Lahab dan sesungguhnya dia akan binasa. Tidaklah berfaedah baginya harta bendanya dan apa yang ia usahakan."},
-    "Surah Al-Ikhlas (112)": {"ayat": "4 ayat", "arab": "قُلْ هُوَ اللَّهُ أَحَدٌ (1) اللَّهُ الصَّمَدُ (2) لَمْ يَلِدْ وَلَمْ يُولَدْ (3) وَلَمْ يَكُنْ لَهُ كُفُوًا أَحَدٌ (4)", "latin": "Qul huwallaahu ahad. Allaahush shamad. Lam yalid wa lam yuulad. Wa lam yakul lahuu kufuwan ahad.", "arti": "Katakanlah: Dialah Allah, Yang Maha Esa. Allah adalah Tuhan yang bergantung kepada-Nya segala sesuatu. Dia tiada beranak dan tidak pula diperanakkan. Dan tidak ada seorang pun yang setara dengan Dia."},
-    "Surah Al-Falaq (113)": {"ayat": "5 ayat", "arab": "قُلْ أَعُوذُ بِرَبِّ الْفَلَقِ (1) مِنْ شَرِّ مَا خَلَقَ (2) وَمِنْ شَرِّ غَاسِقٍ إِذَا وَقَبَ (3) وَمِنْ شَرِّ النَّفَّاثَاتِ فِي الْعُقَدِ (4) وَمِنْ شَرِّ حَاسِدٍ إِذَا حَسَدَ (5)", "latin": "Qul a'uudzu birabbil falaq. Min syarri maa khalaq. Wa min syarri ghaasiqin idzaa waqab. Wa min syarrin naffaatsaati fil 'uqad. Wa min syarri haasidin idzaa hasad.", "arti": "Katakanlah: Aku berlindung kepada Tuhan Yang Menguasai subuh, dari kejahatan makhluk-Nya, dan dari kejahatan malam apabila telah gelap gulita."},
-    "Surah An-Nas (114)": {"ayat": "6 ayat", "arab": "قُلْ أَعُوذُ بِرَبِّ النَّاسِ (1) مَلِكِ النَّاسِ (2) إِلَٰهِ النَّاسِ (3) مِنْ شَرِّ الْوَسْوَاسِ الْخَنَّاسِ (4) الَّذِي يُوَسْوِسُ فِي صُدُورِ النَّاسِ (5) مِنَ الْجِنَّةِ وَالنَّاسِ (6)", "latin": "Qul a'uudzu birabbin naas. Malikin naas. Ilaahin naas. Min syarril waswaasil khannaas. Alladzii yuwaswisu fii shuduurin naas. Minal jinnati wan naas.", "arti": "Katakanlah: Aku berlindung kepada Tuhan manusia. Raja manusia. Sembahan manusia. Dari kejahatan bisikan syaitan yang biasa bersembunyi."},
-}
-# ===== ISI IQRO 1-6 =====
-IQRO_BACA = {
-    "Iqro 1": {"judul": "Iqro 1 - Mengenal Huruf Hijaiyah", "materi": "Huruf Hijaiyah (dari kanan ke kiri):\nا - Alif | ب - Ba | ت - Ta | ث - Tsa | ج - Jim | ح - Ha | خ - Kho | د - Dal | ذ - Dzal | ر - Ro | ز - Za | س - Sin | ش - Syin | ص - Shod | ض - Dhod | ط - Tho | ظ - Zho | ع - 'Ain | غ - Ghoin | ف - Fa | ق - Qof | ك - Kaf | ل - Lam | م - Mim | ن - Nun | و - Wau | ه - Ha | ء - Hamzah | ي - Ya\n\nCara baca: Sebutkan nama hurufnya satu-satu, pelan-pelan.\nContoh: ا ب ت - dibaca Alif, Ba, Ta\nContoh: ج ح خ - dibaca Jim, Ha, Kho\nLatihan: ا - ب - ت - ث - ج - ح - خ"},
-    "Iqro 2": {"judul": "Iqro 2 - Harakat Fathah (A)", "materi": "Fathah = garis di atas huruf, dibaca A.\n\nأَ - A | بَ - Ba | تَ - Ta | ثَ - Tsa | جَ - Ja | حَ - Ha | خَ - Kho\n\nContoh kata:\nبَ تَ - Ba Ta\nجَ حَ - Ja Ha\nكَ تَ بَ - Ka Ta Ba\nدَ رَ سَ - Da Ra Sa\n\nLatihan baca: بَ - تَ - ثَ - جَ - حَ - خَ - دَ"},
-    "Iqro 3": {"judul": "Iqro 3 - Kasrah (I) & Dhammah (U)", "materi": "Kasrah = garis di bawah huruf, dibaca I.\nDhammah = seperti angka 9 kecil di atas, dibaca U.\n\nبِ - Bi | تُ - Tu | ثِ - Tsi | جُ - Ju | حِ - Hi | خُ - Khu\n\nContoh:\nبِ - تِ - ثِ (Bi, Ti, Tsi)\nبُ - تُ - ثُ (Bu, Tu, Tsu)\n\nLatihan campur:\nبَ بِ بُ - Ba Bi Bu\nتَ تِ تُ - Ta Ti Tu\nكَ كِ كُ - Ka Ki Ku"},
-    "Iqro 4": {"judul": "Iqro 4 - Tanwin & Panjang (Mad)", "materi": "Tanwin = 2 garis, dibaca An / In / Un.\nMad = dibaca panjang 2 ketukan.\n\nبًا - Ban | بٍ - Bin | بٌ - Bun\n\nMad Thabi'i:\nبَا - Baa (panjang) | بِي - Bii | بُو - Buu\n\nContoh:\nكِتَابٌ - Kitaabun (Kitab)\nرَسُولٌ - Rosuulun\nقَالَ - Qoola (dia berkata)\n\nLatihan: بَا - بِي - بُو | كَا - كِي - كُو"},
-    "Iqro 5": {"judul": "Iqro 5 - Sukun, Tasydid & Qalqalah", "materi": "Sukun = huruf mati, tidak ada bunyi vokal.\nTasydid = huruf dibaca rangkap / ditekan.\n\nContoh Sukun:\nاَبْ - Ab | اَتْ - At | اَنْ - An\n\nContoh Tasydid:\nرَبَّ - Robba | اِنَّ - Inna | مُحَمَّدٌ - Muhammadun\n\nQalqalah (memantul): ق ط ب ج د\nContoh: اَقْ - Aq | اَطْ - Ath | اَبْ - Ab\n\nLatihan: مَنْ - Min | قَدْ - Qod | رَبِّ - Robbi"},
-    "Iqro 6": {"judul": "Iqro 6 - Waqaf, Idgham & Siap Baca Al-Qur'an", "materi": "Waqaf = berhenti. Ibtida = mulai lagi.\nIdgham = melebur 2 huruf jadi 1.\n\nContoh Idgham:\nمِنْ رَبِّ - Mir Robbi (nun bertemu ro)\nمَنْ يَقُولُ - May Yaquulu\n\nWaqaf:\nTanda مـ = harus berhenti\nTanda ج = boleh berhenti / lanjut\nTanda لا = jangan berhenti\n\nLatihan baca surat pendek:\nبِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ - Bismillaahirrohmaanirrohiim\n\nKalau sudah lancar Iqro 6, lanjut ke Tahsin & Tahfidz Juz 30!"},
-}
+def jawaban_hijaiyah_iqro1():
+    teks = "Baik, mari kita belajar Iqro 1. Di Iqro 1 kita belajar huruf hijaiyah dasar. Bacalah satu per satu ya:\n\n"
+    for no, nama, arab, baca in HIJAIYAH_IQRO1:
+        teks += f"**{no}. {nama} ({arab}) - dibaca \"{baca}\"**\n\n"
+    teks += "Coba ulangi lagi dari nomor 1 sampai 28. Kalau sudah hafal, bilang saja \"Lanjut Iqro 1 pakai harakat\" ya! 📖"
+    return teks
+
+def jawaban_mad_thobii():
+    return """**Hukum Bacaan Mad Thobi'i - Tahsin** 📖
+**1. Apa itu Mad Thobi'i?** Mad asli / mad dasar. Dibaca panjang secara alami.
+**2. Berapa Panjangnya?** **2 harakat** (2 ketukan).
+**3. Huruf Mad-nya Ada 3:**
+**1. Alif (ا)** - setelah Fathah. Contoh: Ba (بَا) - dibaca "Baa"
+**2. Wau (و)** - setelah Dhammah. Contoh: Bu (بُو) - dibaca "Buu"
+**3. Ya (ي)** - setelah Kasrah. Contoh: Bi (بِي) - dibaca "Bii"
+Ayo coba baca: **بَا - بُو - بِي** dibaca "Baa - Buu - Bii" ✅"""
+
+def jawaban_an_naba():
+    return """**Surat An-Naba - Tahfidz (Juz 30)** ⭐
+**1. Identitas Surat:**
+**1. Nama:** An-Naba (النبأ) artinya "Berita Besar"
+**2. Nomor Surat:** Surat ke-78
+**3. Jumlah Ayat:** 40 ayat
+**4. Juz:** Juz 30 / Juz Amma
+**5. Golongan:** Makkiyah
+**2. Isi Pokok:** Tentang hari kiamat, bukti kekuasaan Allah, balasan neraka & surga.
+**3. Tips Menghafal:** Bagi 3 bagian: Ayat 1-16, 17-30, 31-40. Hafal 5 ayat per hari, muraja'ah tiap pagi.
+Mau lanjut hafalan ayat 1-5 dulu? Bilang saja "Hafal An-Naba ayat 1-5" ya! 🤲"""
+
+def get_base64(file):
+    try:
+        with open(file, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except:
+        return ""
+
+def tampilkan_tim_pembuat():
+    st.markdown("""
+    <div style='background-color: rgba(255,255,255,0.12); border: 1.5px solid rgba(255,255,255,0.6); padding: 16px; border-radius: 15px; margin-top: 10px;'>
+        <p style='color:#F9D423; font-weight:bold; font-size:18px; text-align:center; margin:0 0 12px 0;'>👨‍🎓 Tim Penyusun QORI AI</p>
+        <div style='display:flex; flex-wrap:wrap; justify-content:center; gap:10px;'>
+            <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'>
+                <p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Bapak Muhamad Rais, S.Pd.I</p>
+                <p style='color:white; margin:2px 0 0 0; font-size:13px;'>Guru Pamong</p>
+            </div>
+            <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'>
+                <p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Dr. Muhamad Siddiq Asyhari, M.Pd</p>
+                <p style='color:white; margin:2px 0 0 0; font-size:13px;'>Dosen Pembimbing</p>
+            </div>
+            <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'>
+                <p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Bapak Syamsul Hadi, S.Pd.I</p>
+                <p style='color:white; margin:2px 0 0 0; font-size:13px;'>Kepala MA Al-Barokah</p>
+            </div>
+            <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'>
+                <p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Kendar Sultoni</p>
+                <p style='color:white; margin:2px 0 0 0; font-size:13px;'>Mahasiswa / Pembuat Aplikasi</p>
+            </div>
+        </div>
+        <p style='color:white; text-align:center; font-size:12px; margin:10px 0 0 0;'>QORI AI - Madrasah Aliyah Al-Barokah | Media Belajar Iqro, Tahsin & Tahfidz</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+def tampilkan_timer(sisa_detik):
+    if sisa_detik < 0:
+        sisa_detik = 0
+    menit = int(sisa_detik // 60)
+    detik = int(sisa_detik % 60)
+    warna = "#F9D423"
+    if sisa_detik <= 60:
+        warna = "#FF5252"
+    timer_html = f"""
+    <div style="position:sticky; top:0; z-index:999; background:#0A2319; border:3px solid {warna}; border-radius:15px; padding:12px; text-align:center; margin-bottom:15px;">
+        <div style="color:white; font-size:16px; font-weight:bold;">⏰ SISA WAKTU MENGERJAKAN</div>
+        <div id="timer-qori" style="color:{warna}; font-size:48px; font-weight:bold; line-height:1.1;">{menit:02d}:{detik:02d}</div>
+        <div id="pesan-timer" style="color:white; font-size:14px;">25 Soal - 10 Menit - Semangat! 💪</div>
+    </div>
+    <script>
+    let sisa = {int(sisa_detik)};
+    let sudahBunyi = {{}};
+    function bunyiTit(panjang) {{
+        try {{
+            let ctx = new (window.AudioContext || window.webkitAudioContext)();
+            let osc = ctx.createOscillator();
+            let gain = ctx.createGain();
+            osc.connect(gain); gain.connect(ctx.destination);
+            osc.frequency.value = 880;
+            osc.type = 'sine';
+            gain.gain.setValueAtTime(0.5, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + panjang);
+            osc.start(); osc.stop(ctx.currentTime + panjang);
+        }} catch(e) {{}}
+    }}
+    function updateTimer() {{
+        let m = Math.floor(sisa / 60);
+        let d = sisa % 60;
+        let el = document.getElementById('timer-qori');
+        if (el) el.textContent = String(m).padStart(2,'0') + ':' + String(d).padStart(2,'0');
+        if (sisa <= 5 && sisa > 0) {{
+            if (!sudahBunyi[sisa]) {{ sudahBunyi[sisa] = true; bunyiTit(0.25); }}
+            let p = document.getElementById('pesan-timer');
+            if (p) {{ p.textContent = '⚠️ SISA ' + sisa + ' DETIK LAGI! Segera klik LIHAT NILAI!'; p.style.color = '#FF5252'; p.style.fontWeight = 'bold'; p.style.fontSize = '18px'; }}
+        }}
+        if (sisa <= 0) {{
+            let p = document.getElementById('pesan-timer');
+            if (p) {{ p.textContent = '⛔ WAKTU HABIS! Segera klik tombol LIHAT NILAI di bawah!'; p.style.color = '#FF5252'; }}
+            if (!sudahBunyi['habis']) {{ sudahBunyi['habis'] = true; bunyiTit(1.0); setTimeout(()=>bunyiTit(1.0), 400); }}
+            clearInterval(iv);
+            return;
+        }}
+        sisa -= 1;
+    }}
+    let iv = setInterval(updateTimer, 1000);
+    </script>
+    """
+    components.html(timer_html, height=130)
+
 DATA_SISWA = {
     "MUHAMAD HARTANTO": {"kategori": "Iqro", "level": "Iqro Dasar", "jk": "Laki-laki"},
     "DAFFAN OKTAFFIL HIDAYAT": {"kategori": "Iqro", "level": "Iqro Dasar", "jk": "Laki-laki"},
@@ -203,135 +346,330 @@ DATA_SISWA = {
     "IMAM MANSYUR IBNU HULKAN": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki"},
 }
 
-for k, v in [("login_nama",None),("login_role",None),("login_jabatan",None),("kategori_pilih",None),("messages",[]),("siswa_pilih",None),("seed_acak",1),("soal_acak",None),("kunci_acak",None),("kat_acak",None),("waktu_mulai",None),("waktu_habis",False),("ujian_selesai",False),("hasil_ujian",None),("lihat_nilai",False),("lihat_riwayat",False),("lihat_saran",False),("lihat_setoran",False),("lihat_baca",False),("lihat_video",True),("waktu_login",None),("sudah_catat_masuk",False),("jawaban_tersimpan",{}),("login_error",""),("login_error_time",0)]:
-    if k not in st.session_state:
-        st.session_state[k] = v
+# Muat data bersama dari database setelah daftar siswa tersedia.
+load_persistent_data()
 
-DURASI_UJIAN = 10*60
-KKM = 75
-prompt_awal = None
-SYSTEM_PROMPT_KUNCI = "Kamu adalah QORI AI, guru yang ramah dan pintar untuk anak Madrasah Aliyah Al-Barokah. Kamu BEBAS menjawab pertanyaan apa saja: Iqro, Tahsin, Tahfidz, pelajaran sekolah, agama, umum. Jawab Bahasa Indonesia mudah, sopan, islami. Kalau menyebut huruf hijaiyah, WAJIB format: 1. Alif (ا) - dibaca \"A\"."
-
-# ===== CEK PASSWORD =====
-def cek_password(nama, password_input):
-    pw_dict = st.secrets.get("USER_PASSWORDS", {})
-    stored = pw_dict.get(nama) if hasattr(pw_dict, "get") else None
-    if stored:
-        if str(stored).startswith("pbkdf2_sha256$"):
-            try:
-                _, salt, digest = str(stored).split("$", 2)
-                calculated = hashlib.pbkdf2_hmac("sha256", password_input.encode(), bytes.fromhex(salt), 300_000).hex()
-                return hmac.compare_digest(calculated, digest)
-            except (ValueError, TypeError):
-                return False
-        calculated = hashlib.sha256(password_input.encode()).hexdigest()
-        return hmac.compare_digest(calculated, str(stored))
-    if nama in TIM_PENYUSUN:
-        return password_input == "123"
-    if nama in DATA_SISWA:
-        return password_input == "321"
-    return False
-
+# ===== RIWAYAT / STORY SISWA - KHUSUS TIM =====
 def catat_aktivitas(aktivitas):
-    if st.session_state.get("login_role") != "siswa": return
-    if not st.session_state.get("login_nama"): return
+    if st.session_state.get("login_role") != "siswa":
+        return
+    if not st.session_state.get("login_nama"):
+        return
     sekarang = time.time()
     jam = time.strftime("%d/%m/%Y %H:%M:%S", time.localtime(sekarang))
     lama_detik = int(sekarang - st.session_state["waktu_login"]) if st.session_state.get("waktu_login") else 0
-    lama = f"{lama_detik//60} mnt {lama_detik%60} dtk" if lama_detik//60>0 else f"{lama_detik} dtk"
+    menit = lama_detik // 60
+    detik = lama_detik % 60
+    lama = f"{menit} mnt {detik} dtk" if menit > 0 else f"{detik} dtk"
     info = DATA_SISWA.get(st.session_state["login_nama"], {})
-    tambah_aktivitas(st.session_state["login_nama"], info.get("kategori","-"), aktivitas, jam, lama)
+    record = {
+        "nama": st.session_state["login_nama"],
+        "kelas": info.get("kategori", "-"),
+        "aktivitas": aktivitas,
+        "jam": jam,
+        "lama": lama,
+    }
+    st.session_state["riwayat_aktivitas"].append(record)
+    with closing(db_connect()) as conn:
+        conn.execute(
+            "INSERT INTO activity_log(student_name, category, activity, created_at, duration) VALUES (?, ?, ?, ?, ?)",
+            (record["nama"], record["kelas"], record["aktivitas"], record["jam"], record["lama"])
+        )
+        conn.commit()
 
-def get_base64(file):
-    try:
-        with open(file, "rb") as f: return base64.b64encode(f.read()).decode()
-    except: return ""
-
-def tampilkan_tim_pembuat():
-    st.markdown("""
-    <div style='background-color: rgba(255,255,255,0.12); border: 1.5px solid rgba(255,255,255,0.6); padding: 16px; border-radius: 15px; margin-top: 10px;'>
-        <p style='color:#F9D423; font-weight:bold; font-size:18px; text-align:center; margin:0 0 12px 0;'>👨‍🎓 Tim Penyusun QORI AI</p>
-        <div style='display:flex; flex-wrap:wrap; justify-content:center; gap:10px;'>
-            <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'><p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Bapak Muhamad Rais, S.Pd.I</p><p style='color:white; margin:2px 0 0 0; font-size:13px;'>Guru Pamong</p></div>
-            <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'><p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Dr. Muhamad Siddiq Asyhari, M.Pd</p><p style='color:white; margin:2px 0 0 0; font-size:13px;'>Dosen Pembimbing</p></div>
-            <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'><p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Bapak Syamsul Hadi, S.Pd.I</p><p style='color:white; margin:2px 0 0 0; font-size:13px;'>Kepala MA Al-Barokah</p></div>
-            <div style='background-color: rgba(0,0,0,0.55); padding:10px 14px; border-radius:10px; text-align:center; min-width:160px;'><p style='color:#F9D423; font-weight:bold; margin:0; font-size:15px;'>Kendar Sultoni</p><p style='color:white; margin:2px 0 0 0; font-size:13px;'>Mahasiswa</p></div>
+def tampilkan_riwayat_siswa():
+    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📋 Riwayat / Story Siswa</h2><p style='color:white; margin:5px 0 0 0;'>Khusus Tim Penyusun - Siswa TIDAK bisa lihat ini</p></div>", unsafe_allow_html=True)
+    st.write("")
+    if not st.session_state["riwayat_aktivitas"]:
+        st.info("Belum ada siswa yang pakai aplikasi di sesi ini.")
+    else:
+        rows = ""
+        for i, r in enumerate(reversed(st.session_state["riwayat_aktivitas"]), 1):
+            rows += f"<tr><td style='padding:10px; text-align:center; color:white;'>{i}</td><td style='padding:10px; color:white; font-weight:bold;'>{r['nama']}</td><td style='padding:10px; text-align:center; color:white;'>{r['kelas']}</td><td style='padding:10px; color:white;'>{r['aktivitas']}</td><td style='padding:10px; text-align:center; color:white;'>{r['jam']}</td><td style='padding:10px; text-align:center; color:#F9D423; font-weight:bold;'>{r['lama']}</td></tr>"
+        st.markdown(f"""
+        <div style='background-color: rgba(0,0,0,0.75); padding:15px; border-radius:15px;'>
+        <table style='width:100%; border-collapse:collapse;'>
+        <tr style='background-color:#F9D423;'>
+            <th style='padding:10px; color:#000;'>No</th>
+            <th style='padding:10px; color:#000; text-align:left;'>Nama Siswa</th>
+            <th style='padding:10px; color:#000;'>Kelas</th>
+            <th style='padding:10px; color:#000; text-align:left;'>Buka Apa</th>
+            <th style='padding:10px; color:#000;'>Jam</th>
+            <th style='padding:10px; color:#000;'>Berapa Lama</th>
+        </tr>
+        {rows}
+        </table>
         </div>
-        <p style='color:white; text-align:center; font-size:12px; margin:10px 0 0 0;'>QORI AI - Madrasah Aliyah Al-Barokah | Media Belajar Iqro, Tahsin & Tahfidz</p>
+        """, unsafe_allow_html=True)
+    st.write("")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("⬅️ Tutup Riwayat", use_container_width=True):
+            st.session_state["lihat_riwayat"] = False
+            st.rerun()
+    with c2:
+        if st.button("🗑️ Hapus Riwayat", use_container_width=True):
+            st.session_state["riwayat_aktivitas"] = []
+            with closing(db_connect()) as conn:
+                conn.execute("DELETE FROM activity_log")
+                conn.commit()
+            st.rerun()
+
+# ===== KOTAK SARAN / KRITIK / KELUHAN - TIM & SISWA =====
+def tampilkan_kotak_saran():
+    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>💬 Kotak Saran / Kritik / Keluhan</h2><p style='color:white; margin:5px 0 0 0;'>Sampaikan saran, kritik, atau keluhanmu di sini. Dibaca langsung oleh Tim Penyusun.</p></div>", unsafe_allow_html=True)
+    st.write("")
+    # --- FORM KIRIM ---
+    st.markdown("<div style='background-color: rgba(0,0,0,0.65); padding:15px; border-radius:12px;'><p style='color:white; font-weight:bold;'>✍️ Tulis Saran / Kritik / Keluhan Baru:</p></div>", unsafe_allow_html=True)
+    jenis_saran = st.selectbox("Jenis Pesan:", ["💡 Saran", "📝 Kritik", "😟 Keluhan"], key="jenis_saran")
+    isi_saran = st.text_area("Isi Pesan:", placeholder="Contoh: Soalnya susah di bagian..., Tolong tambahin materi..., Aplikasinya kadang lemot...", height=120, key="isi_saran")
+    if st.button("📩 Kirim Saran / Kritik / Keluhan", use_container_width=True):
+        if not isi_saran.strip():
+            st.warning("⚠️ Isi pesannya masih kosong!")
+        else:
+            if st.session_state["login_role"] == "siswa":
+                info_s = DATA_SISWA.get(st.session_state["login_nama"], {})
+                label_pengirim = f"{st.session_state['login_nama']} | Kelas: {info_s.get('kategori','-')}"
+            else:
+                nama_t = NAMA_LENGKAP_TIM.get(st.session_state["login_nama"], st.session_state["login_nama"])
+                label_pengirim = f"{nama_t} | {TIM_PENYUSUN.get(st.session_state['login_nama'],'Tim')}"
+            data_saran = {
+                "pengirim": st.session_state["login_nama"],
+                "label": label_pengirim,
+                "role": st.session_state["login_role"],
+                "jenis": jenis_saran,
+                "isi": isi_saran.strip(),
+                "jam": time.strftime("%d/%m/%Y %H:%M", time.localtime(time.time())),
+                "balasan": "",
+                "pembalas": "",
+            }
+            with closing(db_connect()) as conn:
+                cur = conn.execute(
+                    """INSERT INTO suggestions(sender, sender_label, role, kind, body, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (data_saran["pengirim"], data_saran["label"], data_saran["role"],
+                     data_saran["jenis"], data_saran["isi"], data_saran["jam"])
+                )
+                data_saran["id"] = cur.lastrowid
+                conn.commit()
+            st.session_state["saran_list"].append(data_saran)
+            catat_aktivitas(f"Kirim {jenis_saran}")
+            st.success("✅ Terima kasih! Saran / Kritik / Keluhanmu sudah terkirim ke Tim.")
+            st.rerun()
+    st.write("")
+    # --- DAFTAR PESAN ---
+    if st.session_state["login_role"] == "siswa":
+        daftar_saran = [s for s in st.session_state["saran_list"] if s["pengirim"] == st.session_state["login_nama"]]
+        judul_daftar = "📩 Saran / Kritik / Keluhan Kamu:"
+    else:
+        daftar_saran = list(reversed(st.session_state["saran_list"]))
+        judul_daftar = f"📩 Semua Saran / Kritik / Keluhan ({len(daftar_saran)} pesan):"
+    st.markdown(f"<div style='background-color: rgba(0,0,0,0.65); padding:12px; border-radius:10px;'><p style='color:white; font-weight:bold; margin:0;'>{judul_daftar}</p></div>", unsafe_allow_html=True)
+    st.write("")
+    if not daftar_saran:
+        st.info("Belum ada pesan. Yuk jadi yang pertama kirim saran!")
+    else:
+        # Untuk siswa tampilkan urutan lama ke baru, untuk tim baru ke lama sudah di-reverse di atas
+        tampil = daftar_saran if st.session_state["login_role"] == "tim" else list(reversed(daftar_saran))
+        for idx, s in enumerate(tampil):
+            # Cari index asli di list utama untuk balas / hapus
+            idx_asli = st.session_state["saran_list"].index(s)
+            jenis_html = html.escape(str(s.get("jenis", "")))
+            label_html = html.escape(str(s.get("label", "")))
+            jam_html = html.escape(str(s.get("jam", "")))
+            isi_html = html.escape(str(s.get("isi", "")))
+            st.markdown(f"<div style='background-color: rgba(255,255,255,0.12); border:1.5px solid rgba(255,255,255,0.5); padding:14px; border-radius:12px; margin-bottom:10px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>{jenis_html} - {label_html}</p><p style='color:#AAAAAA; font-size:12px; margin:2px 0 8px 0;'>{jam_html}</p><p style='color:white; margin:0;'>{isi_html}</p></div>", unsafe_allow_html=True)
+            if s.get("balasan"):
+                pembalas_html = html.escape(str(s.get("pembalas", "")))
+                balasan_html = html.escape(str(s.get("balasan", "")))
+                st.markdown(f"<div style='background-color: rgba(20,50,35,0.9); border:1.5px solid #F9D423; padding:12px; border-radius:12px; margin:-5px 0 12px 20px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>↩️ Balasan dari {pembalas_html}:</p><p style='color:white; margin:4px 0 0 0;'>{balasan_html}</p></div>", unsafe_allow_html=True)
+            # Tim bisa balas
+            if st.session_state["login_role"] == "tim":
+                balas = st.text_input(f"Balas pesan ini (Tim):", key=f"balas_{idx_asli}", placeholder="Tulis balasan untuk pengirim...")
+                cb1, cb2 = st.columns(2)
+                with cb1:
+                    if st.button("↩️ Kirim Balasan", key=f"kirim_balas_{idx_asli}", use_container_width=True):
+                        if not balas.strip():
+                            st.warning("⚠️ Balasannya masih kosong!")
+                        else:
+                            nama_t = NAMA_LENGKAP_TIM.get(st.session_state["login_nama"], st.session_state["login_nama"])
+                            pembalas = f"{nama_t} | {TIM_PENYUSUN.get(st.session_state['login_nama'],'Tim')}"
+                            st.session_state["saran_list"][idx_asli]["balasan"] = balas.strip()
+                            st.session_state["saran_list"][idx_asli]["pembalas"] = pembalas
+                            saran_id = st.session_state["saran_list"][idx_asli].get("id")
+                            if saran_id:
+                                with closing(db_connect()) as conn:
+                                    conn.execute("UPDATE suggestions SET reply=?, replied_by=? WHERE id=?",
+                                                 (balas.strip(), pembalas, saran_id))
+                                    conn.commit()
+                            st.success("✅ Balasan terkirim!")
+                            st.rerun()
+                with cb2:
+                    if st.button("🗑️ Hapus Pesan", key=f"hapus_saran_{idx_asli}", use_container_width=True):
+                        item_hapus = st.session_state["saran_list"][idx_asli]
+                        if item_hapus.get("id"):
+                            with closing(db_connect()) as conn:
+                                conn.execute("DELETE FROM suggestions WHERE id=?", (item_hapus["id"],))
+                                conn.commit()
+                        item_hapus = st.session_state["saran_list"][idx_asli]
+                        if item_hapus.get("id"):
+                            with closing(db_connect()) as conn:
+                                conn.execute("DELETE FROM suggestions WHERE id=?", (item_hapus["id"],))
+                                conn.commit()
+                        del st.session_state["saran_list"][idx_asli]
+                        st.rerun()
+            # Siswa bisa hapus pesan sendiri yang belum dibalas
+            if st.session_state["login_role"] == "siswa" and not s.get("balasan"):
+                if st.button("🗑️ Hapus Pesan Saya", key=f"hapus_saran_siswa_{idx_asli}"):
+                    del st.session_state["saran_list"][idx_asli]
+                    st.rerun()
+    st.write("")
+    if st.button("⬅️ Tutup Kotak Saran", use_container_width=True):
+        st.session_state["lihat_saran"] = False
+        st.rerun()
+
+def tampilkan_daftar_hasil_nilai():
+    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📊 Daftar Hasil Nilai</h2><p style='color:white; margin:5px 0 0 0;'>KKM = 75 | Nilai < 75 = <b style=\"color:#FF5252;\">MERAH (Belum Tuntas)</b> | Nilai ≥ 75 = <b style=\"color:white;\">PUTIH (Tuntas)</b> | Belum Ujian = <b style=\"color:#AAAAAA;\">- (Belum Mengerjakan)</b></p></div>", unsafe_allow_html=True)
+    st.write("")
+    if st.session_state["login_role"] == "siswa":
+        daftar_tampil = [st.session_state["login_nama"]] if st.session_state["login_nama"] in DATA_SISWA else []
+    else:
+        daftar_tampil = list(DATA_SISWA.keys())
+    total_tuntas = 0
+    total_belum_tuntas = 0
+    total_belum_ujian = 0
+    rows_html = ""
+    no = 1
+    for nama in daftar_tampil:
+        info = DATA_SISWA[nama]
+        jk = info["jk"]
+        kat = info["kategori"]
+        jml_ulang = st.session_state["hitung_ulang"].get(nama, 0)
+        if nama not in st.session_state["hasil_semua"]:
+            teks_ulang = "-"
+            rows_html += f"<tr><td style='padding:10px; text-align:center; color:white;'>{no}</td><td style='padding:10px; color:white; font-weight:bold;'>{nama}</td><td style='padding:10px; text-align:center; color:white;'>{jk}</td><td style='padding:10px; text-align:center; color:white;'>{kat}</td><td style='padding:10px; text-align:center; color:#AAAAAA; font-weight:bold; font-size:20px;'>-</td><td style='padding:10px; text-align:center; color:#AAAAAA; font-weight:bold;'>⏳ Belum Mengerjakan</td><td style='padding:10px; text-align:center; color:#AAAAAA;'>{teks_ulang}</td></tr>"
+            total_belum_ujian += 1
+        else:
+            nilai = st.session_state["hasil_semua"][nama]
+            if jml_ulang == 0:
+                jml_ulang = 1
+            teks_ulang = f"{jml_ulang}x" if jml_ulang <= 1 else f"{jml_ulang}x 🔁"
+            if nilai < KKM:
+                warna_nilai = "#FF5252"
+                ket = "❌ Belum Tuntas"
+                warna_ket = "#FF5252"
+                total_belum_tuntas += 1
+            else:
+                warna_nilai = "#FFFFFF"
+                ket = "✅ Tuntas"
+                warna_ket = "#4CAF50"
+                total_tuntas += 1
+            rows_html += f"<tr><td style='padding:10px; text-align:center; color:white;'>{no}</td><td style='padding:10px; color:white; font-weight:bold;'>{nama}</td><td style='padding:10px; text-align:center; color:white;'>{jk}</td><td style='padding:10px; text-align:center; color:white;'>{kat}</td><td style='padding:10px; text-align:center; color:{warna_nilai}; font-weight:bold; font-size:20px;'>{nilai}</td><td style='padding:10px; text-align:center; color:{warna_ket}; font-weight:bold;'>{ket}</td><td style='padding:10px; text-align:center; color:white; font-weight:bold;'>{teks_ulang}</td></tr>"
+        no += 1
+    st.markdown(f"""
+    <div style='background-color: rgba(0,0,0,0.75); padding:15px; border-radius:15px;'>
+    <p style='color:white; text-align:center; font-size:16px;'>Total: <b>{len(daftar_tampil)}</b> | <span style='color:#AAAAAA; font-weight:bold;'>⏳ Belum Mengerjakan: {total_belum_ujian}</span> | <span style='color:#4CAF50; font-weight:bold;'>✅ Tuntas: {total_tuntas}</span> | <span style='color:#FF5252; font-weight:bold;'>❌ Belum Tuntas: {total_belum_tuntas}</span></p>
+    <table style='width:100%; border-collapse:collapse;'>
+    <tr style='background-color:#F9D423;'>
+        <th style='padding:10px; color:#000;'>No</th>
+        <th style='padding:10px; color:#000; text-align:left;'>Nama Lengkap</th>
+        <th style='padding:10px; color:#000;'>Jenis Kelamin</th>
+        <th style='padding:10px; color:#000;'>Kategori</th>
+        <th style='padding:10px; color:#000;'>Nilai</th>
+        <th style='padding:10px; color:#000;'>Keterangan</th>
+        <th style='padding:10px; color:#000;'>Mengulang</th>
+    </tr>
+    {rows_html}
+    </table>
     </div>
     """, unsafe_allow_html=True)
+    st.write("")
+    if st.button("⬅️ Tutup Daftar Nilai", use_container_width=True):
+        st.session_state["lihat_nilai"] = False
+        st.rerun()
 
 bg = get_base64("background.jpeg")
 if bg:
-    st.markdown(f"""<style>.stApp {{ background-image: url("data:image/jpeg;base64,{bg}") !important; background-size: cover !important; background-position: center !important; background-attachment: fixed !important; }} .stApp::before {{ content:""; position:fixed; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.55); z-index:0; pointer-events:none; }} .block-container {{ position:relative; z-index:1; padding-top:20px !important; max-width:900px !important; }} .block-container p, .block-container span, .block-container label, .block-container h2 {{ color:white !important; }} div[data-testid="stButton"] > button {{ background-color: rgba(255,255,255,0.25) !important; color:white !important; border:1.5px solid rgba(255,255,255,0.8) !important; font-weight:bold !important; font-size:17px !important; border-radius:12px !important; }} [data-testid="stChatMessage"] {{ background-color: rgba(10,35,25,0.97) !important; border:2px solid #F9D423 !important; border-radius:14px !important; }} [data-testid="stChatMessage"] p {{ color:#FFF !important; font-size:20px !important; line-height:2.0 !important; }} [data-testid="stAlert"] {{ background-color: #FFD6D6 !important; }} [data-testid="stAlert"] p, [data-testid="stAlert"] span, [data-testid="stAlert"] div {{ color: #000000 !important; }} </style>""", unsafe_allow_html=True)
+    st.markdown(f"""
+    <style>
+    .stApp, [data-testid="stApp"], [data-testid="stAppViewContainer"] {{
+        background-image: url("data:image/jpeg;base64,{bg}") !important;
+        background-size: cover !important;
+        background-position: center center !important;
+        background-repeat: no-repeat !important;
+        background-attachment: fixed !important;
+    }}
+    [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"] {{ background: transparent !important; }}
+    .stApp::before {{ content: ""; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.55); z-index: 0; pointer-events: none; }}
+    .block-container {{ position: relative; z-index: 1; padding-top: 20px !important; max-width: 900px !important; }}
+    [data-testid="stBottom"] {{ background-image: url("data:image/jpeg;base64,{bg}") !important; background-size: cover !important; background-position: center center !important; background-repeat: no-repeat !important; background-attachment: fixed !important; }}
+    [data-testid="stBottomBlockContainer"], [data-testid="stChatInputContainer"] {{ background: transparent !important; background-image: none !important; background-color: transparent !important; }}
+    [data-testid="stBottom"]::before {{ content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.55); pointer-events: none; }}
+    [data-testid="stChatInput"] {{ position: relative; z-index: 2; background-color: white !important; border-radius: 20px !important; }}
+    .block-container p, .block-container span, .block-container label, .block-container h2, .block-container h3 {{ color: white !important; }}
+    [data-testid="stRadio"] label {{ color: white !important; font-weight: 600 !important; }}
+    [data-testid="stRadio"] div, [data-testid="stRadio"] p {{ color: white !important; }}
+    div[data-testid="stButton"] > button {{ background-color: rgba(255,255,255,0.25) !important; background: rgba(255,255,255,0.25) !important; color: white !important; border: 1.5px solid rgba(255,255,255,0.8) !important; backdrop-filter: blur(4px) !important; font-weight: bold !important; font-size: 17px !important; border-radius: 12px !important; }}
+    div[data-testid="stButton"] > button:hover {{ background-color: rgba(255,255,255,0.45) !important; color: white !important; border: 1.5px solid white !important; }}
+    div[data-testid="stButton"] > button p, div[data-testid="stButton"] > button span {{ color: white !important; }}
+    [data-testid="stChatMessage"] {{ background-color: rgba(10, 35, 25, 0.97) !important; backdrop-filter: none !important; border: 2px solid #F9D423 !important; border-radius: 14px !important; padding: 10px 14px !important; box-shadow: 0 4px 12px rgba(0,0,0,0.6) !important; }}
+    [data-testid="stChatMessage"] p, [data-testid="stChatMessage"] span, [data-testid="stChatMessage"] li, [data-testid="stChatMessage"] strong {{ color: #FFFFFF !important; font-size: 20px !important; line-height: 2.0 !important; font-weight: 600 !important; text-shadow: 0 2px 4px rgba(0,0,0,1) !important; }}
+    [data-testid="stChatMessage"] strong {{ color: #F9D423 !important; font-size: 21px !important; }}
+    </style>
+    """, unsafe_allow_html=True)
 
-st.markdown("""<div style='background-color: rgba(20,50,35,0.92); padding: 25px; border-radius: 15px; text-align:center;'><h1 style='color:#F9D423; margin:0; font-size:36px;'>🕌 QORI AI Madrasah Aliyah Al-Barokah</h1><p style='color:white; margin-top:10px; font-size:16px;'>Assalamualaikum warahmatullahi wabarakatuh! Tanya apa saja, QORI AI siap membantu</p></div>""", unsafe_allow_html=True)
+st.markdown("""
+<div style='background-color: rgba(20, 50, 35, 0.92); padding: 25px; border-radius: 15px; text-align:center;'>
+    <h1 style='color:#F9D423; margin:0; font-size:36px;'>🕌 QORI AI Madrasah Aliyah Al-Barokah</h1>
+    <p style='color:white; margin-top:10px; font-size:16px;'>Assalamualaikum warahmatullahi wabarakatuh! Tanya apa saja, QORI AI siap membantu</p>
+</div>
+""", unsafe_allow_html=True)
 
-# ===== LOGIN + VIDEO PEMBUKA =====
+# ===== HALAMAN KUNCI NAMA - WAJIB ISI SEBELUM MASUK =====
 if st.session_state["login_nama"] is None:
-    if st.session_state.get("lihat_video", True) and os.path.exists("video_pembuka.mp4"):
-        st.markdown("<div style='background-color: rgba(0,0,0,0.65); padding:12px; border-radius:12px; text-align:center; margin-top:15px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>🎬 Video Pembuka - Peringatan Hari Santri Nasional</p><p style='color:white; font-size:13px; margin:4px 0 0 0;'>MA Al-Barokah | 22 Oktober 2026</p></div>", unsafe_allow_html=True)
-        st.video("video_pembuka.mp4")
-        if st.button("⏭️ Lewati Video - Langsung Isi Nama", use_container_width=True):
-            st.session_state["lihat_video"] = False
-            st.rerun()
-        st.write("")
-    st.markdown("""<div style='background-color: rgba(255,255,255,0.12); border: 1.5px solid #F9D423; padding: 20px; border-radius: 15px; margin-top: 15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>🔐 Silakan Masukkan Nama & Password</h2><p style='color:white; margin-top:8px;'>Untuk masuk ke QORI AI</p></div>""", unsafe_allow_html=True)
+    st.markdown("""
+    <div style='background-color: rgba(255,255,255,0.12); border: 1.5px solid #F9D423; padding: 20px; border-radius: 15px; margin-top: 15px; text-align:center;'>
+        <h2 style='color:#F9D423; margin:0;'>🔐 Silakan Masukkan Nama Lengkap</h2>
+        <p style='color:white; margin-top:8px;'>Untuk masuk ke QORI AI</p>
+    </div>
+    """, unsafe_allow_html=True)
     st.write("")
-    if st.session_state.get("login_error"):
-        sisa = 5 - (time.time() - st.session_state["login_error_time"])
-        if sisa > 0:
-            st.error(st.session_state["login_error"])
-            if st_autorefresh:
-                st_autorefresh(interval=1000, key="cek_error_hilang")
-            else:
-                time.sleep(5)
-                st.session_state["login_error"] = ""
-                st.session_state["login_error_time"] = 0
-                st.rerun()
-        else:
-            st.session_state["login_error"] = ""
-            st.session_state["login_error_time"] = 0
-            st.rerun()
-    nama_input = st.text_input("✍️ Nama Lengkap:", placeholder="Tulis nama lengkapmu...", key="input_nama_login")
-    pw_input = st.text_input("🔑 Password:", type="password", placeholder="Masukkan passwordmu...", key="input_pw_login")
+    nama_input = st.text_input("✍️ Nama Lengkap:", placeholder="Tulis nama lengkap sesuai daftar...", key="input_nama_login")
+    password_input = st.text_input("🔑 Password:", type="password", key="input_password_login")
+    st.caption("Akun harus didaftarkan oleh administrator. Hubungi tim QORI AI jika belum memiliki password.")
     if st.button("🚪 Masuk ke QORI AI", use_container_width=True):
         nama_bersih = nama_input.strip().upper()
-        if not nama_bersih or not pw_input:
-            st.session_state["login_error"] = "⚠️ Nama & Password harus diisi!"
-            st.session_state["login_error_time"] = time.time()
+        if not nama_bersih or not password_input:
+            st.warning("⚠️ Nama dan password wajib diisi.")
+        elif nama_bersih not in TIM_PENYUSUN and nama_bersih not in DATA_SISWA:
+            st.error("❌ Nama tidak terdaftar. Periksa kembali atau hubungi administrator.")
+        elif not verifikasi_password(nama_bersih, password_input):
+            st.error("⛔ Password salah atau akun belum dikonfigurasi oleh administrator.")
+        elif nama_bersih in TIM_PENYUSUN:
+            st.session_state["login_nama"] = nama_bersih
+            st.session_state["login_role"] = "tim"
+            st.session_state["login_jabatan"] = TIM_PENYUSUN[nama_bersih]
+            st.session_state["waktu_login"] = time.time()
+            st.session_state["sudah_catat_masuk"] = False
+            st.success(f"✅ Selamat datang, {NAMA_LENGKAP_TIM.get(nama_bersih, nama_bersih)}")
+            time.sleep(0.3)
             st.rerun()
-        elif nama_bersih in TIM_PENYUSUN or nama_bersih in DATA_SISWA:
-            if not cek_password(nama_bersih, pw_input):
-                st.session_state["login_error"] = "❌ Password salah! Tanya ke guru / tim kalau lupa."
-                st.session_state["login_error_time"] = time.time()
-                st.rerun()
-            else:
-                st.session_state["login_error"] = ""
-                st.session_state["login_nama"] = nama_bersih
-                if nama_bersih in TIM_PENYUSUN:
-                    st.session_state["login_role"] = "tim"
-                    st.session_state["login_jabatan"] = TIM_PENYUSUN[nama_bersih]
-                    tampil = NAMA_LENGKAP_TIM.get(nama_bersih, nama_bersih)
-                else:
-                    st.session_state["login_role"] = "siswa"
-                    st.session_state["login_jabatan"] = f"Siswa {DATA_SISWA[nama_bersih]['kategori']}"
-                    tampil = nama_bersih
-                st.session_state["waktu_login"] = time.time()
-                st.session_state["sudah_catat_masuk"] = False
-                st.success(f"✅ Selamat datang, {tampil}")
-                time.sleep(0.5)
-                st.rerun()
         else:
-            st.session_state["login_error"] = "❌ Nama tidak ditemukan! Cek lagi ejaannya, atau tanya ke guru."
-            st.session_state["login_error_time"] = time.time()
+            st.session_state["login_nama"] = nama_bersih
+            st.session_state["login_role"] = "siswa"
+            st.session_state["login_jabatan"] = f"Siswa {DATA_SISWA[nama_bersih]['kategori']}"
+            st.session_state["waktu_login"] = time.time()
+            st.session_state["sudah_catat_masuk"] = False
+            st.success(f"✅ Selamat datang, {nama_bersih}")
+            time.sleep(0.3)
             st.rerun()
     st.write("")
     st.stop()
 
-# ===== BANNER SELAMAT DATANG =====
+# ===== SUDAH LOGIN - SISWA = KELAS, TIM = GELAR + JABATAN =====
 if st.session_state["login_role"] == "siswa":
-    kelas_login = DATA_SISWA.get(st.session_state["login_nama"], {}).get("kategori", "")
+    info_login = DATA_SISWA.get(st.session_state["login_nama"], {})
+    kelas_login = info_login.get("kategori", "")
     teks_selamat = f"👤 Selamat datang, {st.session_state['login_nama']} | Kelas: {kelas_login}"
 else:
     jabatan_tim = TIM_PENYUSUN.get(st.session_state["login_nama"], st.session_state.get("login_jabatan", ""))
@@ -346,7 +684,8 @@ if st.session_state["login_role"] == "siswa" and not st.session_state["sudah_cat
 col_out1, col_out2 = st.columns([3,1])
 with col_out2:
     if st.button("🚪 Keluar / Ganti Nama", use_container_width=True):
-        if st.session_state["login_role"] == "siswa": catat_aktivitas("Keluar Aplikasi")
+        if st.session_state["login_role"] == "siswa":
+            catat_aktivitas("Keluar Aplikasi")
         st.session_state["login_nama"] = None
         st.session_state["login_role"] = None
         st.session_state["login_jabatan"] = None
@@ -355,31 +694,23 @@ with col_out2:
         st.session_state["lihat_nilai"] = False
         st.session_state["lihat_riwayat"] = False
         st.session_state["lihat_saran"] = False
-        st.session_state["lihat_setoran"] = False
-        st.session_state["lihat_baca"] = False
         st.session_state["sudah_catat_masuk"] = False
         st.session_state["waktu_login"] = None
-        st.session_state["lihat_video"] = True
-        st.session_state["login_error"] = ""
+        try:
+            st.query_params.clear()
+        except:
+            pass
         st.rerun()
 
 if st.session_state["siswa_pilih"] is None and st.session_state["login_role"] == "tim":
     tampilkan_tim_pembuat()
-    hasil_dashboard = get_hasil()
-    jumlah_tuntas = sum(1 for v in hasil_dashboard.values() if v >= KKM)
-    jumlah_belum = sum(1 for v in hasil_dashboard.values() if v < KKM)
-    jumlah_belum_ujian = max(0, len(DATA_SISWA) - len(hasil_dashboard))
-    st.markdown("### 📊 Ringkasan Dashboard Tim")
-    d1, d2, d3, d4 = st.columns(4)
-    d1.metric("Jumlah Siswa", len(DATA_SISWA))
-    d2.metric("Sudah Ujian", len(hasil_dashboard))
-    d3.metric("Tuntas", jumlah_tuntas)
-    d4.metric("Belum Ujian", jumlah_belum_ujian)
-    if jumlah_belum:
-        st.info(f"{jumlah_belum} siswa memperoleh nilai di bawah KKM dan perlu tindak lanjut/remedial.")
+
 st.write("")
 
-# ===== DATA SOAL =====
+# Status ujian tidak lagi ditentukan oleh query parameter yang dapat diubah pengguna.
+# Timer dan penilaian dilakukan berdasarkan waktu server pada sesi ujian.
+
+
 KUNCI = {
     "Iqro": ["C","C","B","A","C","B","A","B","C","C","B","C","C","C","B","B","S","B","B","B","B","S","B","S","B"],
     "Tahsin": ["C","C","B","D","D","B","C","B","B","A","B","C","B","C","C","B","B","S","B","B","B","S","B","B","S"],
@@ -469,447 +800,342 @@ SOAL_TAHFIDZ = [
 SOAL_ALL = {"Iqro": SOAL_IQRO, "Tahsin": SOAL_TAHSIN, "Tahfidz": SOAL_TAHFIDZ}
 def buat_soal_acak(kat, seed):
     rng = random.Random(seed)
-    data_asli = SOAL_ALL[kat]; kunci_asli = KUNCI[kat]
-    gabung = list(zip(data_asli, kunci_asli)); rng.shuffle(gabung)
-    soal_baru=[]; kunci_baru=[]
+    data_asli = SOAL_ALL[kat]
+    kunci_asli = KUNCI[kat]
+    gabung = list(zip(data_asli, kunci_asli))
+    rng.shuffle(gabung)
+    soal_baru = []
+    kunci_baru = []
     for (teks_soal, opsi_asli), kunci_lama in gabung:
-        isi_jawaban=[]
+        isi_jawaban = []
         for o in opsi_asli:
-            if ". " in o: isi_jawaban.append(o.split(". ",1)[1])
-            elif " - " in o: isi_jawaban.append(o.split(" - ",1)[1])
-            else: isi_jawaban.append(o)
-        idx_benar = ord(kunci_lama)-ord("A") if len(opsi_asli)==5 else (0 if kunci_lama=="B" else 1)
-        isi_benar = isi_jawaban[idx_benar]; rng.shuffle(isi_jawaban)
-        opsi_baru=[]; kb=""
-        if len(opsi_asli)==5:
-            for i, isi in enumerate(isi_jawaban):
-                h=["A","B","C","D","E"][i]; opsi_baru.append(f"{h}. {isi}")
-                if isi==isi_benar: kb=h
+            if ". " in o:
+                isi_jawaban.append(o.split(". ", 1)[1])
+            elif " - " in o:
+                isi_jawaban.append(o.split(" - ", 1)[1])
+            else:
+                isi_jawaban.append(o)
+        if len(opsi_asli) == 5:
+            idx_benar = ord(kunci_lama) - ord("A")
         else:
-            for isi in isi_jawaban:
-                lab="B" if isi=="Benar" else "S"; opsi_baru.append(f"{lab} - {isi}")
-                if isi==isi_benar: kb=lab
-        teks_bersih = teks_soal.split(". ",1)[1] if ". " in teks_soal[:5] else teks_soal
-        soal_baru.append((teks_bersih, opsi_baru)); kunci_baru.append(kb)
+            idx_benar = 0 if kunci_lama == "B" else 1
+        isi_benar = isi_jawaban[idx_benar]
+        rng.shuffle(isi_jawaban)
+        opsi_baru = []
+        kunci_baru_satu = ""
+        if len(opsi_asli) == 5:
+            huruf = ["A","B","C","D","E"]
+            for i, isi in enumerate(isi_jawaban):
+                opsi_baru.append(f"{huruf[i]}. {isi}")
+                if isi == isi_benar:
+                    kunci_baru_satu = huruf[i]
+        else:
+            for i, isi in enumerate(isi_jawaban):
+                label = "B" if isi == "Benar" else "S"
+                opsi_baru.append(f"{label} - {isi}")
+                if isi == isi_benar:
+                    kunci_baru_satu = label
+        teks_bersih = teks_soal
+        if ". " in teks_bersih[:5]:
+            teks_bersih = teks_bersih.split(". ", 1)[1]
+        soal_baru.append((teks_bersih, opsi_baru))
+        kunci_baru.append(kunci_baru_satu)
     return soal_baru, kunci_baru
 
 def tampilkan_daftar(kategori):
-    if st.session_state["login_role"]=="siswa":
-        if DATA_SISWA.get(st.session_state["login_nama"],{}).get("kategori")!=kategori: return
-        daftar=[st.session_state["login_nama"]]
+    if st.session_state["login_role"] == "siswa":
+        nama_login = st.session_state["login_nama"]
+        if DATA_SISWA.get(nama_login, {}).get("kategori") != kategori:
+            return
+        daftar = [nama_login]
     else:
-        if kategori=="Iqro":
-            daftar=["MUHAMAD HARTANTO","DAFFAN OKTAFFIL HIDAYAT"]
-        elif kategori=="Tahsin":
-            daftar=["FRISCHA BUNGA LESTARI","RAIHAN","ANGGA FADILLAH","ANDY RAMADANI ABDULLAH"]
+        if kategori == "Iqro":
+            daftar = ["MUHAMAD HARTANTO", "DAFFAN OKTAFFIL HIDAYAT"]
+        elif kategori == "Tahsin":
+            daftar = ["FRISCHA BUNGA LESTARI", "RAIHAN", "ANGGA FADILLAH", "ANDY RAMADANI ABDULLAH"]
         else:
-            daftar=[k for k,v in DATA_SISWA.items() if v["kategori"]=="Tahfidz"]
+            daftar = ["ZALFATUSSYIFA RAMADANTI", "ZAIN RAHMANITA", "YUSUF IMAM MA'RUF", "FEBRIANSYAH RACHMAT HIDAYAT", "MUHAMMAD HAFIDZ", "ANGGI RATU MAHADEWI", "RIZQI RAMADHANY", "KAWI LUJENGAN RASYIDA RAIHANUN", "MIFTAHUL JANNAH", "MUHAMAD AZHAM FATAHILAH", "ROSMALATI KHOLISHA", "M. ARIF ZAKARIYA", "MOCHAMMAD ALKAHFI MUBAROK", "IMAM MANSYUR IBNU HULKAN"]
     for item in daftar:
-        label = item if st.session_state["login_role"]=="tim" else f"▶️ Mulai Ujian - {item}"
-        if st.button(label, key=f"{kategori}-{item}"):
-            st.session_state["siswa_pilih"]=item; st.session_state["seed_acak"]+=1; st.session_state["soal_acak"]=None; st.session_state["waktu_mulai"]=time.time(); simpan_sesi_ujian(item, st.session_state["waktu_mulai"], st.session_state["seed_acak"]); st.session_state["waktu_habis"]=False; st.session_state["ujian_selesai"]=False; st.session_state["hasil_ujian"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; st.session_state["lihat_baca"]=False; st.session_state["jawaban_tersimpan"]={}
+        label_tombol = item if st.session_state["login_role"] == "tim" else f"▶️ Mulai Ujian - {item}"
+        if st.button(label_tombol, key=f"{kategori}-{item}"):
+            st.session_state["siswa_pilih"] = item
+            st.session_state["seed_acak"] = st.session_state["seed_acak"] + 1
+            st.session_state["soal_acak"] = None
+            st.session_state["waktu_mulai"] = time.time()
+            st.session_state["waktu_habis"] = False
+            st.session_state["ujian_selesai"] = False
+            st.session_state["hasil_ujian"] = None
+            st.session_state["curang_refresh"] = None
+            st.session_state["lihat_nilai"] = False
+            st.session_state["lihat_riwayat"] = False
+            st.session_state["lihat_saran"] = False
             catat_aktivitas(f"Mulai Ujian - {kategori}")
             st.rerun()
 
-# ===== MENU UTAMA =====
 if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai"]:
-    c1,c2,c3,c4 = st.columns(4)
-    with c1: klik_iqro = st.button("📖 Iqro", use_container_width=True)
-    with c2: klik_tahsin = st.button("📗 Tahsin", use_container_width=True)
-    with c3: klik_tahfidz = st.button("⭐ Tahfidz", use_container_width=True)
-    with c4: klik_nilai = st.button("📊 Daftar Hasil Nilai", use_container_width=True)
-    if klik_iqro: st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"]=="Iqro" else "Iqro"; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; st.session_state["lihat_baca"]=False; catat_aktivitas("Buka Kelas Iqro")
-    if klik_tahsin: st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"]=="Tahsin" else "Tahsin"; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; st.session_state["lihat_baca"]=False; catat_aktivitas("Buka Kelas Tahsin")
-    if klik_tahfidz: st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"]=="Tahfidz" else "Tahfidz"; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; st.session_state["lihat_baca"]=False; catat_aktivitas("Buka Kelas Tahfidz")
-    if klik_nilai: st.session_state["lihat_nilai"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; st.session_state["lihat_baca"]=False; catat_aktivitas("Buka Daftar Hasil Nilai")
+    c_btn1, c_btn2, c_btn3, c_btn4 = st.columns(4)
+    with c_btn1:
+        klik_iqro = st.button("📖 Iqro", use_container_width=True)
+    with c_btn2:
+        klik_tahsin = st.button("📗 Tahsin", use_container_width=True)
+    with c_btn3:
+        klik_tahfidz = st.button("⭐ Tahfidz", use_container_width=True)
+    with c_btn4:
+        klik_nilai = st.button("📊 Daftar Hasil Nilai", use_container_width=True)
+    if klik_iqro:
+        st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Iqro" else "Iqro"
+        st.session_state["lihat_nilai"] = False
+        st.session_state["lihat_riwayat"] = False
+        st.session_state["lihat_saran"] = False
+        catat_aktivitas("Buka Kelas Iqro")
+    if klik_tahsin:
+        st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Tahsin" else "Tahsin"
+        st.session_state["lihat_nilai"] = False
+        st.session_state["lihat_riwayat"] = False
+        st.session_state["lihat_saran"] = False
+        catat_aktivitas("Buka Kelas Tahsin")
+    if klik_tahfidz:
+        st.session_state["kategori_pilih"] = None if st.session_state["kategori_pilih"] == "Tahfidz" else "Tahfidz"
+        st.session_state["lihat_nilai"] = False
+        st.session_state["lihat_riwayat"] = False
+        st.session_state["lihat_saran"] = False
+        catat_aktivitas("Buka Kelas Tahfidz")
+    if klik_nilai:
+        st.session_state["lihat_nilai"] = True
+        st.session_state["kategori_pilih"] = None
+        st.session_state["lihat_riwayat"] = False
+        st.session_state["lihat_saran"] = False
+        catat_aktivitas("Buka Daftar Hasil Nilai")
     if st.session_state["kategori_pilih"]:
-        cc1,cc2,cc3 = st.columns(3)
-        if st.session_state["kategori_pilih"]=="Iqro":
-            with cc1: tampilkan_daftar("Iqro")
-        if st.session_state["kategori_pilih"]=="Tahsin":
-            with cc2: tampilkan_daftar("Tahsin")
-        if st.session_state["kategori_pilih"]=="Tahfidz":
-            with cc3: tampilkan_daftar("Tahfidz")
+        c1, c2, c3 = st.columns(3)
+        if st.session_state["kategori_pilih"] == "Iqro":
+            with c1:
+                tampilkan_daftar("Iqro")
+        if st.session_state["kategori_pilih"] == "Tahsin":
+            with c2:
+                tampilkan_daftar("Tahsin")
+        if st.session_state["kategori_pilih"] == "Tahfidz":
+            with c3:
+                tampilkan_daftar("Tahfidz")
 
-if st.session_state["login_role"]=="tim" and st.session_state["siswa_pilih"] is None:
+# Tombol Riwayat HANYA untuk Tim
+if st.session_state["login_role"] == "tim" and st.session_state["siswa_pilih"] is None:
     if st.button("📋 Riwayat / Story Siswa (Khusus Tim)", use_container_width=True):
-        st.session_state["lihat_riwayat"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; st.session_state["lihat_baca"]=False; st.rerun()
+        st.session_state["lihat_riwayat"] = True
+        st.session_state["kategori_pilih"] = None
+        st.session_state["lihat_nilai"] = False
+        st.session_state["lihat_saran"] = False
+        st.rerun()
+
+# Tombol Kotak Saran - untuk TIM & SISWA
 if st.session_state["siswa_pilih"] is None:
-    if st.button("📖 Baca Juz 30 & Iqro 1-6 (Langsung Baca Di Sini)", use_container_width=True):
-        st.session_state["lihat_baca"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; catat_aktivitas("Buka Baca Juz 30 & Iqro"); st.rerun()
-if st.session_state["siswa_pilih"] is None:
-    jml_baru = len([s for s in get_saran() if not s["balasan"]]) if st.session_state["login_role"]=="tim" else len([s for s in get_saran() if s["pengirim"]==st.session_state["login_nama"] and s["balasan"]])
-    label_saran = f"💬 Kotak Saran / Kritik / Keluhan ({jml_baru} Baru)" if jml_baru>0 else "💬 Kotak Saran / Kritik / Keluhan"
+    jml_baru = len([s for s in st.session_state["saran_list"] if not s.get("balasan")]) if st.session_state["login_role"] == "tim" else len([s for s in st.session_state["saran_list"] if s["pengirim"] == st.session_state["login_nama"] and s.get("balasan")])
+    label_saran = f"💬 Kotak Saran / Kritik / Keluhan ({jml_baru} Baru)" if jml_baru > 0 else "💬 Kotak Saran / Kritik / Keluhan"
     if st.button(label_saran, use_container_width=True):
-        st.session_state["lihat_saran"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_setoran"]=False; st.session_state["lihat_baca"]=False; catat_aktivitas("Buka Kotak Saran"); st.rerun()
-if st.session_state["siswa_pilih"] is None:
-    jml_setoran_baru = len([s for s in get_setoran() if not s["koreksi"]]) if st.session_state["login_role"]=="tim" else len([s for s in get_setoran() if s["pengirim"]==st.session_state["login_nama"] and s["koreksi"]])
-    label_setoran = f"🎙️ Setoran Suara / Koreksi Bacaan ({jml_setoran_baru} Baru)" if jml_setoran_baru>0 else "🎙️ Setoran Suara / Koreksi Bacaan (Foto + Suara)"
-    if st.button(label_setoran, use_container_width=True):
-        st.session_state["lihat_setoran"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_baca"]=False; catat_aktivitas("Buka Setoran Suara"); st.rerun()
+        st.session_state["lihat_saran"] = True
+        st.session_state["kategori_pilih"] = None
+        st.session_state["lihat_nilai"] = False
+        st.session_state["lihat_riwayat"] = False
+        catat_aktivitas("Buka Kotak Saran")
+        st.rerun()
 
-# ===== BACA JUZ 30 & IQRO 1-6 =====
-if st.session_state.get("lihat_baca") and st.session_state["siswa_pilih"] is None:
-    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📖 Baca Juz 30 & Iqro 1-6</h2><p style='color:white;'>Baca dulu di sini, baru Setoran Suara</p></div>", unsafe_allow_html=True)
-    st.write("")
-    # Otomatis arahkan sesuai kelas siswa
-    if st.session_state["login_role"]=="siswa":
-        kat_siswa = DATA_SISWA.get(st.session_state["login_nama"],{}).get("kategori","Tahsin")
-        default_tab = "Iqro 1-6" if kat_siswa=="Iqro" else "Juz 30 (Tahsin & Tahfidz)"
-    else:
-        default_tab = "Juz 30 (Tahsin & Tahfidz)"
-    tab_pilih = st.radio("Pilih Bacaan:", ["Juz 30 (Tahsin & Tahfidz)", "Iqro 1-6"], index=0 if default_tab.startswith("Juz") else 1, horizontal=True, key="tab_baca")
-    if tab_pilih == "Juz 30 (Tahsin & Tahfidz)":
-        st.markdown("<p style='color:white; font-weight:bold;'>Pilih Surat Juz 30:</p>", unsafe_allow_html=True)
-        surat_baca = st.selectbox("Surat:", JUZ30_SURAH, key="surat_baca")
-        isi = JUZ30_BACA.get(surat_baca, {})
-        st.markdown(f"<div style='background-color: rgba(0,0,0,0.75); padding:18px; border-radius:15px; text-align:center;'><h3 style='color:#F9D423; margin:0;'>{surat_baca} - {isi.get('ayat','')}</h3><p style='color:white; font-size:26px; line-height:2.2; direction:rtl; text-align:right; margin:15px 0 0 0;'>{isi.get('arab','')}</p></div>", unsafe_allow_html=True)
-        st.write("")
-        st.markdown(f"<div style='background-color: rgba(255,255,255,0.12); padding:14px; border-radius:12px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>Latin (Cara Baca):</p><p style='color:white;'>{isi.get('latin','')}</p><p style='color:#F9D423; font-weight:bold; margin:10px 0 0 0;'>Artinya:</p><p style='color:white;'>{isi.get('arti','')}</p></div>", unsafe_allow_html=True)
-        st.info("Untuk surat yang panjang (An-Naba sampai Al-Fajr dll), di atas ditampilkan awal suratnya. Lanjutkan baca lengkapnya di mushaf / Iqro, lalu Setoran Suara.")
-        if st.button("🎙️ Langsung Setoran Surat Ini", use_container_width=True):
-            st.session_state["lihat_baca"]=False; st.session_state["lihat_setoran"]=True; st.rerun()
-    else:
-        st.markdown("<p style='color:white; font-weight:bold;'>Pilih Iqro:</p>", unsafe_allow_html=True)
-        iqro_pilih = st.selectbox("Iqro:", list(IQRO_BACA.keys()), key="iqro_baca")
-        isi_iqro = IQRO_BACA[iqro_pilih]
-        st.markdown(f"<div style='background-color: rgba(0,0,0,0.75); padding:18px; border-radius:15px;'><h3 style='color:#F9D423; text-align:center; margin:0;'>{isi_iqro['judul']}</h3><p style='color:white; font-size:19px; line-height:2.0; white-space:pre-line; margin:12px 0 0 0;'>{isi_iqro['materi']}</p></div>", unsafe_allow_html=True)
-        st.info("Baca pelan-pelan, perhatikan harakatnya. Kalau sudah lancar, langsung Setoran Suara.")
-        if st.button("🎙️ Langsung Setoran Iqro Ini", use_container_width=True):
-            st.session_state["lihat_baca"]=False; st.session_state["lihat_setoran"]=True; st.rerun()
-    st.write("")
-    if st.button("⬅️ Tutup Bacaan", use_container_width=True):
-        st.session_state["lihat_baca"]=False; st.rerun()
-    st.stop()
-
-# ===== SETORAN SUARA - HANYA UPLOAD =====
-if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is None:
-    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>🎙️ Setoran Suara / Koreksi Bacaan</h2><p style='color:white;'>Iqro | Tahsin | Tahfidz - Pilih Surat Juz 30 + Upload Foto + Upload Suara</p></div>", unsafe_allow_html=True)
-    st.write("")
-    st.markdown("<p style='color:white; font-weight:bold; font-size:17px;'>📤 Kirim Setoran Baru:</p>", unsafe_allow_html=True)
-    if st.session_state["login_role"]=="siswa":
-        kat_default = DATA_SISWA.get(st.session_state["login_nama"],{}).get("kategori","Tahsin")
-        idx_kat = ["Iqro","Tahsin","Tahfidz"].index(kat_default) if kat_default in ["Iqro","Tahsin","Tahfidz"] else 1
-    else:
-        idx_kat = 1
-    kat_setoran = st.selectbox("Kategori Setoran:", ["Iqro","Tahsin","Tahfidz"], index=idx_kat, key="kat_setoran")
-    surat_juz30 = st.selectbox("📖 Pilih Surat Juz 30 (kalau setoran Tahfidz / Tahsin):", ["-- Ketik Sendiri / Bukan Juz 30 --"] + JUZ30_SURAH, key="surat_juz30")
-    if surat_juz30 != "-- Ketik Sendiri / Bukan Juz 30 --":
-        st.info(f"Surat dipilih: **{surat_juz30}** — tinggal isi ayatnya di bawah kalau perlu.")
-    judul_setoran = st.text_input("Materi / Ayat / Judul Setoran:", placeholder="Contoh: Ayat 1-4 | Iqro 2 Hal. 5 | Atau kosongkan kalau sudah pilih surat di atas", key="judul_setoran")
-    ket_setoran = st.text_area("Keterangan (opsional):", placeholder="Contoh: Mohon dikoreksi makhraj huruf... / Ayat 1-4...", height=70, key="ket_setoran")
-    foto_up = st.file_uploader("📷 Upload Foto (halaman Iqro / tulisan / mushaf):", type=["jpg","jpeg","png","webp"], key="foto_setoran")
-    st.markdown("<div style='background-color: rgba(249,212,35,0.15); border:1.5px solid #F9D423; padding:12px; border-radius:12px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>🎤 Cara Kirim Suara di HP:</p><p style='color:white; margin:5px 0 0 0;'>1. Rekam dulu pakai <b>Perekam HP</b> atau <b>Voice Note WA</b><br>2. Terus Upload file-nya di bawah ini<br>❌ Jangan pencet mic Google yang di atas layar!</p></div>", unsafe_allow_html=True)
-    st.write("")
-    audio_file = st.file_uploader("📤 Upload File Suara Di Sini (WA / Perekam HP):", type=["mp3","wav","m4a","ogg","webm","opus","aac"], key="audio_file_setoran")
-    if audio_file:
-        st.success(f"✅ Suara terpilih: {audio_file.name} - Coba putar dulu sebelum kirim, pastikan ada suaranya!")
-        st.audio(audio_file)
-    if st.button("📩 Kirim Setoran ke Tim", use_container_width=True):
-        if surat_juz30 != "-- Ketik Sendiri / Bukan Juz 30 --":
-            if judul_setoran.strip():
-                judul_final = f"{surat_juz30} - {judul_setoran.strip()}"
-            else:
-                judul_final = surat_juz30
-        else:
-            judul_final = judul_setoran.strip()
-        if not judul_final:
-            st.warning("⚠️ Pilih dulu Surat Juz 30 di atas, atau isi Materi / Judul Setorannya!")
-        elif not audio_file:
-            st.warning("⚠️ Suaranya belum ada! Rekam di WA / Perekam HP dulu, terus Upload di atas.")
-        else:
-            if st.session_state["login_role"]=="siswa":
-                label = f"{st.session_state['login_nama']} | Kelas: {DATA_SISWA.get(st.session_state['login_nama'],{}).get('kategori','-')}"
-            else:
-                label = f"{NAMA_LENGKAP_TIM.get(st.session_state['login_nama'], st.session_state['login_nama'])} | {TIM_PENYUSUN.get(st.session_state['login_nama'],'Tim')}"
-            foto_bytes = foto_up.getvalue() if foto_up else None
-            foto_nama = foto_up.name if foto_up else ""
-            audio_bytes = audio_file.getvalue(); audio_nama = audio_file.name
-            tambah_setoran(st.session_state["login_nama"], label, kat_setoran, judul_final, ket_setoran.strip(), foto_bytes, foto_nama, audio_bytes, audio_nama, time.strftime("%d/%m/%Y %H:%M", time.localtime(time.time())))
-            catat_aktivitas(f"Kirim Setoran {kat_setoran} - {judul_final[:30]}")
-            st.success("✅ Setoran terkirim! Tim akan mendengarkan & mengoreksi.")
-            time.sleep(0.5); st.rerun()
-    st.write("")
-    st.markdown("<hr>", unsafe_allow_html=True)
-    st.markdown("<p style='color:white; font-weight:bold; font-size:17px;'>📋 Daftar Setoran:</p>", unsafe_allow_html=True)
-    filter_kat = st.selectbox("Filter:", ["Semua","Iqro","Tahsin","Tahfidz"], key="filter_setoran")
-    semua_setoran = get_setoran()
-    if st.session_state["login_role"]=="siswa":
-        daftar_setoran = [s for s in semua_setoran if s["pengirim"]==st.session_state["login_nama"]]
-    else:
-        daftar_setoran = semua_setoran
-    if filter_kat != "Semua":
-        daftar_setoran = [s for s in daftar_setoran if s["kategori"]==filter_kat]
-    if not daftar_setoran:
-        st.info("Belum ada setoran.")
-    else:
-        for s in daftar_setoran:
-            st.markdown(f"<div style='background-color: rgba(255,255,255,0.12); border:1.5px solid rgba(255,255,255,0.5); padding:14px; border-radius:12px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>[{html.escape(str(s['kategori']))}] {html.escape(str(s['judul']))} - {html.escape(str(s['label']))}</p><p style='color:#AAAAAA; font-size:12px;'>{html.escape(str(s['jam']))} | File: {html.escape(str(s['audio_nama']))} | {'✅ Sudah Dikoreksi' if s['koreksi'] else '⏳ Menunggu Koreksi'}</p><p style='color:white;'>{html.escape(str(s['keterangan']))}</p></div>", unsafe_allow_html=True)
-            if s["foto"]:
-                try: st.image(io.BytesIO(s["foto"]), caption=f"📷 Foto - {s['judul']}", use_container_width=True)
-                except: st.warning("Foto tidak bisa ditampilkan.")
-            if s["audio"]:
-                st.markdown("<p style='color:#F9D423; font-weight:bold; margin:5px 0 2px 0;'>🔊 Dengarkan Suara Siswa (Tim pencet Play):</p>", unsafe_allow_html=True)
-                st.audio(io.BytesIO(s["audio"]))
-            if s["koreksi"]:
-                st.markdown(f"<div style='background-color: rgba(20,50,35,0.9); border:1.5px solid #F9D423; padding:12px; border-radius:12px; margin:5px 0 12px 0;'><p style='color:#F9D423; font-weight:bold; margin:0;'>✍️ Koreksi dari {html.escape(str(s['pembalas']))} | Nilai Setoran: {html.escape(str(s['nilai']))}</p><p style='color:white;'>{html.escape(str(s['koreksi']))}</p></div>", unsafe_allow_html=True)
-            if st.session_state["login_role"]=="tim":
-                koreksi_txt = st.text_area(f"Tulis Koreksi untuk {s['label']} - {s['judul']}:", value=s["koreksi"], key=f"koreksi_{s['id']}", height=100, placeholder="Contoh: Makhraj huruf ح kurang jelas, ulangi... Tajwid idgham sudah bagus...")
-                nilai_txt = st.text_input("Nilai Setoran (0-100, kosongkan kalau belum dinilai):", value=s["nilai"], key=f"nilai_{s['id']}", placeholder="Contoh: 85")
-                ck1, ck2 = st.columns(2)
-                with ck1:
-                    if st.button("✅ Kirim / Update Koreksi", key=f"kirim_koreksi_{s['id']}", use_container_width=True):
-                        if not koreksi_txt.strip():
-                            st.warning("⚠️ Koreksinya masih kosong!")
-                        else:
-                            koreksi_setoran(s['id'], koreksi_txt.strip(), f"{NAMA_LENGKAP_TIM.get(st.session_state['login_nama'], st.session_state['login_nama'])} | {TIM_PENYUSUN.get(st.session_state['login_nama'],'Tim')}", nilai_txt.strip())
-                            st.success("✅ Koreksi terkirim, siswa bisa langsung lihat!")
-                            time.sleep(0.5); st.rerun()
-                with ck2:
-                    if st.button("🗑️ Hapus Setoran", key=f"hapus_setoran_{s['id']}", use_container_width=True):
-                        hapus_setoran(s['id']); st.rerun()
-            st.write("")
-    st.write("")
-    if st.button("⬅️ Tutup Setoran Suara", use_container_width=True):
-        st.session_state["lihat_setoran"]=False; st.rerun()
-    st.stop()
-
-# ===== KOTAK SARAN =====
 if st.session_state.get("lihat_saran") and st.session_state["siswa_pilih"] is None:
-    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>💬 Kotak Saran / Kritik / Keluhan</h2></div>", unsafe_allow_html=True)
-    st.write("")
-    jenis_saran = st.selectbox("Jenis Pesan:", ["💡 Saran","📝 Kritik","😟 Keluhan"], key="jenis_saran")
-    isi_saran = st.text_area("Isi Pesan:", placeholder="Tulis saran / kritik / keluhanmu...", height=120, key="isi_saran")
-    if st.button("📩 Kirim Saran / Kritik / Keluhan", use_container_width=True):
-        if not isi_saran.strip(): st.warning("⚠️ Isi pesannya masih kosong!")
-        else:
-            if st.session_state["login_role"]=="siswa":
-                label = f"{st.session_state['login_nama']} | Kelas: {DATA_SISWA.get(st.session_state['login_nama'],{}).get('kategori','-')}"
-            else:
-                label = f"{NAMA_LENGKAP_TIM.get(st.session_state['login_nama'], st.session_state['login_nama'])} | {TIM_PENYUSUN.get(st.session_state['login_nama'],'Tim')}"
-            tambah_saran(st.session_state["login_nama"], label, st.session_state["login_role"], jenis_saran, isi_saran.strip(), time.strftime("%d/%m/%Y %H:%M", time.localtime(time.time())))
-            catat_aktivitas(f"Kirim {jenis_saran}"); st.success("✅ Terima kasih! Sudah terkirim ke Tim."); st.rerun()
-    st.write("")
-    semua = get_saran()
-    daftar = [s for s in semua if s["pengirim"]==st.session_state["login_nama"]] if st.session_state["login_role"]=="siswa" else semua
-    if not daftar: st.info("Belum ada pesan.")
-    else:
-        for s in daftar:
-            st.markdown(f"<div style='background-color: rgba(255,255,255,0.12); border:1.5px solid rgba(255,255,255,0.5); padding:14px; border-radius:12px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>{html.escape(str(s['jenis']))} - {html.escape(str(s['label']))}</p><p style='color:#AAAAAA; font-size:12px;'>{html.escape(str(s['jam']))}</p><p style='color:white;'>{html.escape(str(s['isi']))}</p></div>", unsafe_allow_html=True)
-            if s["balasan"]: st.markdown(f"<div style='background-color: rgba(20,50,35,0.9); border:1.5px solid #F9D423; padding:12px; border-radius:12px; margin:5px 0 12px 20px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>↩️ Balasan dari {html.escape(str(s['pembalas']))}:</p><p style='color:white;'>{html.escape(str(s['balasan']))}</p></div>", unsafe_allow_html=True)
-            if st.session_state["login_role"]=="tim":
-                balas = st.text_input("Balas pesan ini (Tim):", key=f"balas_{s['id']}")
-                cb1,cb2 = st.columns(2)
-                with cb1:
-                    if st.button("↩️ Kirim Balasan", key=f"kirim_balas_{s['id']}", use_container_width=True):
-                        if balas.strip():
-                            balas_saran(s['id'], balas.strip(), f"{NAMA_LENGKAP_TIM.get(st.session_state['login_nama'], st.session_state['login_nama'])} | {TIM_PENYUSUN.get(st.session_state['login_nama'],'Tim')}")
-                            st.rerun()
-                with cb2:
-                    if st.button("🗑️ Hapus", key=f"hapus_saran_{s['id']}", use_container_width=True):
-                        hapus_saran(s['id']); st.rerun()
-    st.write("")
-    if st.button("⬅️ Tutup Kotak Saran", use_container_width=True):
-        st.session_state["lihat_saran"]=False; st.rerun()
+    tampilkan_kotak_saran()
     st.stop()
 
-# ===== RIWAYAT =====
 if st.session_state.get("lihat_riwayat") and st.session_state["siswa_pilih"] is None:
-    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📋 Riwayat / Story Siswa</h2><p style='color:white;'>Khusus Tim - Siswa TIDAK bisa lihat</p></div>", unsafe_allow_html=True)
-    st.write("")
-    riw = get_aktivitas()
-    if not riw: st.info("Belum ada aktivitas.")
-    else:
-        rows=""
-        for i,r in enumerate(riw,1):
-            rows+=f"<tr><td style='padding:10px; text-align:center; color:white;'>{i}</td><td style='padding:10px; color:white; font-weight:bold;'>{html.escape(str(r['nama']))}</td><td style='padding:10px; text-align:center; color:white;'>{html.escape(str(r['kelas']))}</td><td style='padding:10px; color:white;'>{html.escape(str(r['aktivitas']))}</td><td style='padding:10px; text-align:center; color:white;'>{html.escape(str(r['jam']))}</td><td style='padding:10px; text-align:center; color:#F9D423;'>{html.escape(str(r['lama']))}</td></tr>"
-        st.markdown(f"<div style='background-color: rgba(0,0,0,0.75); padding:15px; border-radius:15px;'><table style='width:100%;'><tr style='background-color:#F9D423;'><th style='padding:10px;Lanjutan dari kode di atas — tempel ini persis setelah baris terakhir yang kepotong tadi:
-
-```python
-        st.markdown(f"<div style='background-color: rgba(0,0,0,0.75); padding:15px; border-radius:15px;'><table style='width:100%;'><tr style='background-color:#F9D423;'><th style='padding:10px; color:#000;'>No</th><th style='padding:10px; color:#000;'>Nama</th><th style='padding:10px; color:#000;'>Kelas</th><th style='padding:10px; color:#000;'>Buka Apa</th><th style='padding:10px; color:#000;'>Jam</th><th style='padding:10px; color:#000;'>Lama</th></tr>{rows}</table></div>", unsafe_allow_html=True)
-    if st.session_state["login_role"] == "tim":
-        st.write("")
-        st.markdown("<div style='background-color: rgba(120,20,20,0.9); padding:18px; border-radius:15px; text-align:center; border:2px solid #FF5252;'><h3 style='color:#FFFFFF; margin:0;'>🔄 Reset Riwayat (Khusus Tim)</h3><p style='color:white; font-size:13px; margin:6px 0 0 0;'>Hati-hati! Riwayat yang sudah dihapus tidak bisa dikembalikan.</p></div>", unsafe_allow_html=True)
-        st.write("")
-        st.markdown("<p style='color:white; font-weight:bold;'>Reset 1 siswa saja:</p>", unsafe_allow_html=True)
-        nama_reset_riw = st.selectbox("Pilih siswa yang riwayatnya mau dihapus:", ["-- Pilih Siswa --"] + list(DATA_SISWA.keys()), key="pilih_reset_riwayat_satu")
-        if st.button("🗑️ Hapus Riwayat Siswa Ini", use_container_width=True):
-            if nama_reset_riw == "-- Pilih Siswa --":
-                st.warning("⚠️ Pilih dulu siswanya!")
-            else:
-                hapus_riwayat_satu(nama_reset_riw)
-                st.success(f"✅ Riwayat {nama_reset_riw} sudah dihapus!")
-                time.sleep(0.5)
-                st.rerun()
-        st.write("")
-        st.markdown("<p style='color:white; font-weight:bold;'>Reset SEMUA riwayat jadi kosong:</p>", unsafe_allow_html=True)
-        konfirmasi_riw = st.text_input("Ketik RESET untuk konfirmasi (huruf besar semua):", placeholder="Ketik RESET di sini...", key="konfirmasi_reset_riwayat")
-        if st.button("🗑️ Hapus SEMUA Riwayat", use_container_width=True):
-            if konfirmasi_riw.strip() != "RESET":
-                st.warning("⚠️ Ketik dulu RESET dengan huruf besar semua biar tidak kepencet tidak sengaja!")
-            else:
-                reset_semua_riwayat()
-                st.success("✅ Semua riwayat sudah dihapus! Tabel jadi kosong.")
-                time.sleep(0.5)
-                st.rerun()
-    st.write("")
-    if st.button("⬅️ Tutup Riwayat", use_container_width=True):
-        st.session_state["lihat_riwayat"]=False; st.rerun()
+    tampilkan_riwayat_siswa()
     st.stop()
 
-# ===== DAFTAR NILAI =====
 if st.session_state["lihat_nilai"] and st.session_state["siswa_pilih"] is None:
-    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📊 Daftar Hasil Nilai</h2><p style='color:white;'>KKM = 75 | Nilai >= 75 = Tuntas | Nilai < 75 = Belum Tuntas</p></div>", unsafe_allow_html=True)
-    st.write("")
-    hasil = get_hasil(); ulang = get_ulang()
-    daftar_tampil = [st.session_state["login_nama"]] if st.session_state["login_role"]=="siswa" else list(DATA_SISWA.keys())
-    rows=""; tuntas=belum=belum_ujian=0
-    for no,nama in enumerate(daftar_tampil,1):
-        info=DATA_SISWA[nama]
-        if nama not in hasil:
-            rows+=f"<tr><td style='padding:10px; text-align:center; color:white;'>{no}</td><td style='padding:10px; color:white; font-weight:bold;'>{nama}</td><td style='padding:10px; text-align:center; color:white;'>{info['jk']}</td><td style='padding:10px; text-align:center; color:white;'>{info['kategori']}</td><td style='padding:10px; text-align:center; color:#AAAAAA; font-weight:bold; font-size:20px;'>-</td><td style='padding:10px; text-align:center; color:#AAAAAA;'>⏳ Belum Mengerjakan</td><td style='padding:10px; text-align:center; color:#AAAAAA;'>-</td></tr>"; belum_ujian+=1
-        else:
-            nilai=hasil[nama]; u=ulang.get(nama,1)
-            if nilai>=KKM: warna="#FFFFFF"; ket="✅ Tuntas"; wk="#4CAF50"; tuntas+=1
-            else: warna="#FF5252"; ket="❌ Belum Tuntas"; wk="#FF5252"; belum+=1
-            rows+=f"<tr><td style='padding:10px; text-align:center; color:white;'>{no}</td><td style='padding:10px; color:white; font-weight:bold;'>{nama}</td><td style='padding:10px; text-align:center; color:white;'>{info['jk']}</td><td style='padding:10px; text-align:center; color:white;'>{info['kategori']}</td><td style='padding:10px; text-align:center; color:{warna}; font-weight:bold; font-size:20px;'>{nilai}</td><td style='padding:10px; text-align:center; color:{wk}; font-weight:bold;'>{ket}</td><td style='padding:10px; text-align:center; color:white;'>{u}x</td></tr>"
-    st.markdown(f"<div style='background-color: rgba(0,0,0,0.75); padding:15px; border-radius:15px;'><p style='color:white; text-align:center;'>Total: {len(daftar_tampil)} | ⏳ Belum: {belum_ujian} | ✅ Tuntas: {tuntas} | ❌ Belum Tuntas: {belum}</p><table style='width:100%;'><tr style='background-color:#F9D423;'><th style='padding:10px; color:#000;'>No</th><th style='padding:10px; color:#000;'>Nama</th><th style='padding:10px; color:#000;'>JK</th><th style='padding:10px; color:#000;'>Kategori</th><th style='padding:10px; color:#000;'>Nilai</th><th style='padding:10px; color:#000;'>Ket</th><th style='padding:10px; color:#000;'>Ulang</th></tr>{rows}</table></div>", unsafe_allow_html=True)
-    if st.session_state["login_role"] == "tim":
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow(["Nama", "Jenis Kelamin", "Kategori", "Nilai", "Status", "Jumlah Ujian"])
-        for nama_export in daftar_tampil:
-            info_export = DATA_SISWA[nama_export]
-            nilai_export = hasil.get(nama_export)
-            writer.writerow([nama_export, info_export["jk"], info_export["kategori"], nilai_export if nilai_export is not None else "", "Tuntas" if nilai_export is not None and nilai_export >= KKM else ("Belum Tuntas" if nilai_export is not None else "Belum Ujian"), ulang.get(nama_export, 0)])
-        st.download_button("⬇️ Unduh Daftar Nilai (CSV - bisa dibuka di Excel)", data="\ufeff" + output.getvalue(), file_name="daftar_nilai_qori_ai.csv", mime="text/csv", use_container_width=True)
-    if st.session_state["login_role"] == "tim":
-        st.write("")
-        st.markdown("<div style='background-color: rgba(120,20,20,0.9); padding:18px; border-radius:15px; text-align:center; border:2px solid #FF5252;'><h3 style='color:#FFFFFF; margin:0;'>🔄 Reset Nilai (Khusus Tim)</h3><p style='color:white; font-size:13px; margin:6px 0 0 0;'>Hati-hati! Nilai yang sudah direset tidak bisa dikembalikan.</p></div>", unsafe_allow_html=True)
-        st.write("")
-        st.markdown("<p style='color:white; font-weight:bold;'>Reset 1 siswa saja:</p>", unsafe_allow_html=True)
-        nama_reset = st.selectbox("Pilih siswa yang nilainya mau dihapus:", ["-- Pilih Siswa --"] + list(DATA_SISWA.keys()), key="pilih_reset_satu")
-        if st.button("🗑️ Hapus Nilai Siswa Ini", use_container_width=True):
-            if nama_reset == "-- Pilih Siswa --":
-                st.warning("⚠️ Pilih dulu siswanya!")
-            elif nama_reset not in hasil:
-                st.warning(f"⚠️ {nama_reset} belum punya nilai, jadi tidak ada yang dihapus.")
-            else:
-                hapus_hasil_satu(nama_reset)
-                st.success(f"✅ Nilai {nama_reset} sudah dihapus! Sekarang jadi Belum Mengerjakan lagi.")
-                time.sleep(0.5)
-                st.rerun()
-        st.write("")
-        st.markdown("<p style='color:white; font-weight:bold;'>Reset SEMUA siswa jadi Belum Mengerjakan:</p>", unsafe_allow_html=True)
-        konfirmasi = st.text_input("Ketik RESET untuk konfirmasi (huruf besar semua):", placeholder="Ketik RESET di sini...", key="konfirmasi_reset_all")
-        if st.button("🗑️ Reset SEMUA Nilai Jadi Kosong", use_container_width=True):
-            if konfirmasi.strip() != "RESET":
-                st.warning("⚠️ Ketik dulu RESET dengan huruf besar semua biar tidak kepencet tidak sengaja!")
-            else:
-                reset_semua_hasil()
-                st.success("✅ Semua nilai sudah direset! Semua siswa kembali jadi Belum Mengerjakan.")
-                time.sleep(0.5)
-                st.rerun()
-    st.write("")
-    if st.button("⬅️ Tutup Daftar Nilai", use_container_width=True):
-        st.session_state["lihat_nilai"]=False; st.rerun()
+    tampilkan_daftar_hasil_nilai()
     st.stop()
 
-# ===== UJIAN =====
 if st.session_state["siswa_pilih"]:
     nama = st.session_state["siswa_pilih"]
-    if st.session_state["login_role"]=="siswa" and nama!=st.session_state["login_nama"]:
+    if st.session_state["login_role"] == "siswa" and nama != st.session_state["login_nama"]:
         st.error("⛔ Kamu hanya boleh ujian atas nama sendiri!")
-        if st.button("Kembali"): st.session_state["siswa_pilih"]=None; st.rerun()
+        if st.button("Kembali"):
+            st.session_state["siswa_pilih"] = None
+            st.rerun()
         st.stop()
-    info = DATA_SISWA.get(nama, {"kategori":"Iqro","level":"Pemula","jk":"-"})
+    info = DATA_SISWA.get(nama, {"kategori": "Iqro", "level": "Pemula", "jk": "-"})
     kat = info["kategori"]
     if st.session_state["waktu_mulai"] is None:
-        sesi_tersimpan = ambil_sesi_ujian(nama)
-        if sesi_tersimpan:
-            st.session_state["waktu_mulai"] = sesi_tersimpan[0]
-            st.session_state["seed_acak"] = sesi_tersimpan[1]
-        else:
-            st.session_state["waktu_mulai"] = time.time()
-            simpan_sesi_ujian(nama, st.session_state["waktu_mulai"], st.session_state["seed_acak"])
-    sisa = DURASI_UJIAN - (time.time()-st.session_state["waktu_mulai"])
-    if sisa<=0: sisa=0; st.session_state["waktu_habis"]=True
-    if not st.session_state["ujian_selesai"] and st_autorefresh:
-        st_autorefresh(interval=1000, key="timer_refresh")
-    menit=int(sisa//60); detik=int(sisa%60)
-    st.markdown(f"<div style='background-color: rgba(20,50,35,0.92); padding:20px; border-radius:15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>Assalamualaikum, {nama} 👋</h2><p style='color:white;'>Kelas: {kat} | Soal: 25 | Nilai: Benar x 4 | Waktu: 10 Menit | KKM: 75 | Sisa: {menit:02d}:{detik:02d}</p></div>", unsafe_allow_html=True)
+        st.session_state["waktu_mulai"] = time.time()
+    sisa_detik = DURASI_UJIAN - (time.time() - st.session_state["waktu_mulai"])
+    if sisa_detik <= 0:
+        sisa_detik = 0
+        st.session_state["waktu_habis"] = True
+    jml_percobaan = st.session_state["hitung_ulang"].get(nama, 0)
+    st.markdown(f"<div style='background-color: rgba(20,50,35,0.92); padding:20px; border-radius:15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>Assalamualaikum, {nama} 👋</h2><p style='color:white;'>Kelas: {kat} | Level: {info['level']} | Soal: 25 Soal | Nilai: Benar x 4 | Waktu: 10 Menit | KKM: 75 | Percobaan ke-{jml_percobaan + 1 if not st.session_state['ujian_selesai'] else jml_percobaan}</p></div>", unsafe_allow_html=True)
     if not st.session_state["ujian_selesai"]:
-        st.warning("🔒 Jangan tutup tab saat ujian! Jawabanmu tersimpan otomatis di sesi ini.")
-    if st.session_state["soal_acak"] is None or st.session_state["kat_acak"]!=kat:
-        soal_list, kunci = buat_soal_acak(kat, st.session_state["seed_acak"])
-        st.session_state["soal_acak"]=soal_list; st.session_state["kunci_acak"]=kunci; st.session_state["kat_acak"]=kat
-    else:
-        soal_list=st.session_state["soal_acak"]; kunci=st.session_state["kunci_acak"]
+        st.warning("🔒 UJIAN BERLANGSUNG - Jangan refresh atau menutup tab. Sisa waktu dihitung oleh server; jawaban yang tersimpan di sesi akan dinilai saat waktu habis.")
+        st_autorefresh(interval=1000, key=f"qori_timer_{nama}_{st.session_state['seed_acak']}")
+    tampilkan_timer(sisa_detik)
     if st.session_state["waktu_habis"] and not st.session_state["ujian_selesai"]:
-        benar=0
-        for i in range(25):
-            pilih = st.session_state["jawaban_tersimpan"].get(i)
-            if pilih and pilih[0]==kunci[i]: benar+=1
-        nilai=int((benar/25)*100)
-        st.session_state["ujian_selesai"]=True; st.session_state["hasil_ujian"]={"benar":benar,"nilai":nilai}
-        simpan_hasil(nama, nilai); hapus_sesi_ujian(nama); catat_aktivitas(f"Selesai Ujian (Waktu Habis) - Nilai {nilai}"); st.rerun()
+        st.error("⛔ WAKTU HABIS! 10 menit sudah selesai. Silakan klik LIHAT NILAI di bawah.")
+    if st.session_state["ujian_selesai"]:
+        if st.session_state["hasil_ujian"] and st.session_state["hasil_ujian"]["nilai"] < KKM:
+            col_r, col_k = st.columns(2)
+            with col_r:
+                if st.button("🔁 Remedial - Ulangi Lagi Sampai Tuntas", use_container_width=True):
+                    for k in list(st.session_state.keys()):
+                        if k.startswith("soal_"):
+                            del st.session_state[k]
+                    st.session_state["seed_acak"] = st.session_state["seed_acak"] + 1
+                    st.session_state["soal_acak"] = None
+                    st.session_state["waktu_mulai"] = time.time()
+                    st.session_state["waktu_habis"] = False
+                    st.session_state["ujian_selesai"] = False
+                    st.session_state["hasil_ujian"] = None
+                    st.rerun()
+            with col_k:
+                if st.button("🏠 Kembali ke Beranda", use_container_width=True):
+                    st.session_state["siswa_pilih"] = None
+                    st.session_state["soal_acak"] = None
+                    st.session_state["waktu_mulai"] = None
+                    st.session_state["waktu_habis"] = False
+                    st.session_state["ujian_selesai"] = False
+                    st.session_state["hasil_ujian"] = None
+                    st.session_state["kategori_pilih"] = None
+                    try:
+                        st.query_params.clear()
+                    except:
+                        pass
+                    st.rerun()
+        else:
+            if st.button("🏠 Selesai - Kembali ke Beranda", use_container_width=True):
+                st.session_state["siswa_pilih"] = None
+                st.session_state["soal_acak"] = None
+                st.session_state["waktu_mulai"] = None
+                st.session_state["waktu_habis"] = False
+                st.session_state["ujian_selesai"] = False
+                st.session_state["hasil_ujian"] = None
+                st.session_state["kategori_pilih"] = None
+                try:
+                    st.query_params.clear()
+                except:
+                    pass
+                st.rerun()
+    if st.session_state["soal_acak"] is None or st.session_state["kat_acak"] != kat:
+        soal_list, kunci = buat_soal_acak(kat, st.session_state["seed_acak"])
+        st.session_state["soal_acak"] = soal_list
+        st.session_state["kunci_acak"] = kunci
+        st.session_state["kat_acak"] = kat
+    else:
+        soal_list = st.session_state["soal_acak"]
+        kunci = st.session_state["kunci_acak"]
     st.markdown(f"<h2 style='color:white; background-color: rgba(0,0,0,0.65); padding:10px; border-radius:10px; text-align:center;'>📝 Soal {kat} - Kelas XI MA</h2>", unsafe_allow_html=True)
-    jawaban=[]
-    for i,(soal,opsi) in enumerate(soal_list):
-        st.markdown(f"<div style='background-color: rgba(0,0,0,0.65); padding:12px; border-radius:10px;'><p style='color:white; font-weight:bold; font-size:17px; margin:0;'>{i+1}. {soal}</p></div>", unsafe_allow_html=True)
-        idx_default = opsi.index(st.session_state["jawaban_tersimpan"][i]) if i in st.session_state["jawaban_tersimpan"] and st.session_state["jawaban_tersimpan"][i] in opsi else None
-        pilih = st.radio(f"Pilih jawaban No.{i+1}", opsi, key=f"soal_{kat}_{st.session_state['seed_acak']}_{i}", index=idx_default, disabled=st.session_state["ujian_selesai"])
-        if pilih: st.session_state["jawaban_tersimpan"][i]=pilih
-        jawaban.append(pilih)
+    st.markdown("<p style='color:white; background-color: rgba(0,0,0,0.65); padding:8px; border-radius:10px; text-align:center;'>Jawab semua soal, lalu klik LIHAT NILAI di bawah.</p>", unsafe_allow_html=True)
+    jawaban_siswa = []
+    seed = st.session_state["seed_acak"]
+    kunci_input = st.session_state["ujian_selesai"]
+    for i, (soal, opsi) in enumerate(soal_list):
+        st.markdown(f"<div style='background-color: rgba(0,0,0,0.65); padding:12px; border-radius:10px; margin-bottom:5px;'><p style='color:white; font-weight:bold; font-size:17px; margin:0;'>{i+1}. {soal}</p></div>", unsafe_allow_html=True)
+        pilih = st.radio(f"Pilih jawaban No.{i+1}", opsi, key=f"soal_{kat}_{seed}_{i}", index=None, disabled=(kunci_input or st.session_state["waktu_habis"]))
+        jawaban_siswa.append(pilih)
+
+    def proses_simpan_nilai(jawaban, kunci_jawaban):
+        benar = sum(1 for i, pilihan in enumerate(jawaban)
+                    if pilihan and pilihan[0] == kunci_jawaban[i])
+        nilai_hitung = int(round((benar / len(kunci_jawaban)) * 100))
+        st.session_state["ujian_selesai"] = True
+        st.session_state["waktu_habis"] = True if time.time() - st.session_state["waktu_mulai"] >= DURASI_UJIAN else st.session_state["waktu_habis"]
+        st.session_state["hasil_ujian"] = {"benar": benar, "nilai": nilai_hitung}
+        st.session_state["hasil_semua"][nama] = nilai_hitung
+        st.session_state["hitung_ulang"][nama] = st.session_state["hitung_ulang"].get(nama, 0) + 1
+        simpan_hasil_database(nama, kat, nilai_hitung, benar, st.session_state["hitung_ulang"][nama])
+        catat_aktivitas(f"Selesai Ujian - Nilai {nilai_hitung}")
+        try:
+            st.query_params.clear()
+        except Exception:
+            pass
+
+    if st.session_state["waktu_habis"] and not st.session_state["ujian_selesai"]:
+        proses_simpan_nilai(jawaban_siswa, kunci)
+        st.rerun()
+
     if not st.session_state["ujian_selesai"]:
         if st.button("✅ LIHAT NILAI SAYA - SELESAI", use_container_width=True):
-            benar=sum(1 for i,p in enumerate(jawaban) if p and p[0]==kunci[i])
-            nilai=int((benar/25)*100)
-            st.session_state["ujian_selesai"]=True; st.session_state["hasil_ujian"]={"benar":benar,"nilai":nilai}
-            simpan_hasil(nama, nilai); hapus_sesi_ujian(nama); catat_aktivitas(f"Selesai Ujian - Nilai {nilai}"); st.rerun()
+            proses_simpan_nilai(jawaban_siswa, kunci)
+            st.rerun()
     if st.session_state["ujian_selesai"] and st.session_state["hasil_ujian"]:
-        h=st.session_state["hasil_ujian"]; benar=h["benar"]; nilai=h["nilai"]
-        warna="#FF5252" if nilai<KKM else "#FFFFFF"
+        hasil = st.session_state["hasil_ujian"]
+        benar = hasil["benar"]
+        nilai = hasil["nilai"]
+        percobaan = st.session_state["hitung_ulang"].get(nama, 1)
+        warna_n = "#FF5252" if nilai < KKM else "#FFFFFF"
         st.success(f"🎉 HASIL {nama} - Kelas {kat}")
-        st.markdown(f"<div style='background-color: rgba(0,0,0,0.65); padding:15px; border-radius:10px; text-align:center;'><h1 style='color:{warna};'>Nilai: {nilai}</h1><p style='color:white;'>Benar: {benar} / 25 | KKM: 75 | {'❌ Belum Tuntas - Klik Remedial di bawah!' if nilai<KKM else '✅ Tuntas!'}</p><p style='color:white;'>Perhitungan: ({benar} ÷ 25) × 100 = {nilai}</p></div>", unsafe_allow_html=True)
-        if nilai==100: st.balloons()
+        st.markdown(f"<div style='background-color: rgba(0,0,0,0.65); padding:15px; border-radius:10px; text-align:center;'><h1 style='color:{warna_n};'>Nilai: {nilai}</h1><p style='color:white;'>Jawaban Benar: {benar} / 25 | Salah / Kosong: {25-benar} | KKM: 75 | Percobaan ke-{percobaan} | {'❌ Belum Tuntas - Silakan klik Remedial di atas untuk mengulang!' if nilai < KKM else '✅ Tuntas!'}</p><p style='color:white;'>Perhitungan: ({benar} ÷ 25) × 100 = {nilai}</p></div>", unsafe_allow_html=True)
+        if nilai == 100:
+            st.balloons()
+            st.markdown("<p style='color:white;'>MasyaAllah Sempurna! 🌟 Pertahankan ya!</p>", unsafe_allow_html=True)
+        elif nilai >= 80:
+            st.markdown("<p style='color:white;'>Bagus Sekali! Sedikit lagi sempurna. Semangat Muraja'ah! 💪</p>", unsafe_allow_html=True)
+        elif nilai >= 60:
+            st.markdown("<p style='color:white;'>Sudah Bagus! Ayo ulangi yang salah, kamu pasti bisa! 📖</p>", unsafe_allow_html=True)
+        else:
+            st.markdown("<p style='color:white;'>Jangan menyerah! Ayo belajar lagi bersama QORI AI, kamu pasti bisa! 🤲</p>", unsafe_allow_html=True)
         st.markdown("<div style='background-color: rgba(0,0,0,0.65); padding:10px; border-radius:10px;'><p style='color:white; font-weight:bold;'>Pembahasan Kunci Jawaban:</p></div>", unsafe_allow_html=True)
-        for i in range(25): st.markdown(f"<p style='color:white;'>No.{i+1} = {kunci[i]}</p>", unsafe_allow_html=True)
-        col_r,col_k = st.columns(2)
-        with col_r:
-            if nilai<KKM:
-                if st.button("🔁 Remedial - Ulangi Lagi", use_container_width=True):
-                    for k in list(st.session_state.keys()):
-                        if k.startswith("soal_"): del st.session_state[k]
-                    st.session_state["seed_acak"]+=1; st.session_state["soal_acak"]=None; st.session_state["waktu_mulai"]=time.time(); simpan_sesi_ujian(nama, st.session_state["waktu_mulai"], st.session_state["seed_acak"]); st.session_state["waktu_habis"]=False; st.session_state["ujian_selesai"]=False; st.session_state["hasil_ujian"]=None; st.session_state["jawaban_tersimpan"]={}; st.rerun()
-        with col_k:
-            if st.button("🏠 Kembali ke Beranda", use_container_width=True):
-                hapus_sesi_ujian(nama)
-                st.session_state["siswa_pilih"]=None; st.session_state["soal_acak"]=None; st.session_state["waktu_mulai"]=None; st.session_state["waktu_habis"]=False; st.session_state["ujian_selesai"]=False; st.session_state["hasil_ujian"]=None; st.session_state["kategori_pilih"]=None; st.session_state["jawaban_tersimpan"]={}; st.rerun()
+        for i in range(25):
+            st.markdown(f"<p style='color:white;'>No.{i+1} = {kunci[i]}</p>", unsafe_allow_html=True)
     st.stop()
 
-# ===== CHAT QORI AI =====
 if st.session_state["messages"]:
-    for idx,m in enumerate(st.session_state["messages"]):
+    for idx, m in enumerate(st.session_state["messages"]):
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
             if st.button("🗑️ Hapus pesan ini", key=f"hapus_{idx}"):
-                del st.session_state["messages"][idx]; st.rerun()
+                del st.session_state["messages"][idx]
+                st.rerun()
+    st.write("")
     if st.button("🗑️ Hapus Semua Chat", use_container_width=True):
-        st.session_state["messages"]=[]; st.rerun()
-prompt = st.text_input("Tulis pertanyaanmu di sini...", placeholder="Tulis pertanyaanmu di sini... Tanya apa saja ya!", label_visibility="collapsed")
-kirim = st.button("Kirim ➤", use_container_width=True)
-if kirim and prompt:
-    st.session_state.messages.append({"role":"user","content":prompt})
+        st.session_state["messages"] = []
+        st.rerun()
+
+prompt = None
+if prompt_awal:
+    prompt = prompt_awal
+else:
+    prompt = st.text_input("Tulis pertanyaanmu di sini...", placeholder="Tulis pertanyaanmu di sini... Tanya apa saja ya!", label_visibility="collapsed")
+    kirim = st.button("Kirim ➤", use_container_width=True)
+    if not kirim:
+        prompt = None
+
+if prompt:
+    st.session_state.messages.append({"role": "user", "content": prompt})
     catat_aktivitas(f"Tanya AI: {prompt[:40]}")
-    with st.chat_message("user"): st.markdown(prompt)
+    with st.chat_message("user"):
+        st.markdown(prompt)
     with st.chat_message("assistant"):
-        if not api_key: st.markdown("Maaf, API Key belum dipasang di Secrets.")
+        t_lower = prompt.lower()
+        if "mad" in t_lower and ("tobi" in t_lower or "thobi" in t_lower or "thabi" in t_lower or "tobii" in t_lower or "thobii" in t_lower):
+            jawaban = jawaban_mad_thobii()
+            st.markdown(jawaban)
+            st.session_state.messages.append({"role": "assistant", "content": jawaban})
+        elif "an-naba" in t_lower or "an naba" in t_lower or "annaba" in t_lower:
+            jawaban = jawaban_an_naba()
+            st.markdown(jawaban)
+            st.session_state.messages.append({"role": "assistant", "content": jawaban})
+        elif ("hijaiyah" in t_lower or "huruf" in t_lower or "iqro 1" in t_lower or "iqro satu" in t_lower or "iqro dasar" in t_lower):
+            jawaban = jawaban_hijaiyah_iqro1()
+            st.markdown(jawaban)
+            st.session_state.messages.append({"role": "assistant", "content": jawaban})
+        elif not api_key:
+            jawaban = "Maaf, layanan AI belum dikonfigurasi. Silakan hubungi administrator QORI AI."
+            st.markdown(jawaban)
+            st.session_state.messages.append({"role": "assistant", "content": jawaban})
         else:
             try:
-                client=OpenAI(api_key=api_key)
-                riwayat_chat = [m for m in st.session_state["messages"][-20:] if m.get("role") in ("user", "assistant")]
-                res=client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system","content":SYSTEM_PROMPT_KUNCI}] + riwayat_chat, temperature=0.7, max_tokens=800, timeout=45)
-                jawaban=res.choices[0].message.content; st.markdown(jawaban); st.session_state.messages.append({"role":"assistant","content":jawaban})
-            except Exception:
-                st.error("Maaf, QORI AI sedang mengalami gangguan. Silakan coba kembali beberapa saat lagi.")
+                client = OpenAI(api_key=api_key)
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "system", "content": SYSTEM_PROMPT_KUNCI}, {"role": "user", "content": prompt}],
+                    temperature=0.7, max_tokens=800
+                )
+                jawaban = response.choices[0].message.content
+                st.markdown(jawaban)
+                st.session_state.messages.append({"role": "assistant", "content": jawaban})
+            except Exception as e:
+                st.error("Maaf, QORI AI sedang mengalami gangguan. Silakan coba beberapa saat lagi.")
