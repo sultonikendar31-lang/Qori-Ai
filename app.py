@@ -722,15 +722,16 @@ if st.session_state["siswa_pilih"] is None and st.session_state["login_role"] ==
         st.info(f"{jumlah_belum} siswa memperoleh nilai di bawah KKM dan perlu tindak lanjut/remedial.")
 
 
-# ===== MENU GAME QORI AI BERDASARKAN KATEGORI SISWA =====
-st.markdown("### 🎮 Game QORI AI")
+# ===== MENU GAME QORI AI: KHUSUS SISWA =====
+# Akun TIM tidak menampilkan baris Game QORI AI di bagian atas.
+# TIM menggunakan menu kategori di Menu Utama bagian bawah.
 role_login = st.session_state.get("login_role")
 nama_login = st.session_state.get("login_nama", "")
 
-# Gunakan DATA_SISWA sebagai sumber kategori utama agar seluruh 20 nama
-# (termasuk 13 siswa Tahfidz lainnya) otomatis terbaca dengan benar.
+# DATA_SISWA menjadi sumber kategori utama untuk seluruh akun siswa.
 kategori_saya = DATA_SISWA.get(nama_login, {}).get("kategori") if role_login == "siswa" else None
 if role_login == "siswa":
+    st.markdown("### 🎮 Game QORI AI")
     st.session_state["kategori_saya"] = kategori_saya
 
     game_per_kategori = {
@@ -764,77 +765,6 @@ if role_login == "siswa":
                 st.session_state["game_question"] = None
                 st.session_state["game_feedback"] = ""
                 st.rerun()
-
-elif role_login == "tim":
-    st.write("Mode Tim: Semua game tampil")
-
-    # BARIS 1: tiga tombol game utama.
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        if st.button("🔤 Game Iqro'", use_container_width=True, key="tim_game_iqro_utama"):
-            st.session_state["game"] = "iqro"
-            st.session_state["game_session_key"] = None
-            st.session_state["game_index"] = 0
-            st.session_state["game_question"] = None
-            st.session_state["game_feedback"] = ""
-            st.session_state["lihat_nilai_game"] = False
-            st.rerun()
-    with c2:
-        if st.button("📖 Game Tahsin", use_container_width=True, key="tim_game_tahsin_utama"):
-            st.session_state["game"] = "tahsin"
-            st.session_state["game_session_key"] = None
-            st.session_state["game_index"] = 0
-            st.session_state["game_question"] = None
-            st.session_state["game_feedback"] = ""
-            st.session_state["lihat_nilai_game"] = False
-            st.rerun()
-    with c3:
-        if st.button("🧠 Game Tahfidz", use_container_width=True, key="tim_game_tahfidz_utama"):
-            st.session_state["game"] = "tahfidz"
-            st.session_state["game_session_key"] = None
-            st.session_state["game_index"] = 0
-            st.session_state["game_question"] = None
-            st.session_state["game_feedback"] = ""
-            st.session_state["lihat_nilai_game"] = False
-            st.rerun()
-
-    # BARIS 2: tombol kategori dan Daftar Hasil Nilai.
-    d1, d2, d3, d4 = st.columns(4)
-    with d1:
-        if st.button("📖 Iqro", use_container_width=True, key="tim_game_iqro_baris2"):
-            st.session_state["game"] = "iqro"
-            st.session_state["game_session_key"] = None
-            st.session_state["game_index"] = 0
-            st.session_state["game_question"] = None
-            st.session_state["game_feedback"] = ""
-            st.session_state["lihat_nilai_game"] = False
-            st.rerun()
-    with d2:
-        if st.button("📗 Tahsin", use_container_width=True, key="tim_game_tahsin_baris2"):
-            st.session_state["game"] = "tahsin"
-            st.session_state["game_session_key"] = None
-            st.session_state["game_index"] = 0
-            st.session_state["game_question"] = None
-            st.session_state["game_feedback"] = ""
-            st.session_state["lihat_nilai_game"] = False
-            st.rerun()
-    with d3:
-        if st.button("⭐ Tahfidz", use_container_width=True, key="tim_game_tahfidz_baris2"):
-            st.session_state["game"] = "tahfidz"
-            st.session_state["game_session_key"] = None
-            st.session_state["game_index"] = 0
-            st.session_state["game_question"] = None
-            st.session_state["game_feedback"] = ""
-            st.session_state["lihat_nilai_game"] = False
-            st.rerun()
-    with d4:
-        if st.button("📋 Daftar Hasil Nilai", use_container_width=True, key="tim_tombol_daftar_hasil_nilai"):
-            st.session_state["lihat_nilai_game"] = True
-            st.session_state["game"] = None
-            st.session_state["game_question"] = None
-            st.session_state["game_feedback"] = ""
-            st.rerun()
-
 
 # ===== DAFTAR HASIL NILAI GAME: REKAP PER LEVEL 1-6 =====
 if st.session_state.get("lihat_nilai_game", False):
