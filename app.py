@@ -21,6 +21,41 @@ except:
 
 st.set_page_config(page_title="QORI AI", page_icon="🕌", layout="wide")
 
+# ===== PERBAIKI WARNA TULISAN DI KOTAK UPLOAD =====
+st.markdown("""
+<style>
+[data-testid="stFileUploader"] {
+    background-color: #FFFFFF !important;
+    border: 2px solid #1A5C2A !important;
+    border-radius: 12px !important;
+    padding: 12px !important;
+}
+[data-testid="stFileUploader"] * { color: #000000 !important; }
+[data-testid="stFileUploader"] small {
+    color: #333333 !important;
+    font-size: 14px !important;
+}
+[data-testid="stFileUploader"] button {
+    background-color: #1A5C2A !important;
+    color: #FFFFFF !important;
+    border: none !important;
+    font-weight: bold !important;
+    font-size: 16px !important;
+    padding: 8px 20px !important;
+}
+[data-testid="stFileUploaderDropzone"] {
+    background-color: #FFFFFF !important;
+    color: #000000 !important;
+}
+[data-testid="stFileUploaderDropzone"] span { color: #000000 !important; }
+[data-testid="stAlert"] {
+    background-color: #FFF3CD !important;
+    color: #000000 !important;
+}
+[data-testid="stAlert"] * { color: #000000 !important; }
+</style>
+""", unsafe_allow_html=True)
+
 @st.cache_data(ttl=86400, show_spinner=False)
 def ambil_ayat_surat_quran(nomor_surat):
     """Ambil teks Arab lengkap satu surat dari API Al-Quran Cloud dan cache 24 jam."""
@@ -1408,10 +1443,18 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
                     if not st.session_state.get(flag_upload, False):
                         st.markdown("### 🎤 Langkah 1: Baca, lalu upload suara untuk potongan ini")
                         st.caption(f"Rekaman ini khusus untuk {surat_aktif}, {rentang_ayat}.")
+                        st.markdown(
+                            "<div style='background:#FFFFFF; padding:12px; border-radius:12px; border:2px solid #1A5C2A;'>"
+                            "<p style='color:#000000; font-size:16px; font-weight:bold; margin:0;'>🎤 Upload Suara Bacaan (maksimal 5 ayat):</p>"
+                            f"<p style='color:#333333; font-size:14px; margin:0;'>Klik tombol hijau di bawah untuk memilih file MP3 / WAV / M4A. Khusus untuk {html.escape(surat_aktif)}, {html.escape(rentang_ayat)}.</p>"
+                            "</div>",
+                            unsafe_allow_html=True,
+                        )
                         audio_potong = st.file_uploader(
-                            "📤 Upload Suara Bacaan (maksimal 5 ayat):",
+                            "Pilih file suara di sini:",
                             type=["mp3", "wav", "m4a", "ogg", "webm", "opus", "aac"],
                             key=f"uploader_potong_{kunci_potong}",
+                            label_visibility="collapsed",
                         )
                         if audio_potong:
                             st.audio(audio_potong)
@@ -1505,11 +1548,21 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
             st.session_state[flag_iqro] = True
         st.markdown(f"### 📖 {judul_iqro}")
         st.info("Baca halaman yang sedang dipelajari dari buku Iqro, kemudian upload rekaman khusus halaman ini.")
-        audio_iqro = st.file_uploader(
-            f"📤 Upload suara {judul_iqro}:",
-            type=["mp3", "wav", "m4a", "ogg", "webm", "opus", "aac"],
-            key=f"uploader_{kunci_iqro}",
-        ) if not st.session_state.get(flag_iqro, False) else None
+        if not st.session_state.get(flag_iqro, False):
+            st.markdown(
+                f"<div style='background:#FFFFFF; padding:12px; border-radius:12px; border:2px solid #1A5C2A;'>"
+                f"<p style='color:#000000; font-size:16px; font-weight:bold; margin:0;'>🎤 Upload Suara Bacaan Iqro:</p>"
+                f"<p style='color:#333333; font-size:14px; margin:0;'>Pilih rekaman untuk {html.escape(judul_iqro)}.</p></div>",
+                unsafe_allow_html=True,
+            )
+            audio_iqro = st.file_uploader(
+                "Pilih file suara di sini:",
+                type=["mp3", "wav", "m4a", "ogg", "webm", "opus", "aac"],
+                key=f"uploader_{kunci_iqro}",
+                label_visibility="collapsed",
+            )
+        else:
+            audio_iqro = None
         if st.session_state.get(flag_iqro, False):
             st.success(f"✅ Rekaman {judul_iqro} sudah tersimpan di Daftar Setoran.")
         elif audio_iqro:
