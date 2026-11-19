@@ -29,6 +29,11 @@ def db():
     c.execute("CREATE TABLE IF NOT EXISTS aktivitas (id INTEGER PRIMARY KEY AUTOINCREMENT, nama TEXT, kelas TEXT, aktivitas TEXT, jam TEXT, lama TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS saran (id INTEGER PRIMARY KEY AUTOINCREMENT, pengirim TEXT, label TEXT, role TEXT, jenis TEXT, isi TEXT, jam TEXT, balasan TEXT, pembalas TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS ujian_sesi (nama TEXT PRIMARY KEY, mulai REAL NOT NULL, seed INTEGER NOT NULL)")
+    c.execute("""CREATE TABLE IF NOT EXISTS game_scores (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nama TEXT NOT NULL, kelas TEXT NOT NULL, game TEXT NOT NULL,
+        skor INTEGER NOT NULL, jam TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""")
     c.execute("""CREATE TABLE IF NOT EXISTS setoran (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         pengirim TEXT, label TEXT, kategori TEXT, judul TEXT, keterangan TEXT,
@@ -68,6 +73,26 @@ def hapus_riwayat_satu(nama):
 def reset_semua_riwayat():
     CONN.execute("DELETE FROM aktivitas")
     CONN.commit()
+
+def simpan_skor_game(nama, kelas, game, skor):
+    CONN.execute(
+        "INSERT INTO game_scores(nama,kelas,game,skor,jam) VALUES(?,?,?,?,datetime('now','localtime'))",
+        (nama, kelas, game, skor)
+    )
+    CONN.commit()
+
+def get_leaderboard():
+    rows = CONN.execute("""
+        SELECT nama, kelas, SUM(skor), COUNT(*), GROUP_CONCAT(game, ', ')
+        FROM game_scores GROUP BY nama, kelas
+        ORDER BY SUM(skor) DESC, COUNT(*) DESC, nama ASC
+    """).fetchall()
+    return [{"nama":r[0],"kelas":r[1],"total":r[2],"jumlah_main":r[3],"game":r[4] or "-"} for r in rows]
+
+def reset_leaderboard():
+    CONN.execute("DELETE FROM game_scores")
+    CONN.commit()
+
 def get_saran():
     return [{"id":r[0],"pengirim":r[1],"label":r[2],"role":r[3],"jenis":r[4],"isi":r[5],"jam":r[6],"balasan":r[7] or "","pembalas":r[8] or ""} for r in CONN.execute("SELECT id,pengirim,label,role,jenis,isi,jam,balasan,pembalas FROM saran ORDER BY id DESC")]
 def tambah_saran(pengirim, label, role, jenis, isi, jam):
@@ -203,7 +228,7 @@ DATA_SISWA = {
     "IMAM MANSYUR IBNU HULKAN": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki"},
 }
 
-for k, v in [("login_nama",None),("login_role",None),("login_jabatan",None),("kategori_pilih",None),("messages",[]),("siswa_pilih",None),("seed_acak",1),("soal_acak",None),("kunci_acak",None),("kat_acak",None),("waktu_mulai",None),("waktu_habis",False),("ujian_selesai",False),("hasil_ujian",None),("lihat_nilai",False),("lihat_riwayat",False),("lihat_saran",False),("lihat_setoran",False),("lihat_baca",False),("lihat_video",True),("waktu_login",None),("sudah_catat_masuk",False),("jawaban_tersimpan",{}),("login_error",""),("login_error_time",0)]:
+for k, v in [("login_nama",None),("login_role",None),("login_jabatan",None),("kategori_pilih",None),("messages",[]),("siswa_pilih",None),("seed_acak",1),("soal_acak",None),("kunci_acak",None),("kat_acak",None),("waktu_mulai",None),("waktu_habis",False),("ujian_selesai",False),("hasil_ujian",None),("lihat_nilai",False),("lihat_riwayat",False),("lihat_saran",False),("lihat_setoran",False),("lihat_baca",False),("lihat_video",True),("waktu_login",None),("sudah_catat_masuk",False),("jawaban_tersimpan",{}),("login_error",""),("login_error_time",0),("game",None),("game_question",None),("game_feedback",""),("game_question_no",0)]:
     if k not in st.session_state:
         st.session_state[k] = v
 
@@ -338,6 +363,127 @@ else:
     nama_tim = NAMA_LENGKAP_TIM.get(st.session_state["login_nama"], st.session_state["login_nama"])
     teks_selamat = f"👤 Selamat datang, {nama_tim} | {jabatan_tim}"
 st.markdown(f"<div style='background-color: rgba(0,0,0,0.6); padding:10px; border-radius:10px; text-align:center; margin-top:10px;'><b style='color:white;'>{teks_selamat}</b></div>", unsafe_allow_html=True)
+
+# ===== MENU GAME QORI AI =====
+st.markdown("### 🎮 Game QORI AI")
+game_col1, game_col2, game_col3 = st.columns(3)
+with game_col1:
+    if st.button("🔤 Game Iqro'", use_container_width=True):
+        st.session_state["game"] = "iqro"
+        st.session_state["game_question"] = None
+        st.session_state["game_feedback"] = ""
+        st.rerun()
+with game_col2:
+    if st.button("📖 Game Tahsin", use_container_width=True):
+        st.session_state["game"] = "tahsin"
+        st.session_state["game_question"] = None
+        st.session_state["game_feedback"] = ""
+        st.rerun()
+with game_col3:
+    if st.button("🧠 Game Tahfidz", use_container_width=True):
+        st.session_state["game"] = "tahfidz"
+        st.session_state["game_question"] = None
+        st.session_state["game_feedback"] = ""
+        st.rerun()
+
+# ===== HALAMAN GAME QORI AI =====
+if st.session_state.get("game"):
+    game_key = st.session_state["game"]
+    if game_key == "iqro":
+        st.markdown("## 🔤 Game Iqro' - Tebak Huruf Hijaiyah")
+        bank = [
+            ("ا","Alif"),("ب","Ba"),("ت","Ta"),("ث","Tsa"),("ج","Jim"),
+            ("ح","Ha"),("خ","Kho"),("د","Dal"),("ذ","Dzal"),("ر","Ro"),
+            ("ز","Za"),("س","Sin"),("ش","Syin"),("ص","Shod"),("ض","Dhod"),
+            ("ط","Tho"),("ظ","Zho"),("ع","Ain"),("غ","Ghoin"),("ف","Fa"),
+            ("ق","Qof"),("ك","Kaf"),("ل","Lam"),("م","Mim"),("ن","Nun"),
+            ("و","Wau"),("ه","Ha"),("ء","Hamzah"),("ي","Ya")
+        ]
+        judul_game = "Game Iqro'"
+    elif game_key == "tahsin":
+        st.markdown("## 📖 Game Tahsin - Tebak Hukum Tajwid")
+        bank = [
+            ("مِنْ شَرِّ","Ikhfa",["Idgham","Ikhfa","Iqlab"]),
+            ("مِنْ بَعْدِ","Iqlab",["Ikhfa","Iqlab","Izhar"]),
+            ("مَنْ آمَنَ","Izhar",["Ikhfa","Izhar","Idgham"]),
+            ("مِنْ رَبِّهِمْ","Idgham Bilaghunnah",["Idgham Bilaghunnah","Iqlab","Ikhfa"])
+        ]
+        judul_game = "Game Tahsin"
+    else:
+        st.markdown("## 🧠 Game Tahfidz - Sambung Ayat")
+        bank = [
+            ("قُلْ هُوَ اللَّهُ أَحَدٌ","اللَّهُ الصَّمَدُ",["لَمْ يَلِدْ","اللَّهُ الصَّمَدُ","وَلَمْ يُولَدْ"]),
+            ("وَالْعَصْرِ","إِنَّ الْإِنْسَانَ لَفِي خُسْرٍ",["وَتَوَاصَوْا بِالْحَقِّ","إِنَّ الْإِنْسَانَ لَفِي خُسْرٍ","إِلَّا الَّذِينَ آمَنُوا"]),
+            ("إِنَّا أَعْطَيْنَاكَ الْكَوْثَرَ","فَصَلِّ لِرَبِّكَ وَانْحَرْ",["إِنَّ شَانِئَكَ","فَصَلِّ لِرَبِّكَ وَانْحَرْ","وَالْعَصْرِ"])
+        ]
+        judul_game = "Game Tahfidz"
+
+    if st.session_state.get("game_question") is None:
+        item = random.choice(bank)
+        if game_key == "iqro":
+            prompt_game, jawaban_benar = item
+            pilihan_game = random.sample([x[1] for x in bank], 3)
+            if jawaban_benar not in pilihan_game:
+                pilihan_game[random.randrange(3)] = jawaban_benar
+        else:
+            prompt_game, jawaban_benar, pilihan_asli = item
+            pilihan_game = list(pilihan_asli)
+        random.shuffle(pilihan_game)
+        st.session_state["game_question"] = {
+            "prompt":prompt_game, "answer":jawaban_benar, "options":pilihan_game
+        }
+        st.session_state["game_question_no"] += 1
+        st.session_state["game_feedback"] = ""
+
+    q = st.session_state["game_question"]
+    if game_key == "iqro":
+        st.markdown(
+            f"<div style='background:white;color:#111;padding:28px;border-radius:15px;text-align:center;font-size:100px;'>{q['prompt']}</div>",
+            unsafe_allow_html=True
+        )
+        st.write("Apa nama huruf hijaiyah di atas?")
+    else:
+        st.markdown(
+            f"<div style='background:white;color:#111;padding:22px;border-radius:15px;text-align:center;font-size:34px;direction:rtl;'>{q['prompt']}{' ... ؟' if game_key == 'tahfidz' else ''}</div>",
+            unsafe_allow_html=True
+        )
+        st.write("Apa hukum tajwid dari lafaz di atas?" if game_key == "tahsin" else "Apa lanjutan ayat yang benar?")
+
+    if st.session_state.get("game_feedback"):
+        st.info(st.session_state["game_feedback"])
+
+    for idx, opsi_jawaban in enumerate(q["options"]):
+        if st.button(opsi_jawaban, key=f"game_{game_key}_{st.session_state['game_question_no']}_{idx}", use_container_width=True):
+            if opsi_jawaban == q["answer"]:
+                nama_login = st.session_state.get("login_nama") or "Pengguna"
+                kelas_login = DATA_SISWA.get(nama_login, {}).get("kategori", st.session_state.get("login_jabatan", "Tim"))
+                simpan_skor_game(nama_login, kelas_login, judul_game, 10)
+                st.session_state["game_feedback"] = "Benar! MasyaAllah. Kamu mendapat 10 poin."
+                st.session_state["game_question"] = None
+                st.rerun()
+            else:
+                st.session_state["game_feedback"] = "Belum tepat. Coba lagi, perhatikan pilihan jawabannya."
+                st.rerun()
+
+    total_skor = CONN.execute(
+        "SELECT COALESCE(SUM(skor),0) FROM game_scores WHERE nama=?",
+        (st.session_state.get("login_nama") or "",)
+    ).fetchone()[0]
+    st.metric("⭐ Total Skor Kamu", total_skor)
+    col_next, col_close = st.columns(2)
+    with col_next:
+        if st.button("🔄 Soal Baru", use_container_width=True):
+            st.session_state["game_question"] = None
+            st.session_state["game_feedback"] = ""
+            st.rerun()
+    with col_close:
+        if st.button("❌ Tutup Game", use_container_width=True):
+            st.session_state["game"] = None
+            st.session_state["game_question"] = None
+            st.session_state["game_feedback"] = ""
+            st.rerun()
+    st.stop()
+
 
 if st.session_state["login_role"] == "siswa" and not st.session_state["sudah_catat_masuk"]:
     st.session_state["sudah_catat_masuk"] = True
@@ -724,6 +870,37 @@ if st.session_state.get("lihat_riwayat") and st.session_state["siswa_pilih"] is 
         for i,r in enumerate(riw,1):
             rows+=f"<tr><td style='padding:10px; text-align:center; color:white;'>{i}</td><td style='padding:10px; color:white; font-weight:bold;'>{html.escape(str(r['nama']))}</td><td style='padding:10px; text-align:center; color:white;'>{html.escape(str(r['kelas']))}</td><td style='padding:10px; color:white;'>{html.escape(str(r['aktivitas']))}</td><td style='padding:10px; text-align:center; color:white;'>{html.escape(str(r['jam']))}</td><td style='padding:10px; text-align:center; color:#F9D423;'>{html.escape(str(r['lama']))}</td></tr>"
         st.markdown(f"<div style='background-color: rgba(0,0,0,0.75); padding:15px; border-radius:15px;'><table style='width:100%;'><tr style='background-color:#F9D423;'><th style='padding:10px; color:#000;'>No</th><th style='padding:10px; color:#000;'>Nama</th><th style='padding:10px; color:#000;'>Kelas</th><th style='padding:10px; color:#000;'>Buka Apa</th><th style='padding:10px; color:#000;'>Jam</th><th style='padding:10px; color:#000;'>Lama</th></tr>{rows}</table></div>", unsafe_allow_html=True)
+
+    st.markdown("### 🏆 Leaderboard Game QORI AI")
+    leaderboard = get_leaderboard()
+    if not leaderboard:
+        st.info("Belum ada siswa yang bermain game.")
+    else:
+        rows_lb = ""
+        for peringkat, data_lb in enumerate(leaderboard[:10], 1):
+            medal = "🥇" if peringkat == 1 else "🥈" if peringkat == 2 else "🥉" if peringkat == 3 else str(peringkat)
+            rows_lb += (
+                f"<tr><td style='padding:10px;text-align:center;color:white;'>{medal}</td>"
+                f"<td style='padding:10px;color:white;font-weight:bold;'>{html.escape(str(data_lb['nama']))}</td>"
+                f"<td style='padding:10px;text-align:center;color:white;'>{html.escape(str(data_lb['kelas']))}</td>"
+                f"<td style='padding:10px;text-align:center;color:white;'>{html.escape(str(data_lb['game']))}</td>"
+                f"<td style='padding:10px;text-align:center;color:#F9D423;font-weight:bold;'>{data_lb['total']}</td>"
+                f"<td style='padding:10px;text-align:center;color:white;'>{data_lb['jumlah_main']}</td></tr>"
+            )
+        st.markdown(
+            f"<div style='background-color:rgba(0,0,0,0.75);padding:15px;border-radius:15px;overflow-x:auto;'>"
+            f"<table style='width:100%;'><tr style='background-color:#F9D423;'>"
+            f"<th style='padding:10px;color:#000;'>Rank</th><th style='padding:10px;color:#000;'>Nama</th>"
+            f"<th style='padding:10px;color:#000;'>Kelas</th><th style='padding:10px;color:#000;'>Game</th>"
+            f"<th style='padding:10px;color:#000;'>Total Skor</th><th style='padding:10px;color:#000;'>Jumlah Main</th>"
+            f"</tr>{rows_lb}</table></div>", unsafe_allow_html=True
+        )
+    if st.session_state["login_role"] == "tim":
+        if st.button("🔄 Reset Leaderboard Game (Khusus Tim)"):
+            reset_leaderboard()
+            st.success("Leaderboard game berhasil direset.")
+            st.rerun()
+
     if st.session_state["login_role"] == "tim":
         st.write("")
         st.markdown("<div style='background-color: rgba(120,20,20,0.9); padding:18px; border-radius:15px; text-align:center; border:2px solid #FF5252;'><h3 style='color:#FFFFFF; margin:0;'>🔄 Reset Riwayat (Khusus Tim)</h3><p style='color:white; font-size:13px; margin:6px 0 0 0;'>Hati-hati! Riwayat yang sudah dihapus tidak bisa dikembalikan.</p></div>", unsafe_allow_html=True)
