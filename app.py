@@ -28,7 +28,6 @@ CONN = db()
 def get_hasil():
     return {r[0]: r[1] for r in CONN.execute("SELECT nama,nilai FROM hasil")}
 def get_ulang():
-    # FIX: SELECT cuma 2 kolom, jadi pakai r[1] bukan r[2]
     return {r[0]: r[1] for r in CONN.execute("SELECT nama,ulang FROM hasil")}
 def simpan_hasil(nama, nilai):
     cur = CONN.execute("SELECT ulang FROM hasil WHERE nama=?", (nama,))
@@ -99,12 +98,17 @@ KKM = 75
 prompt_awal = None
 SYSTEM_PROMPT_KUNCI = "Kamu adalah QORI AI, guru yang ramah dan pintar untuk anak Madrasah Aliyah Al-Barokah. Kamu BEBAS menjawab pertanyaan apa saja: Iqro, Tahsin, Tahfidz, pelajaran sekolah, agama, umum. Jawab Bahasa Indonesia mudah, sopan, islami. Kalau menyebut huruf hijaiyah, WAJIB format: 1. Alif (ا) - dibaca \"A\"."
 
+# ===== REVISI PASSWORD: TIM = 123, SISWA = 321 =====
 def cek_password(nama, password_input):
     pw_dict = st.secrets.get("USER_PASSWORDS", {})
-    if not pw_dict:
-        return hashlib.sha256(password_input.encode()).hexdigest() == hashlib.sha256("qori123".encode()).hexdigest()
-    hash_tersimpan = pw_dict.get(nama, "")
-    return hashlib.sha256(password_input.encode()).hexdigest() == hash_tersimpan
+    # Kalau Secrets sudah diisi untuk nama ini, pakai Secrets dulu
+    if pw_dict and nama in pw_dict:
+        return hashlib.sha256(password_input.encode()).hexdigest() == pw_dict[nama]
+    # Kalau Secrets belum diisi, pakai aturan baru:
+    if nama in TIM_PENYUSUN:
+        return password_input == "123"
+    else:
+        return password_input == "321"
 
 def catat_aktivitas(aktivitas):
     if st.session_state.get("login_role") != "siswa": return
@@ -150,20 +154,18 @@ if st.session_state["login_nama"] is None:
             st.session_state["lihat_video"] = False
             st.rerun()
         st.write("")
-    st.markdown("""<div style='background-color: rgba(255,255,255,0.12); border: 1.5px solid #F9D423; padding: 20px; border-radius: 15px; margin-top: 15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>🔐 Silakan Masukkan Nama & Password</h2><p style='color:white; margin-top:8px;'>Untuk masuk ke QORI AI</p></div>""", unsafe_allow_html=True)
+    st.markdown("""<div style='background-color: rgba(255,255,255,0.12); border: 1.5px solid #F9D423; padding: 20px; border-radius: 15px; margin-top: 15px; text-align:center;'><h2 style='color:#F9D423; margin:0;'>🔐 Silakan Masukkan Nama & Password</h2><p style='color:white; margin-top:8px;'>Tim: password 123 | Siswa: password 321</p></div>""", unsafe_allow_html=True)
     st.write("")
     nama_input = st.text_input("✍️ Nama Lengkap:", placeholder="Tulis nama lengkapmu...", key="input_nama_login")
-    pw_input = st.text_input("🔑 Password:", type="password", placeholder="Masukkan passwordmu...", key="input_pw_login")
+    pw_input = st.text_input("🔑 Password:", type="password", placeholder="Tim: 123 | Siswa: 321", key="input_pw_login")
     if st.button("🚪 Masuk ke QORI AI", use_container_width=True):
         nama_bersih = nama_input.strip().upper()
         if not nama_bersih or not pw_input:
             st.warning("⚠️ Nama & Password harus diisi!")
         elif nama_bersih in TIM_PENYUSUN or nama_bersih in DATA_SISWA:
             if not cek_password(nama_bersih, pw_input):
-                st.error("❌ Password salah! Tanya ke guru / tim kalau lupa.")
+                st.error("❌ Password salah! Tim pakai 123, Siswa pakai 321.")
             else:
-                # FIX BARIS 168: JANGAN pakai .get() + f-string DATA_SISWA di default-nya
-                # Karena f-string itu tetap dihitung walau namanya tim, jadi KeyError
                 st.session_state["login_nama"] = nama_bersih
                 if nama_bersih in TIM_PENYUSUN:
                     st.session_state["login_role"] = "tim"
@@ -218,7 +220,7 @@ if st.session_state["siswa_pilih"] is None and st.session_state["login_role"] ==
     tampilkan_tim_pembuat()
 st.write("")
 
-# ===== DATA SOAL - LENGKAP, JANGAN DIKOSONGIN LAGI =====
+# ===== DATA SOAL =====
 KUNCI = {
     "Iqro": ["C","C","B","A","C","B","A","B","C","C","B","C","C","C","B","B","S","B","B","B","B","S","B","S","B"],
     "Tahsin": ["C","C","B","D","D","B","C","B","B","A","B","C","B","C","C","B","B","S","B","B","B","S","B","B","S"],
