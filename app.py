@@ -436,7 +436,28 @@ if st.session_state.get("game"):
         5: ("Lanjutan", "Pengecoh lebih beragam dengan 5 pilihan."),
         6: ("Mahir", "Tantangan tertinggi dengan konteks lebih sedikit dan hingga 6 pilihan."),
     }
-    pilihan_level = [f"Level {i} – {LEVEL_GAME[i][0]}" for i in range(1, 7)]
+    # Untuk siswa, level dibuka berurutan: level berikutnya baru tersedia
+    # setelah level sebelumnya selesai. Level yang sudah selesai tetap dapat diulang.
+    if st.session_state.get("login_role") == "siswa":
+        nama_progres = st.session_state.get("login_nama", "")
+        kategori_progres = DATA_SISWA.get(nama_progres, {}).get("kategori", "")
+        nama_game_progres = {"iqro": "Game Iqro'", "tahsin": "Game Tahsin", "tahfidz": "Game Tahfidz"}.get(game_key)
+        level_tersimpan = set()
+        if nama_game_progres and kategori_progres:
+            level_tersimpan = {
+                int(row[0]) for row in CONN.execute(
+                    "SELECT DISTINCT level FROM game_attempts WHERE nama=? AND game=?",
+                    (nama_progres, nama_game_progres)
+                ).fetchall()
+            }
+        level_berikutnya = next((i for i in range(1, 7) if i not in level_tersimpan), 6)
+        level_maksimal_dibuka = 6 if len(level_tersimpan) == 6 else level_berikutnya
+        level_tersedia = [i for i in range(1, level_maksimal_dibuka + 1)]
+        st.caption(f"Progres kamu: {len(level_tersimpan)} dari 6 tingkatan selesai. Selesaikan secara berurutan.")
+    else:
+        level_tersedia = list(range(1, 7))
+
+    pilihan_level = [f"Level {i} – {LEVEL_GAME[i][0]}" for i in level_tersedia]
     level_label = st.selectbox(
         "Pilih tingkat kesulitan",
         pilihan_level,
@@ -573,6 +594,13 @@ if st.session_state.get("game"):
         st.success("🎉 MasyaAllah! Kamu telah menyelesaikan 25 soal.")
         st.metric("Skor sesi ini", st.session_state.get("game_session_score", 0))
         st.write("Skor maksimal: 250 poin.")
+        if st.session_state.get("login_role") == "siswa":
+            st.success(f"Nilai kamu untuk sesi ini: {st.session_state.get('game_session_score', 0)} / 250")
+            if st.button("📋 Lihat Nilai Saya", use_container_width=True, key="lihat_nilai_saya_setelah_game"):
+                st.session_state["lihat_nilai_game"] = True
+                st.session_state["game"] = None
+                st.session_state["game_question"] = None
+                st.rerun()
         if st.button("🔁 Main Lagi (25 Soal Baru)", use_container_width=True):
             st.session_state["game_questions"] = random.sample(bank_level, jumlah_soal)
             st.session_state["game_index"] = 0
@@ -711,19 +739,24 @@ if role_login == "siswa":
         game_key_siswa, label_game_siswa, label_kategori_siswa = konfigurasi_siswa
         st.caption(f"Akses siswa dibatasi: hanya **Game {kategori_saya}** yang ditampilkan untuk akun kamu.")
 
-        # Siswa hanya melihat dua tombol milik kategorinya sendiri.
-        if st.button(label_game_siswa, use_container_width=True, key="tombol_game_siswa_utama"):
-            st.session_state["game"] = game_key_siswa
-            st.session_state["game_question"] = None
-            st.session_state["game_feedback"] = ""
-            st.session_state["lihat_nilai_game"] = False
-            st.rerun()
-        if st.button(label_kategori_siswa, use_container_width=True, key="tombol_game_siswa_kategori"):
-            st.session_state["game"] = game_key_siswa
-            st.session_state["game_question"] = None
-            st.session_state["game_feedback"] = ""
-            st.session_state["lihat_nilai_game"] = False
-            st.rerun()
+        # Siswa hanya melihat game kategorinya sendiri dan daftar nilainya sendiri.
+        tombol_game, tombol_nilai = st.columns(2)
+        with tombol_game:
+            if st.button(label_kategori_siswa, use_container_width=True, key="tombol_game_siswa_kategori"):
+                st.session_state["game"] = game_key_siswa
+                st.session_state["game_session_key"] = None
+                st.session_state["game_index"] = 0
+                st.session_state["game_question"] = None
+                st.session_state["game_feedback"] = ""
+                st.session_state["lihat_nilai_game"] = False
+                st.rerun()
+        with tombol_nilai:
+            if st.button("📋 Daftar Hasil Nilai", use_container_width=True, key="tombol_nilai_game_siswa"):
+                st.session_state["lihat_nilai_game"] = True
+                st.session_state["game"] = None
+                st.session_state["game_question"] = None
+                st.session_state["game_feedback"] = ""
+                st.rerun()
 
 elif role_login == "tim":
     st.write("Mode Tim: Semua game tampil")
@@ -733,6 +766,8 @@ elif role_login == "tim":
     with c1:
         if st.button("🔤 Game Iqro'", use_container_width=True, key="tim_game_iqro_utama"):
             st.session_state["game"] = "iqro"
+            st.session_state["game_session_key"] = None
+            st.session_state["game_index"] = 0
             st.session_state["game_question"] = None
             st.session_state["game_feedback"] = ""
             st.session_state["lihat_nilai_game"] = False
@@ -740,6 +775,8 @@ elif role_login == "tim":
     with c2:
         if st.button("📖 Game Tahsin", use_container_width=True, key="tim_game_tahsin_utama"):
             st.session_state["game"] = "tahsin"
+            st.session_state["game_session_key"] = None
+            st.session_state["game_index"] = 0
             st.session_state["game_question"] = None
             st.session_state["game_feedback"] = ""
             st.session_state["lihat_nilai_game"] = False
@@ -747,6 +784,8 @@ elif role_login == "tim":
     with c3:
         if st.button("🧠 Game Tahfidz", use_container_width=True, key="tim_game_tahfidz_utama"):
             st.session_state["game"] = "tahfidz"
+            st.session_state["game_session_key"] = None
+            st.session_state["game_index"] = 0
             st.session_state["game_question"] = None
             st.session_state["game_feedback"] = ""
             st.session_state["lihat_nilai_game"] = False
@@ -757,6 +796,8 @@ elif role_login == "tim":
     with d1:
         if st.button("📖 Iqro", use_container_width=True, key="tim_game_iqro_baris2"):
             st.session_state["game"] = "iqro"
+            st.session_state["game_session_key"] = None
+            st.session_state["game_index"] = 0
             st.session_state["game_question"] = None
             st.session_state["game_feedback"] = ""
             st.session_state["lihat_nilai_game"] = False
@@ -764,6 +805,8 @@ elif role_login == "tim":
     with d2:
         if st.button("📗 Tahsin", use_container_width=True, key="tim_game_tahsin_baris2"):
             st.session_state["game"] = "tahsin"
+            st.session_state["game_session_key"] = None
+            st.session_state["game_index"] = 0
             st.session_state["game_question"] = None
             st.session_state["game_feedback"] = ""
             st.session_state["lihat_nilai_game"] = False
@@ -771,6 +814,8 @@ elif role_login == "tim":
     with d3:
         if st.button("⭐ Tahfidz", use_container_width=True, key="tim_game_tahfidz_baris2"):
             st.session_state["game"] = "tahfidz"
+            st.session_state["game_session_key"] = None
+            st.session_state["game_index"] = 0
             st.session_state["game_question"] = None
             st.session_state["game_feedback"] = ""
             st.session_state["lihat_nilai_game"] = False
@@ -783,10 +828,15 @@ elif role_login == "tim":
             st.session_state["game_feedback"] = ""
             st.rerun()
 
-    # Panel nilai hanya dapat dilihat oleh akun TIM setelah tombol diklik.
-    if st.session_state.get("lihat_nilai_game", False) and st.session_state.get("login_role") == "tim":
+
+# ===== DAFTAR HASIL NILAI GAME: REKAP PER LEVEL 1-6 =====
+if st.session_state.get("lihat_nilai_game", False):
+    role_nilai = st.session_state.get("login_role")
+    nama_akun_nilai = st.session_state.get("login_nama", "")
+    if role_nilai == "tim" or (role_nilai == "siswa" and nama_akun_nilai in DATA_SISWA):
         st.markdown("### 📋 Daftar Hasil Nilai Game")
-        st.caption("Nilai diambil dari hasil sesi game yang telah diselesaikan dan disimpan ke database.")
+        st.caption("Nilai setiap tingkatan tersimpan setelah siswa menyelesaikan 25 soal. Total merupakan penjumlahan nilai terbaik Level 1–6.")
+        st.markdown("**KKM Game: 75** — nilai setiap tingkatan **di bawah 75 berwarna merah** (belum mencapai KKM), sedangkan nilai **75 ke atas berwarna hijau** (mencapai KKM).")
 
         konfigurasi_game = {
             "Iqro": "Game Iqro'",
@@ -798,82 +848,124 @@ elif role_login == "tim":
             for kategori, nama_game in konfigurasi_game.items()
         }
 
-        total_siswa = len(DATA_SISWA)
+        if role_nilai == "tim":
+            daftar_nilai_tampil = list(DATA_SISWA.items())
+            st.caption("Mode Tim: menampilkan seluruh siswa dari kategori Iqro, Tahsin, dan Tahfidz.")
+        else:
+            # Siswa hanya dapat membaca rekam nilai milik akun yang sedang login.
+            daftar_nilai_tampil = [(nama_akun_nilai, DATA_SISWA[nama_akun_nilai])]
+            st.caption("Mode Siswa: hanya menampilkan nilai milik akun kamu sendiri.")
+
+        total_siswa_nilai = len(daftar_nilai_tampil)
         jumlah_belum = 0
         jumlah_tuntas = 0
         jumlah_belum_tuntas = 0
         data_tabel_nilai = []
         rows_nilai = ""
 
-        for nomor, (nama_siswa, identitas) in enumerate(DATA_SISWA.items(), 1):
+        for nomor, (nama_siswa, identitas) in enumerate(daftar_nilai_tampil, 1):
             kategori = identitas.get("kategori", "-")
             jenis_kelamin = identitas.get("jk", "-")
             hasil_siswa = rekap_game.get(kategori, {}).get(nama_siswa, {"level": {}})
             level_selesai = hasil_siswa.get("level", {})
-            nilai = sum(int(item.get("skor", 0)) for item in level_selesai.values())
-            jumlah_percobaan = sum(int(item.get("percobaan", 0)) for item in level_selesai.values())
 
-            if jumlah_percobaan == 0:
+            nilai_per_level = {}
+            total_nilai = 0
+            for level_nomor in range(1, 7):
+                info_level = level_selesai.get(level_nomor)
+                if info_level:
+                    nilai_level = int(info_level.get("skor", 0))
+                    nilai_per_level[level_nomor] = nilai_level
+                    total_nilai += nilai_level
+                else:
+                    nilai_per_level[level_nomor] = "-"
+
+            jumlah_level_selesai = sum(1 for v in nilai_per_level.values() if isinstance(v, int))
+            if jumlah_level_selesai == 0:
                 nilai_tampil = "-"
                 keterangan = "⏳ Belum Mengerjakan"
-                ulang = "-"
                 jumlah_belum += 1
-            elif nilai >= 50:
-                nilai_tampil = str(nilai)
-                keterangan = "✅ Tuntas"
-                ulang = "-"
+            elif jumlah_level_selesai == 6:
+                nilai_tampil = str(total_nilai)
+                keterangan = "✅ Tuntas 6/6 Tingkatan"
                 jumlah_tuntas += 1
             else:
-                nilai_tampil = str(nilai)
-                keterangan = "❌ Belum Tuntas"
-                ulang = "🔄"
+                nilai_tampil = str(total_nilai)
+                keterangan = f"🟡 Sudah {jumlah_level_selesai}/6 Tingkatan"
                 jumlah_belum_tuntas += 1
 
-            data_tabel_nilai.append({
-                "No": nomor, "Nama": nama_siswa, "JK": jenis_kelamin,
-                "Kategori": kategori, "Nilai": nilai_tampil,
-                "Ket": keterangan, "Ulang": ulang,
-            })
+            data_baris = {
+                "No": nomor,
+                "Nama": nama_siswa,
+                "JK": jenis_kelamin,
+                "Kategori": kategori,
+                **{f"Level {i}": nilai_per_level[i] for i in range(1, 7)},
+                "Total": nilai_tampil,
+                "Ket": keterangan,
+            }
+            data_tabel_nilai.append(data_baris)
+
+            sel_level = "".join(
+                f"<td style='padding:9px;text-align:center;font-weight:bold;color:{('#FF5252' if nilai_per_level[i] < KKM else '#69F0AE') if isinstance(nilai_per_level[i], int) else '#BDBDBD'};border:1px solid #555;'>{nilai_per_level[i]}</td>"
+                for i in range(1, 7)
+            )
             rows_nilai += (
-                f"<tr><td style='padding:10px;text-align:center;color:white;border:1px solid #555;'>{nomor}</td>"
-                f"<td style='padding:10px;color:white;font-weight:bold;border:1px solid #555;'>{html.escape(nama_siswa)}</td>"
-                f"<td style='padding:10px;text-align:center;color:white;border:1px solid #555;'>{html.escape(jenis_kelamin)}</td>"
-                f"<td style='padding:10px;text-align:center;color:white;border:1px solid #555;'>{html.escape(kategori)}</td>"
-                f"<td style='padding:10px;text-align:center;color:white;border:1px solid #555;'>{nilai_tampil}</td>"
-                f"<td style='padding:10px;text-align:center;color:white;border:1px solid #555;'>{keterangan}</td>"
-                f"<td style='padding:10px;text-align:center;color:white;border:1px solid #555;'>{ulang}</td></tr>"
+                f"<tr><td style='padding:9px;text-align:center;color:white;border:1px solid #555;'>{nomor}</td>"
+                f"<td style='padding:9px;color:white;font-weight:bold;border:1px solid #555;'>{html.escape(nama_siswa)}</td>"
+                f"<td style='padding:9px;text-align:center;color:white;border:1px solid #555;'>{html.escape(jenis_kelamin)}</td>"
+                f"<td style='padding:9px;text-align:center;color:white;border:1px solid #555;'>{html.escape(kategori)}</td>"
+                f"{sel_level}"
+                f"<td style='padding:9px;text-align:center;color:#F9D423;font-weight:bold;border:1px solid #555;'>{nilai_tampil}</td>"
+                f"<td style='padding:9px;text-align:center;color:white;border:1px solid #555;'>{keterangan}</td></tr>"
+            )
+
+        if role_nilai == "tim":
+            st.markdown(
+                f"<div style='text-align:center;font-weight:bold;font-size:16px;color:white;margin:8px 0 14px 0;'>"
+                f"Total: {total_siswa_nilai} &nbsp;|&nbsp; ⏳ Belum: {jumlah_belum} &nbsp;|&nbsp; "
+                f"✅ Tuntas 6/6: {jumlah_tuntas} &nbsp;|&nbsp; 🟡 Proses: {jumlah_belum_tuntas}</div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            data_saya = data_tabel_nilai[0]
+            level_saya_selesai = sum(1 for i in range(1, 7) if isinstance(data_saya[f"Level {i}"], int))
+            st.markdown(
+                f"<div style='text-align:center;font-weight:bold;font-size:18px;color:white;margin:8px 0 14px 0;'>"
+                f"Total Nilai: {data_saya['Total']} &nbsp;|&nbsp; Sudah: {level_saya_selesai}/6 Tingkatan</div>",
+                unsafe_allow_html=True,
             )
 
         st.markdown(
-            f"<div style='text-align:center;font-weight:bold;font-size:16px;color:white;margin:8px 0 14px 0;'>"
-            f"Total: {total_siswa} &nbsp;|&nbsp; ⏳ Belum: {jumlah_belum} &nbsp;|&nbsp; "
-            f"✅ Tuntas: {jumlah_tuntas} &nbsp;|&nbsp; ❌ Belum Tuntas: {jumlah_belum_tuntas}</div>",
-            unsafe_allow_html=True,
-        )
-        st.markdown(
             "<div style='background-color:rgba(0,0,0,0.85);padding:0;border-radius:10px;overflow-x:auto;'>"
-            "<table style='width:100%;border-collapse:collapse;min-width:760px;'>"
+            "<table style='width:100%;border-collapse:collapse;min-width:1100px;'>"
             "<thead><tr style='background-color:#F9D423;'>"
-            "<th style='padding:10px;color:#000;'>No</th><th style='padding:10px;color:#000;text-align:left;'>Nama</th>"
-            "<th style='padding:10px;color:#000;'>JK</th><th style='padding:10px;color:#000;'>Kategori</th>"
-            "<th style='padding:10px;color:#000;'>Nilai</th><th style='padding:10px;color:#000;'>Ket</th>"
-            f"<th style='padding:10px;color:#000;'>Ulang</th></tr></thead><tbody>{rows_nilai}</tbody></table></div>",
+            "<th style='padding:9px;color:#000;'>No</th><th style='padding:9px;color:#000;text-align:left;'>Nama</th>"
+            "<th style='padding:9px;color:#000;'>JK</th><th style='padding:9px;color:#000;'>Kategori</th>"
+            "<th style='padding:9px;color:#000;'>Tingkatan 1</th><th style='padding:9px;color:#000;'>Tingkatan 2</th>"
+            "<th style='padding:9px;color:#000;'>Tingkatan 3</th><th style='padding:9px;color:#000;'>Tingkatan 4</th>"
+            "<th style='padding:9px;color:#000;'>Tingkatan 5</th><th style='padding:9px;color:#000;'>Tingkatan 6</th>"
+            "<th style='padding:9px;color:#000;'>Total</th><th style='padding:9px;color:#000;'>Ket</th>"
+            f"</tr></thead><tbody>{rows_nilai}</tbody></table></div>",
             unsafe_allow_html=True,
         )
+        st.caption("Keterangan warna: merah = nilai di bawah KKM 75; hijau = nilai 75 atau lebih; abu-abu = belum dikerjakan.")
 
-        output_nilai_csv = io.StringIO()
-        kolom_nilai_csv = ["No", "Nama", "JK", "Kategori", "Nilai", "Ket", "Ulang"]
-        writer_nilai_csv = csv.DictWriter(output_nilai_csv, fieldnames=kolom_nilai_csv)
-        writer_nilai_csv.writeheader()
-        writer_nilai_csv.writerows(data_tabel_nilai)
-        st.download_button(
-            "📥 Download Daftar Hasil Nilai (CSV)",
-            data=output_nilai_csv.getvalue().encode("utf-8-sig"),
-            file_name="daftar_hasil_nilai_game_qori_ai.csv",
-            mime="text/csv",
-            key="download_daftar_hasil_nilai_game_tim",
-        )
-        if st.button("❌ Tutup Daftar Nilai", key="tutup_daftar_nilai_game_tim"):
+        # Ekspor seluruh daftar nilai hanya tersedia bagi Tim.
+        if role_nilai == "tim":
+            output_nilai_csv = io.StringIO()
+            kolom_nilai_csv = ["No", "Nama", "JK", "Kategori", "Level 1", "Level 2", "Level 3", "Level 4", "Level 5", "Level 6", "Total", "Ket"]
+            writer_nilai_csv = csv.DictWriter(output_nilai_csv, fieldnames=kolom_nilai_csv)
+            writer_nilai_csv.writeheader()
+            writer_nilai_csv.writerows(data_tabel_nilai)
+            st.download_button(
+                "📥 Download Daftar Hasil Nilai (CSV)",
+                data=output_nilai_csv.getvalue().encode("utf-8-sig"),
+                file_name="daftar_hasil_nilai_game_qori_ai.csv",
+                mime="text/csv",
+                key="download_daftar_hasil_nilai_game_tim",
+            )
+
+        if st.button("❌ Tutup Daftar Nilai", key="tutup_daftar_nilai_game"):
             st.session_state["lihat_nilai_game"] = False
             st.rerun()
 
@@ -1273,7 +1365,8 @@ if st.session_state.get("lihat_riwayat") and st.session_state["siswa_pilih"] is 
                     if info_level:
                         nilai_level = info_level["skor"]
                         total_terbaik += nilai_level
-                        isi_nilai = f"{nilai_level}/250<br><small>{info_level['percobaan']}x main</small>"
+                        warna_nilai = "#FF5252" if nilai_level < KKM else "#69F0AE"
+                        isi_nilai = f"<span style='color:{warna_nilai};font-weight:bold;'>{nilai_level}/250</span><br><small>{info_level['percobaan']}x main</small>"
                     else:
                         isi_nilai = "—"
                     cells += f"<td style='padding:8px;text-align:center;color:white;'>{isi_nilai}</td>"
@@ -1290,6 +1383,7 @@ if st.session_state.get("lihat_riwayat") and st.session_state["siswa_pilih"] is 
                 "<th>Level 5</th><th>Level 6</th><th>Akumulasi Nilai Terbaik</th></tr>"
                 f"{rows_rekap}</table></div>", unsafe_allow_html=True
             )
+            st.caption("KKM Game: 75 — nilai di bawah 75 berwarna merah; nilai 75 ke atas berwarna hijau.")
 
     if st.session_state["login_role"] == "tim":
         if st.button("🔄 Reset Leaderboard Game (Khusus Tim)"):
