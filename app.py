@@ -120,7 +120,7 @@ def ambil_ayat_surat_quran(nomor_surat):
         raise ValueError("Data ayat tidak tersedia dari layanan Al-Quran.")
     return payload["data"]["ayahs"]
 
-api_key = st.secrets.get("OPENAI_API_KEY","")
+api_key = st.secrets.get("OPENAI_API_KEY", "")
 
 # ===== DATABASE SQLITE =====
 DB = os.environ.get("QORI_DB_PATH", "qori_ai.db")
@@ -2298,5 +2298,5 @@ if kirim and prompt:
                 riwayat_chat = [m for m in st.session_state["messages"][-20:] if m.get("role") in ("user", "assistant")]
                 res=client.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"system","content":SYSTEM_PROMPT_KUNCI}] + riwayat_chat, temperature=0.7, max_tokens=800, timeout=45)
                 jawaban=res.choices[0].message.content; st.markdown(jawaban); st.session_state.messages.append({"role":"assistant","content":jawaban})
-            except Exception:
-                st.error("Maaf, QORI AI sedang mengalami gangguan. Silakan coba kembali beberapa saat lagi.")
+            except Exception as e:
+                st.error(f"Error asli: {e}")
