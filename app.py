@@ -401,10 +401,10 @@ def tampilkan_tim_pembuat():
     <style>
     .kotak-tim {
         text-align: center;
-        background-color: white;
+        background-color: rgba(0,0,0,0.35);
         padding: 12px 16px;
         border-radius: 15px;
-        border: 2px solid black;
+        border: 1.5px solid rgba(255,255,255,0.7);
         width: fit-content;
         max-width: 100%;
         margin: 0 auto;
@@ -416,17 +416,19 @@ def tampilkan_tim_pembuat():
         align-items: center;
     }
     .block-container p.nama-tim {
-        color: black !important;
+        color: white !important;
         font-weight: 900;
         margin: 0;
         white-space: nowrap;
         font-size: 15px;
+        text-shadow: 1px 1px 3px black;
     }
     .block-container p.jabatan-tim {
-        color: #0B3D2E !important;
+        color: white !important;
         font-weight: 700;
         margin: 4px 0 0 0;
         font-size: 13px;
+        text-shadow: 1px 1px 3px black;
     }
     </style>
     """, unsafe_allow_html=True)
