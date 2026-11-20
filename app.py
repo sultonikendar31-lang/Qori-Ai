@@ -391,32 +391,81 @@ def get_base64(file):
     except: return ""
 
 def tampilkan_tim_pembuat():
-    """Menampilkan tim penyusun menggunakan komponen native Streamlit."""
-    st.markdown("### ⭐ Tim Penyusun QORI AI")
+    """Menampilkan tim penyusun dengan ukuran kotak mengikuti panjang nama."""
+    st.markdown(
+        "<h3 style='text-align:center;'>⭐ Tim Penyusun QORI AI</h3>",
+        unsafe_allow_html=True
+    )
+
+    st.markdown("""
+    <style>
+    .kotak-tim {
+        text-align: center;
+        background-color: white;
+        padding: 12px 16px;
+        border-radius: 15px;
+        border: 2px solid black;
+        width: fit-content;
+        max-width: 100%;
+        margin: 0 auto;
+        min-height: 78px;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+    }
+    .block-container p.nama-tim {
+        color: black !important;
+        font-weight: 900;
+        margin: 0;
+        white-space: nowrap;
+        font-size: 15px;
+    }
+    .block-container p.jabatan-tim {
+        color: #0B3D2E !important;
+        font-weight: 700;
+        margin: 4px 0 0 0;
+        font-size: 13px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        with st.container(border=True):
-            st.markdown("**Dr. Muhamad Siddiq Asyhari, M.Pd**")
-            st.caption("Dosen Pengampu")
+        st.markdown("""
+        <div class='kotak-tim'>
+            <p class='nama-tim'>Dr. Muhamad Siddiq Asyhari, M.Pd</p>
+            <p class='jabatan-tim'>Dosen Pengampu</p>
+        </div>
+        """, unsafe_allow_html=True)
 
     with col2:
-        with st.container(border=True):
-            st.markdown("**Bapak Syamsul Hadi, S.Pd.I**")
-            st.caption("Kepala MA Al-Barokah")
+        st.markdown("""
+        <div class='kotak-tim'>
+            <p class='nama-tim'>Bapak Syamsul Hadi, S.Pd.I</p>
+            <p class='jabatan-tim'>Kepala MA Al-Barokah</p>
+        </div>
+        """, unsafe_allow_html=True)
 
     with col3:
-        with st.container(border=True):
-            st.markdown("**Bapak Muhamad Rais, S.Pd.I**")
-            st.caption("Guru Pamong")
+        st.markdown("""
+        <div class='kotak-tim'>
+            <p class='nama-tim'>Bapak Muhamad Rais, S.Pd.I</p>
+            <p class='jabatan-tim'>Guru Pamong</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    # Mahasiswa berada di tengah pada baris berikutnya.
-    col_kiri, col_tengah, col_kanan = st.columns([1, 1, 1])
-    with col_tengah:
-        with st.container(border=True):
-            st.markdown("**Kendar Sultoni**")
-            st.caption("Mahasiswa")
+    st.markdown("<br>", unsafe_allow_html=True)
+    c1, c2, c3 = st.columns([1, 1, 1])
+    with c2:
+        st.markdown("""
+        <div class='kotak-tim'>
+            <p class='nama-tim'>Kendar Sultoni</p>
+            <p class='jabatan-tim'>Mahasiswa</p>
+        </div>
+        """, unsafe_allow_html=True)
 
     st.markdown(
         "<div style='text-align:center; font-size:12px; margin-top:10px;'>"
