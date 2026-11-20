@@ -2055,14 +2055,17 @@ if st.session_state["lihat_nilai"] and st.session_state["siswa_pilih"] is None:
         with pd.ExcelWriter(buffer_ujian, engine="openpyxl") as writer_ujian:
             df_ujian.to_excel(writer_ujian, index=False, sheet_name="Nilai Ujian")
 
-        st.download_button(
-            "📥 Download Daftar Hasil Nilai Ujian (Excel)",
-            data=buffer_ujian.getvalue(),
-            file_name="daftar_hasil_nilai_ujian_qori_ai.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-            key="download_daftar_hasil_nilai_ujian_tim",
-        )
+        # Tombol download ditempatkan di kolom tengah agar tidak melebar penuh.
+        c1, c2, c3 = st.columns([1, 2, 1])
+        with c2:
+            st.download_button(
+                "📥 Download Daftar Hasil Nilai Ujian (Excel)",
+                data=buffer_ujian.getvalue(),
+                file_name="daftar_hasil_nilai_ujian_qori_ai.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key="download_daftar_hasil_nilai_ujian_tim",
+            )
     if st.session_state["login_role"] == "tim":
         st.write("")
         st.markdown("<div style='background-color: rgba(120,20,20,0.9); padding:18px; border-radius:15px; text-align:center; border:2px solid #FF5252;'><h3 style='color:#FFFFFF; margin:0;'>🔄 Reset Nilai (Khusus Tim)</h3><p style='color:white; font-size:13px; margin:6px 0 0 0;'>Hati-hati! Nilai yang sudah direset tidak bisa dikembalikan.</p></div>", unsafe_allow_html=True)
