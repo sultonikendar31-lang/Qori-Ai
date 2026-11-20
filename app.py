@@ -31,6 +31,30 @@ h1, h2, h3, h4, p, span, label {
 </style>
 """, unsafe_allow_html=True)
 
+
+# ===== WARNA ANGKA DAN KARTU METRIK DASHBOARD =====
+st.markdown("""
+<style>
+/* Angka metrik menjadi putih pekat */
+[data-testid="stMetricValue"] {
+    color: white !important;
+    -webkit-text-fill-color: white !important;
+    text-shadow: 2px 2px 4px black;
+}
+/* Label metrik menjadi putih pekat */
+[data-testid="stMetricLabel"] {
+    color: white !important;
+    -webkit-text-fill-color: white !important;
+}
+/* Latar gelap transparan agar angka terbaca di atas foto */
+[data-testid="stMetric"] {
+    background-color: rgba(0, 0, 0, 0.6);
+    padding: 10px;
+    border-radius: 15px;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ===== PERBAIKI WARNA TULISAN DI KOTAK UPLOAD =====
 st.markdown("""
 <style>
