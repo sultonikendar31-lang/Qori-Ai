@@ -199,6 +199,18 @@ def get_rekap_nilai_game(nama_game):
         }
     return hasil
 
+def hapus_nilai_game_satu(nama):
+    """Hapus seluruh nilai/percobaan game milik satu siswa dari database."""
+    CONN.execute("DELETE FROM game_attempts WHERE nama=?", (nama,))
+    CONN.execute("DELETE FROM game_scores WHERE nama=?", (nama,))
+    CONN.commit()
+
+def reset_semua_nilai_game():
+    """Hapus seluruh nilai game dari database."""
+    CONN.execute("DELETE FROM game_attempts")
+    CONN.execute("DELETE FROM game_scores")
+    CONN.commit()
+
 def get_saran():
     return [{"id":r[0],"pengirim":r[1],"label":r[2],"role":r[3],"jenis":r[4],"isi":r[5],"jam":r[6],"balasan":r[7] or "","pembalas":r[8] or ""} for r in CONN.execute("SELECT id,pengirim,label,role,jenis,isi,jam,balasan,pembalas FROM saran ORDER BY id DESC")]
 def tambah_saran(pengirim, label, role, jenis, isi, jam):
@@ -865,6 +877,34 @@ if st.session_state.get("lihat_nilai_game", False):
             daftar_nilai_tampil = [(nama_akun_nilai, DATA_SISWA[nama_akun_nilai])]
             st.caption("Mode Siswa: hanya menampilkan nilai milik akun kamu sendiri.")
 
+        # Filter daftar nilai game (khusus Tim); siswa tetap hanya melihat datanya sendiri.
+        if role_nilai == "tim":
+            kolom_cari_game, kolom_filter_game = st.columns(2)
+            with kolom_cari_game:
+                cari_nama_game = st.text_input("🔍 Cari Nama Siswa", key="cari_nama_daftar_game")
+            with kolom_filter_game:
+                pilih_kategori_game = st.selectbox(
+                    "Filter Game",
+                    ["Semua", "Game Iqro", "Game Tahsin", "Game Tahfidz"],
+                    key="filter_kategori_daftar_game",
+                )
+            kategori_filter_map = {
+                "Game Iqro": "Iqro",
+                "Game Tahsin": "Tahsin",
+                "Game Tahfidz": "Tahfidz",
+            }
+            if cari_nama_game.strip():
+                daftar_nilai_tampil = [
+                    item for item in daftar_nilai_tampil
+                    if cari_nama_game.strip().casefold() in item[0].casefold()
+                ]
+            if pilih_kategori_game != "Semua":
+                kategori_dicari = kategori_filter_map[pilih_kategori_game]
+                daftar_nilai_tampil = [
+                    item for item in daftar_nilai_tampil
+                    if item[1].get("kategori") == kategori_dicari
+                ]
+
         total_siswa_nilai = len(daftar_nilai_tampil)
         jumlah_belum = 0
         jumlah_tuntas = 0
@@ -973,6 +1013,40 @@ if st.session_state.get("lihat_nilai_game", False):
                 mime="text/csv",
                 key="download_daftar_hasil_nilai_game_tim",
             )
+
+            st.divider()
+            st.markdown("## 🔄 Reset Nilai Game (Khusus Tim)")
+            st.warning("Hati-hati! Nilai dan riwayat percobaan game yang direset tidak bisa dikembalikan.")
+
+            st.markdown("**Reset nilai satu siswa:**")
+            nama_reset_game = st.selectbox(
+                "Pilih siswa yang nilainya mau dihapus:",
+                ["-- Pilih Siswa --"] + sorted(DATA_SISWA.keys(), key=str.casefold),
+                key="pilih_reset_satu_game",
+            )
+            if st.button("🗑️ Hapus Nilai Game Siswa Ini", use_container_width=True, key="hapus_nilai_game_satu"):
+                if nama_reset_game == "-- Pilih Siswa --":
+                    st.warning("Pilih dulu siswanya!")
+                else:
+                    hapus_nilai_game_satu(nama_reset_game)
+                    st.success(f"Nilai Game {nama_reset_game} berhasil dihapus.")
+                    time.sleep(0.5)
+                    st.rerun()
+
+            st.markdown("**Reset semua nilai game:**")
+            konfirmasi_reset_game = st.text_input(
+                "Ketik RESET untuk konfirmasi (huruf besar semua):",
+                placeholder="Ketik RESET di sini...",
+                key="konfirmasi_reset_semua_game",
+            )
+            if st.button("🗑️ Reset SEMUA Nilai Game", use_container_width=True, key="reset_semua_nilai_game"):
+                if konfirmasi_reset_game.strip() != "RESET":
+                    st.warning("Ketik RESET dengan huruf besar semua untuk melanjutkan.")
+                else:
+                    reset_semua_nilai_game()
+                    st.success("Semua nilai game berhasil direset.")
+                    time.sleep(0.5)
+                    st.rerun()
 
         if st.button("❌ Tutup Daftar Nilai", key="tutup_daftar_nilai_game"):
             st.session_state["lihat_nilai_game"] = False
