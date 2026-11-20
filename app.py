@@ -515,6 +515,28 @@ bg = get_base64("background.jpeg")
 if bg:
     st.markdown(f"""<style>.stApp {{ background-image: url("data:image/jpeg;base64,{bg}") !important; background-size: cover !important; background-position: center !important; background-attachment: fixed !important; }} .stApp::before {{ content:""; position:fixed; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.55); z-index:0; pointer-events:none; }} .block-container {{ position:relative; z-index:1; padding-top:20px !important; max-width:900px !important; }} .block-container p, .block-container span, .block-container label, .block-container h2 {{ color:white !important; }} div[data-testid="stButton"] > button {{ background-color: rgba(255,255,255,0.25) !important; color:white !important; border:1.5px solid rgba(255,255,255,0.8) !important; font-weight:bold !important; font-size:17px !important; border-radius:12px !important; }} [data-testid="stChatMessage"] {{ background-color: rgba(10,35,25,0.97) !important; border:2px solid #F9D423 !important; border-radius:14px !important; }} [data-testid="stChatMessage"] p {{ color:#FFF !important; font-size:20px !important; line-height:2.0 !important; }} [data-testid="stAlert"] {{ background-color: #FFD6D6 !important; }} [data-testid="stAlert"] p, [data-testid="stAlert"] span, [data-testid="stAlert"] div {{ color: #000000 !important; }} </style>""", unsafe_allow_html=True)
 
+
+# ===== PERBAIKAN LATAR CHAT DAN METRIK AGAR TIDAK TRANSPARAN =====
+st.markdown("""
+<style>
+[data-testid="stChatMessage"] {
+    background-color: #1A1A1A !important;
+    border: 1px solid #C9A227 !important;
+    border-radius: 15px !important;
+}
+[data-testid="stChatMessage"] p,
+[data-testid="stChatMessage"] li,
+[data-testid="stChatMessage"] span {
+    color: white !important;
+    opacity: 1 !important;
+}
+[data-testid="stMetric"] {
+    background-color: #1A1A1A !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
 st.markdown("""<div style='background-color: rgba(20,50,35,0.92); padding: 25px; border-radius: 15px; text-align:center;'><h1 style='color:#F9D423; margin:0; font-size:36px;'>🕌 QORI AI Madrasah Aliyah Al-Barokah</h1><p style='color:white; margin-top:10px; font-size:16px;'>Assalamualaikum warahmatullahi wabarakatuh! Tanya apa saja, QORI AI siap membantu</p></div>""", unsafe_allow_html=True)
 
 # ===== LOGIN + VIDEO PEMBUKA =====
