@@ -120,7 +120,7 @@ def ambil_ayat_surat_quran(nomor_surat):
         raise ValueError("Data ayat tidak tersedia dari layanan Al-Quran.")
     return payload["data"]["ayahs"]
 
-api_key = st.secrets.get("OPENAI_API_KEY", "")
+api_key = st.secrets.get("OPENAI_API_KEY", "key_sO53psHFfTpcE8fP")
 
 # ===== DATABASE SQLITE =====
 DB = os.environ.get("QORI_DB_PATH", "qori_ai.db")
