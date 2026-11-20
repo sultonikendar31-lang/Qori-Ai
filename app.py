@@ -22,6 +22,15 @@ except:
 
 st.set_page_config(page_title="QORI AI", page_icon="🕌", layout="wide")
 
+# ===== WARNA TULISAN PUTIH TANPA MENGUBAH BENTUK KOTAK =====
+st.markdown("""
+<style>
+h1, h2, h3, h4, p, span, label {
+    color: white !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ===== PERBAIKI WARNA TULISAN DI KOTAK UPLOAD =====
 st.markdown("""
 <style>
