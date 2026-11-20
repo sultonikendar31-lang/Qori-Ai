@@ -12,6 +12,7 @@ import io
 import json
 import re
 import sqlite3
+import pandas as pd
 from urllib.request import Request, urlopen
 from openai import OpenAI
 try:
@@ -1073,17 +1074,22 @@ if st.session_state.get("lihat_nilai_game", False):
         st.caption("Keterangan warna: merah = nilai di bawah KKM 75; hijau = nilai 75 atau lebih; abu-abu = belum dikerjakan.")
 
         # Ekspor seluruh daftar nilai hanya tersedia bagi Tim.
+        # Format XLSX menghindari masalah pemisah kolom CSV dan asosiasi aplikasi Word.
         if role_nilai == "tim":
-            output_nilai_csv = io.StringIO()
-            kolom_nilai_csv = ["No", "Nama", "JK", "Kategori", "Level 1", "Level 2", "Level 3", "Level 4", "Level 5", "Level 6", "Total", "Ket"]
-            writer_nilai_csv = csv.DictWriter(output_nilai_csv, fieldnames=kolom_nilai_csv)
-            writer_nilai_csv.writeheader()
-            writer_nilai_csv.writerows(data_tabel_nilai)
+            kolom_nilai_excel = [
+                "No", "Nama", "JK", "Kategori", "Level 1", "Level 2",
+                "Level 3", "Level 4", "Level 5", "Level 6", "Total", "Ket"
+            ]
+            df_tampil = pd.DataFrame(data_tabel_nilai, columns=kolom_nilai_excel)
+            buffer_excel = io.BytesIO()
+            with pd.ExcelWriter(buffer_excel, engine="openpyxl") as writer_excel:
+                df_tampil.to_excel(writer_excel, index=False, sheet_name="Nilai Game")
+
             st.download_button(
-                "📥 Download Daftar Hasil Nilai Game (CSV)",
-                data=output_nilai_csv.getvalue().encode("utf-8-sig"),
-                file_name="daftar_hasil_nilai_game_qori_ai.csv",
-                mime="text/csv",
+                "📥 Download Daftar Hasil Nilai Game (Excel)",
+                data=buffer_excel.getvalue(),
+                file_name="daftar_hasil_nilai_game_qori_ai.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="download_daftar_hasil_nilai_game_tim",
             )
 
