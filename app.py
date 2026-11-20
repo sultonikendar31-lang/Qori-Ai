@@ -791,7 +791,52 @@ if st.session_state["siswa_pilih"] is None and st.session_state["login_role"] ==
         st.info(f"{jumlah_belum} siswa memperoleh nilai di bawah KKM dan perlu tindak lanjut/remedial.")
 
 
-# ===== MENU SISWA DIGABUNG KE DALAM 3 TAB MENU UTAMA =====
+# ===== MENU GAME QORI AI: KHUSUS SISWA =====
+# Akun TIM tidak menampilkan baris Game QORI AI di bagian atas.
+# TIM menggunakan menu kategori di Menu Utama bagian bawah.
+role_login = st.session_state.get("login_role")
+nama_login = st.session_state.get("login_nama", "")
+
+# DATA_SISWA menjadi sumber kategori utama untuk seluruh akun siswa.
+kategori_saya = DATA_SISWA.get(nama_login, {}).get("kategori") if role_login == "siswa" else None
+if role_login == "siswa" and not st.session_state.get("lihat_nilai_game", False) and not st.session_state.get("lihat_nilai", False):
+    st.markdown("### 🎮 Game QORI AI")
+    st.session_state["kategori_saya"] = kategori_saya
+
+    game_per_kategori = {
+        "Iqro": ("iqro", "🔤 Game Iqro'", "📖 Iqro"),
+        "Tahsin": ("tahsin", "📖 Game Tahsin", "📗 Tahsin"),
+        "Tahfidz": ("tahfidz", "🧠 Game Tahfidz", "⭐ Tahfidz"),
+    }
+    konfigurasi_siswa = game_per_kategori.get(kategori_saya)
+
+    if not konfigurasi_siswa:
+        st.warning("Kategori akun siswa belum terdaftar. Silakan hubungi Tim QORI AI.")
+    else:
+        game_key_siswa, label_game_siswa, label_kategori_siswa = konfigurasi_siswa
+        st.caption(f"Akses siswa dibatasi: hanya **Game {kategori_saya}** yang ditampilkan untuk akun kamu.")
+
+        # Siswa hanya melihat game kategorinya sendiri dan daftar nilainya sendiri.
+        tombol_game, tombol_nilai_game = st.columns(2)
+        with tombol_game:
+            if st.button(label_game_siswa, use_container_width=True, key="tombol_game_siswa_kategori"):
+                st.session_state["game"] = game_key_siswa
+                st.session_state["game_session_key"] = None
+                st.session_state["game_index"] = 0
+                st.session_state["game_question"] = None
+                st.session_state["game_feedback"] = ""
+                st.session_state["lihat_nilai_game"] = False
+                st.session_state["lihat_nilai"] = False
+                st.rerun()
+        with tombol_nilai_game:
+            if st.button("📋 Daftar Hasil Nilai Game", use_container_width=True, key="tombol_nilai_game_siswa"):
+                st.session_state["lihat_nilai_game"] = True
+                st.session_state["lihat_nilai"] = False
+                st.session_state["kategori_pilih"] = None
+                st.session_state["game"] = None
+                st.session_state["game_question"] = None
+                st.session_state["game_feedback"] = ""
+                st.rerun()
 
 # ===== DAFTAR HASIL NILAI GAME: REKAP PER LEVEL 1-6 =====
 if st.session_state.get("lihat_nilai_game", False):
@@ -1096,44 +1141,44 @@ def tampilkan_daftar(kategori):
             catat_aktivitas(f"Mulai Ujian - {kategori}")
         st.rerun()
 
-# ===== MENU UTAMA: 3 TAB =====
+# ===== MENU UTAMA: TIM SEMUA KATEGORI, SISWA SESUAI KATEGORI AKUN =====
 if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai"] and not st.session_state.get("lihat_nilai_game", False):
     role_menu = st.session_state.get("login_role")
     nama_menu = st.session_state.get("login_nama", "")
     kategori_menu_siswa = DATA_SISWA.get(nama_menu, {}).get("kategori")
 
-    tab1, tab2, tab3 = st.tabs(["🎮 Belajar / Game", "📝 Ujian", "📊 Nilai Saya"])
-
-    # TAB 1: BELAJAR / GAME
-    with tab1:
-        st.markdown("#### 🎮 Permainan Edukatif")
-        if role_menu == "tim":
-            tombol_game_iqro = st.button("🎮 Game Iqro", use_container_width=True, key="tab_game_iqro")
-            tombol_game_tahsin = st.button("🎮 Game Tahsin", use_container_width=True, key="tab_game_tahsin")
-            tombol_game_tahfidz = st.button("🎮 Game Tahfidz", use_container_width=True, key="tab_game_tahfidz")
-            game_dipilih = (
-                "iqro" if tombol_game_iqro else
-                "tahsin" if tombol_game_tahsin else
-                "tahfidz" if tombol_game_tahfidz else None
+    if role_menu == "tim":
+        # TIM memiliki dua menu yang berbeda:
+        # Baris 1 = Game edukatif (bank soal game: huruf, tajwid, sambung ayat).
+        # Baris 2 = Ujian akademik (bank soal ujian) dan daftar hasil nilai.
+        st.markdown("### 🎮 Soal Game")
+        g1, g2, g3, g4 = st.columns(4)
+        with g1:
+            klik_game_iqro = st.button(
+                "🎮 Game Iqro", use_container_width=True, key="tim_game_iqro"
             )
-        else:
-            game_per_kategori = {
-                "Iqro": ("iqro", "🎮 Game Iqro"),
-                "Tahsin": ("tahsin", "🎮 Game Tahsin"),
-                "Tahfidz": ("tahfidz", "🎮 Game Tahfidz"),
-            }
-            konfigurasi_game_siswa = game_per_kategori.get(kategori_menu_siswa)
-            if konfigurasi_game_siswa:
-                game_key_siswa, label_game_siswa = konfigurasi_game_siswa
-                st.caption(f"Akses permainan dibatasi sesuai kategori akun: **{kategori_menu_siswa}**.")
-                game_dipilih = game_key_siswa if st.button(label_game_siswa, use_container_width=True, key="tab_game_siswa_kategori") else None
-            else:
-                game_dipilih = None
-                st.warning("Kategori akun siswa belum terdaftar. Silakan hubungi Tim QORI AI.")
+        with g2:
+            klik_game_tahsin = st.button(
+                "🎮 Game Tahsin", use_container_width=True, key="tim_game_tahsin"
+            )
+        with g3:
+            klik_game_tahfidz = st.button(
+                "🎮 Game Tahfidz", use_container_width=True, key="tim_game_tahfidz"
+            )
+        with g4:
+            klik_nilai_game = st.button(
+                "📋 Daftar Hasil Nilai Game", use_container_width=True, key="tim_nilai_game"
+            )
 
-        if game_dipilih:
-            # Tim membuka mode preview; siswa hanya dapat membuka game sesuai kategorinya.
-            st.session_state["game"] = game_dipilih
+        game_tim_dipilih = (
+            "iqro" if klik_game_iqro else
+            "tahsin" if klik_game_tahsin else
+            "tahfidz" if klik_game_tahfidz else None
+        )
+        if game_tim_dipilih:
+            # Game memakai mesin dan bank soal game yang sama dengan siswa.
+            # Role Tim otomatis menjadi preview; skor tidak disimpan ke nilai siswa.
+            st.session_state["game"] = game_tim_dipilih
             st.session_state["game_session_key"] = None
             st.session_state["game_question"] = None
             st.session_state["game_questions"] = []
@@ -1149,63 +1194,7 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
             st.session_state["lihat_baca"] = False
             st.rerun()
 
-        if st.button("📖 Baca Juz 30 & Iqro 1-6", use_container_width=True, key="tab_baca_juz_iqro"):
-            st.session_state["lihat_baca"] = True
-            st.session_state["kategori_pilih"] = None
-            st.session_state["lihat_nilai"] = False
-            st.session_state["lihat_nilai_game"] = False
-            st.session_state["lihat_riwayat"] = False
-            st.session_state["lihat_saran"] = False
-            st.session_state["lihat_setoran"] = False
-            catat_aktivitas("Buka Baca Juz 30 & Iqro")
-            st.rerun()
-
-    # TAB 2: UJIAN DAN SETORAN
-    with tab2:
-        st.markdown("#### 📝 Pilih Ujian")
-        if role_menu == "tim":
-            pilihan_ujian = [
-                ("📖 Ujian Iqro", "Iqro"),
-                ("📗 Ujian Tahsin", "Tahsin"),
-                ("⭐ Ujian Tahfidz", "Tahfidz"),
-            ]
-        else:
-            pilihan_ujian = [(f"📖 Ujian {kategori_menu_siswa}", kategori_menu_siswa)] if kategori_menu_siswa in ("Iqro", "Tahsin", "Tahfidz") else []
-            if not pilihan_ujian:
-                st.warning("Kategori akun belum terdaftar. Silakan hubungi Tim QORI AI.")
-
-        kategori_ujian_dipilih = None
-        for label_ujian, kategori_ujian in pilihan_ujian:
-            if st.button(label_ujian, use_container_width=True, key=f"tab_ujian_{kategori_ujian.lower()}"):
-                kategori_ujian_dipilih = kategori_ujian
-
-        if kategori_ujian_dipilih:
-            st.session_state["kategori_pilih"] = kategori_ujian_dipilih
-            st.session_state["game"] = None
-            st.session_state["game_session_key"] = None
-            st.session_state["lihat_nilai_game"] = False
-            st.session_state["lihat_nilai"] = False
-            st.session_state["lihat_riwayat"] = False
-            st.session_state["lihat_saran"] = False
-            st.session_state["lihat_setoran"] = False
-            st.session_state["lihat_baca"] = False
-            catat_aktivitas(f"Buka Ujian {kategori_ujian_dipilih}")
-            st.rerun()
-
-        if st.button("🎙️ Setoran Suara / Koreksi Bacaan", use_container_width=True, key="tab_setoran_suara"):
-            st.session_state["lihat_setoran"] = True
-            st.session_state["kategori_pilih"] = None
-            st.session_state["lihat_nilai"] = False
-            st.session_state["lihat_nilai_game"] = False
-            st.session_state["lihat_riwayat"] = False
-            st.session_state["lihat_saran"] = False
-            st.session_state["lihat_baca"] = False
-            catat_aktivitas("Buka Setoran Suara")
-            st.rerun()
-
-    # TAB 3: NILAI, RIWAYAT TIM, DAN SARAN
-    with tab3:
-        if st.button("📋 Daftar Hasil Nilai Game", use_container_width=True, key="tab_nilai_game"):
+        if klik_nilai_game:
             st.session_state["lihat_nilai_game"] = True
             st.session_state["lihat_nilai"] = False
             st.session_state["game"] = None
@@ -1218,7 +1207,34 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
             catat_aktivitas("Buka Daftar Hasil Nilai Game")
             st.rerun()
 
-        if st.button("📋 Daftar Hasil Nilai Ujian", use_container_width=True, key="tab_nilai_ujian"):
+        st.markdown("### 📝 Soal Ujian")
+        m1, m2, m3, m4 = st.columns(4)
+        with m1:
+            klik_iqro = st.button("📖 Iqro", use_container_width=True, key="menu_utama_iqro_tim")
+        with m2:
+            klik_tahsin = st.button("📗 Tahsin", use_container_width=True, key="menu_utama_tahsin_tim")
+        with m3:
+            klik_tahfidz = st.button("⭐ Tahfidz", use_container_width=True, key="menu_utama_tahfidz_tim")
+        with m4:
+            klik_nilai = st.button("📋 Daftar Hasil Nilai Ujian", use_container_width=True, key="menu_utama_nilai_tim")
+
+        kategori_tim_dipilih = (
+            "Iqro" if klik_iqro else
+            "Tahsin" if klik_tahsin else
+            "Tahfidz" if klik_tahfidz else None
+        )
+        if kategori_tim_dipilih:
+            st.session_state["kategori_pilih"] = kategori_tim_dipilih
+            st.session_state["game"] = None
+            st.session_state["game_session_key"] = None
+            st.session_state["lihat_nilai_game"] = False
+            st.session_state["lihat_nilai"] = False
+            st.session_state["lihat_riwayat"] = False
+            st.session_state["lihat_saran"] = False
+            st.session_state["lihat_setoran"] = False
+            st.session_state["lihat_baca"] = False
+
+        if klik_nilai:
             st.session_state["lihat_nilai"] = True
             st.session_state["lihat_nilai_game"] = False
             st.session_state["game"] = None
@@ -1231,46 +1247,81 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
             catat_aktivitas("Buka Daftar Hasil Nilai Ujian")
             st.rerun()
 
-        if role_menu == "tim":
-            if st.button("📜 Riwayat / Story Siswa (Khusus Tim)", use_container_width=True, key="tab_riwayat_tim"):
-                st.session_state["lihat_riwayat"] = True
-                st.session_state["kategori_pilih"] = None
+    else:
+        # SISWA hanya melihat tombol kategori miliknya + Daftar Hasil Nilai.
+        konfigurasi_menu = {
+            "Iqro": ("📖 Iqro", "Iqro"),
+            "Tahsin": ("📗 Tahsin", "Tahsin"),
+            "Tahfidz": ("⭐ Tahfidz", "Tahfidz"),
+        }
+        if kategori_menu_siswa not in konfigurasi_menu:
+            st.warning("Kategori akun belum terdaftar. Silakan hubungi Tim QORI AI.")
+            klik_kategori_siswa = False
+            klik_nilai = False
+        else:
+            label_menu_siswa, kategori_pilih_siswa = konfigurasi_menu[kategori_menu_siswa]
+            s1, s2 = st.columns(2)
+            with s1:
+                klik_kategori_siswa = st.button(
+                    label_menu_siswa,
+                    use_container_width=True,
+                    key="menu_utama_kategori_siswa",
+                )
+            with s2:
+                klik_nilai = st.button(
+                    "📋 Daftar Hasil Nilai Ujian",
+                    use_container_width=True,
+                    key="menu_utama_nilai_ujian_siswa",
+                )
+
+            if klik_kategori_siswa:
+                st.session_state["kategori_pilih"] = (
+                    None if st.session_state["kategori_pilih"] == kategori_pilih_siswa else kategori_pilih_siswa
+                )
                 st.session_state["lihat_nilai"] = False
-                st.session_state["lihat_nilai_game"] = False
+                st.session_state["lihat_riwayat"] = False
                 st.session_state["lihat_saran"] = False
                 st.session_state["lihat_setoran"] = False
                 st.session_state["lihat_baca"] = False
-                catat_aktivitas("Buka Riwayat / Story Siswa")
-                st.rerun()
+                catat_aktivitas(f"Buka Kelas {kategori_pilih_siswa}")
 
-        saran_belum = get_saran()
-        if role_menu == "tim":
-            jml_saran_baru = len([item for item in saran_belum if not item["balasan"]])
-        else:
-            jml_saran_baru = len([item for item in saran_belum if item["pengirim"] == nama_menu and item["balasan"]])
-        label_saran_tab = f"💬 Kotak Saran / Kritik / Keluhan ({jml_saran_baru} Baru)" if jml_saran_baru > 0 else "💬 Kotak Saran / Kritik / Keluhan"
-        if st.button(label_saran_tab, use_container_width=True, key="tab_kotak_saran"):
-            st.session_state["lihat_saran"] = True
-            st.session_state["kategori_pilih"] = None
-            st.session_state["lihat_nilai"] = False
+        if klik_nilai:
+            st.session_state["lihat_nilai"] = True
             st.session_state["lihat_nilai_game"] = False
+            st.session_state["game"] = None
+            st.session_state["kategori_pilih"] = None
             st.session_state["lihat_riwayat"] = False
+            st.session_state["lihat_saran"] = False
             st.session_state["lihat_setoran"] = False
             st.session_state["lihat_baca"] = False
-            catat_aktivitas("Buka Kotak Saran")
-            st.rerun()
+            catat_aktivitas("Buka Daftar Hasil Nilai Ujian")
 
-# Tampilkan daftar kategori setelah tombol ujian dipilih.
-if st.session_state["siswa_pilih"] is None and st.session_state.get("kategori_pilih"):
-    role_menu_aktif = st.session_state.get("login_role")
-    nama_menu_aktif = st.session_state.get("login_nama", "")
-    kategori_menu_aktif = DATA_SISWA.get(nama_menu_aktif, {}).get("kategori")
-    kategori_aktif = st.session_state["kategori_pilih"]
-    if role_menu_aktif == "siswa" and kategori_aktif != kategori_menu_aktif:
-        st.session_state["kategori_pilih"] = None
-        st.warning("Akses dibatasi: kamu hanya dapat membuka kategori kelasmu sendiri.")
-    else:
-        tampilkan_daftar(kategori_aktif)
+    # Siswa hanya dapat membuka kategori sendiri. Tim melihat satu tombol preview,
+    # bukan daftar nama siswa.
+    if st.session_state.get("kategori_pilih"):
+        kategori_aktif = st.session_state["kategori_pilih"]
+        if role_menu == "siswa" and kategori_aktif != kategori_menu_siswa:
+            st.session_state["kategori_pilih"] = None
+            st.warning("Akses dibatasi: kamu hanya dapat membuka kategori kelasmu sendiri.")
+        else:
+            tampilkan_daftar(kategori_aktif)
+
+if st.session_state["login_role"]=="tim" and st.session_state["siswa_pilih"] is None:
+    if st.button("📋 Riwayat / Story Siswa (Khusus Tim)", use_container_width=True):
+        st.session_state["lihat_riwayat"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; st.session_state["lihat_baca"]=False; st.rerun()
+if st.session_state["siswa_pilih"] is None:
+    if st.button("📖 Baca Juz 30 & Iqro 1-6 (Langsung Baca Di Sini)", use_container_width=True):
+        st.session_state["lihat_baca"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; catat_aktivitas("Buka Baca Juz 30 & Iqro"); st.rerun()
+if st.session_state["siswa_pilih"] is None:
+    jml_baru = len([s for s in get_saran() if not s["balasan"]]) if st.session_state["login_role"]=="tim" else len([s for s in get_saran() if s["pengirim"]==st.session_state["login_nama"] and s["balasan"]])
+    label_saran = f"💬 Kotak Saran / Kritik / Keluhan ({jml_baru} Baru)" if jml_baru>0 else "💬 Kotak Saran / Kritik / Keluhan"
+    if st.button(label_saran, use_container_width=True):
+        st.session_state["lihat_saran"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_setoran"]=False; st.session_state["lihat_baca"]=False; catat_aktivitas("Buka Kotak Saran"); st.rerun()
+if st.session_state["siswa_pilih"] is None:
+    jml_setoran_baru = len([s for s in get_setoran() if not s["koreksi"]]) if st.session_state["login_role"]=="tim" else len([s for s in get_setoran() if s["pengirim"]==st.session_state["login_nama"] and s["koreksi"]])
+    label_setoran = f"🎙️ Setoran Suara / Koreksi Bacaan ({jml_setoran_baru} Baru)" if jml_setoran_baru>0 else "🎙️ Setoran Suara / Koreksi Bacaan (Foto + Suara)"
+    if st.button(label_setoran, use_container_width=True):
+        st.session_state["lihat_setoran"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_baca"]=False; catat_aktivitas("Buka Setoran Suara"); st.rerun()
 
 # ===== BACA JUZ 30 & IQRO 1-6 =====
 if st.session_state.get("lihat_baca") and st.session_state["siswa_pilih"] is None:
