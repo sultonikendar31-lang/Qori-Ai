@@ -2055,9 +2055,9 @@ if st.session_state["lihat_nilai"] and st.session_state["siswa_pilih"] is None:
         with pd.ExcelWriter(buffer_ujian, engine="openpyxl") as writer_ujian:
             df_ujian.to_excel(writer_ujian, index=False, sheet_name="Nilai Ujian")
 
-        # Tombol download ditempatkan di kolom tengah agar tidak melebar penuh.
-        c1, c2, c3 = st.columns([1, 2, 1])
-        with c2:
+        # Tombol Download Ujian - posisi sama seperti Game, di kolom tengah.
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col2:
             st.download_button(
                 "📥 Download Daftar Hasil Nilai Ujian (Excel)",
                 data=buffer_ujian.getvalue(),
