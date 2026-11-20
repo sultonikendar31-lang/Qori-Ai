@@ -1085,13 +1085,24 @@ if st.session_state.get("lihat_nilai_game", False):
             with pd.ExcelWriter(buffer_excel, engine="openpyxl") as writer_excel:
                 df_tampil.to_excel(writer_excel, index=False, sheet_name="Nilai Game")
 
-            st.download_button(
-                "📥 Download Daftar Hasil Nilai Game (Excel)",
-                data=buffer_excel.getvalue(),
-                file_name="daftar_hasil_nilai_game_qori_ai.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="download_daftar_hasil_nilai_game_tim",
+            # Kotak 1 - Keterangan unduhan Game.
+            st.markdown(
+                "<p style='text-align:center; font-weight:bold;'>"
+                "📥 Download Daftar Hasil Nilai Game (Excel)</p>",
+                unsafe_allow_html=True,
             )
+
+            # Kotak 2 - Tombol unduhan Game di tengah.
+            col_game_kiri, col_game_tengah, col_game_kanan = st.columns([1, 1, 1])
+            with col_game_tengah:
+                st.download_button(
+                    "⬇️ Download",
+                    data=buffer_excel.getvalue(),
+                    file_name="daftar_hasil_nilai_game_qori_ai.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key="download_daftar_hasil_nilai_game_tim",
+                )
 
             st.divider()
             st.markdown("## 🔄 Reset Nilai Game (Khusus Tim)")
@@ -2055,11 +2066,18 @@ if st.session_state["lihat_nilai"] and st.session_state["siswa_pilih"] is None:
         with pd.ExcelWriter(buffer_ujian, engine="openpyxl") as writer_ujian:
             df_ujian.to_excel(writer_ujian, index=False, sheet_name="Nilai Ujian")
 
-        # Tombol Download Ujian - posisi sama seperti Game, di kolom tengah.
-        col1, col2, col3 = st.columns([1, 1, 1])
-        with col2:
+        # Kotak 1 - Keterangan unduhan Ujian.
+        st.markdown(
+            "<p style='text-align:center; font-weight:bold;'>"
+            "📥 Download Daftar Hasil Nilai Ujian (Excel)</p>",
+            unsafe_allow_html=True,
+        )
+
+        # Kotak 2 - Tombol unduhan Ujian di tengah, sama seperti Game.
+        col_ujian_kiri, col_ujian_tengah, col_ujian_kanan = st.columns([1, 1, 1])
+        with col_ujian_tengah:
             st.download_button(
-                "📥 Download Daftar Hasil Nilai Ujian (Excel)",
+                "⬇️ Download",
                 data=buffer_ujian.getvalue(),
                 file_name="daftar_hasil_nilai_ujian_qori_ai.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
