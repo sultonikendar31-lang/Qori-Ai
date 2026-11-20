@@ -393,79 +393,116 @@ def get_base64(file):
 def tampilkan_tim_pembuat():
     st.markdown("""
     <div style="
-        background-color: rgba(255,255,255,0.12);
-        border: 1.5px solid rgba(255,255,255,0.6);
-        padding: 16px;
-        border-radius: 15px;
-        margin-top: 10px;
+        background-color:rgba(255,255,255,0.12);
+        border:1.5px solid rgba(255,255,255,0.6);
+        padding:16px;
+        border-radius:15px;
+        margin-top:10px;
     ">
-        <p style="color:#F9D423; font-weight:bold; font-size:18px;
-                  text-align:center; margin:0 0 12px 0;">
+        <p style="
+            color:#F9D423;
+            font-weight:bold;
+            font-size:18px;
+            text-align:center;
+            margin:0 0 12px 0;
+        ">
             👨‍🎓 Tim Penyusun QORI AI
         </p>
 
-        <div style="
+        <div class="qori-tim-grid" style="
             display:grid;
             grid-template-columns:repeat(3, minmax(0, 1fr));
             gap:10px;
             align-items:stretch;
         ">
             <!-- KIRI: DOSEN PENGAMPU -->
-            <div style="background-color:rgba(0,0,0,0.55); padding:12px 10px;
-                        border-radius:10px; text-align:center; min-width:0;">
-                <p style="color:#F9D423; font-weight:bold; margin:0; font-size:15px;">
+            <div style="
+                background-color:rgba(0,0,0,0.55);
+                padding:12px 10px;
+                border-radius:10px;
+                text-align:center;
+                min-width:0;
+                overflow-wrap:anywhere;
+            ">
+                <p style="color:#F9D423;font-weight:bold;margin:0;font-size:15px;">
                     Dr. Muhamad Siddiq Asyhari, M.Pd
                 </p>
-                <p style="color:white; margin:4px 0 0 0; font-size:13px;">
+                <p style="color:white;margin:4px 0 0 0;font-size:13px;">
                     Dosen Pengampu
                 </p>
             </div>
 
             <!-- TENGAH: KEPALA MA -->
-            <div style="background-color:rgba(0,0,0,0.55); padding:12px 10px;
-                        border-radius:10px; text-align:center; min-width:0;">
-                <p style="color:#F9D423; font-weight:bold; margin:0; font-size:15px;">
+            <div style="
+                background-color:rgba(0,0,0,0.55);
+                padding:12px 10px;
+                border-radius:10px;
+                text-align:center;
+                min-width:0;
+                overflow-wrap:anywhere;
+            ">
+                <p style="color:#F9D423;font-weight:bold;margin:0;font-size:15px;">
                     Bapak Syamsul Hadi, S.Pd.I
                 </p>
-                <p style="color:white; margin:4px 0 0 0; font-size:13px;">
+                <p style="color:white;margin:4px 0 0 0;font-size:13px;">
                     Kepala MA Al-Barokah
                 </p>
             </div>
 
             <!-- KANAN: GURU PAMONG -->
-            <div style="background-color:rgba(0,0,0,0.55); padding:12px 10px;
-                        border-radius:10px; text-align:center; min-width:0;">
-                <p style="color:#F9D423; font-weight:bold; margin:0; font-size:15px;">
+            <div style="
+                background-color:rgba(0,0,0,0.55);
+                padding:12px 10px;
+                border-radius:10px;
+                text-align:center;
+                min-width:0;
+                overflow-wrap:anywhere;
+            ">
+                <p style="color:#F9D423;font-weight:bold;margin:0;font-size:15px;">
                     Bapak Muhamad Rais, S.Pd.I
                 </p>
-                <p style="color:white; margin:4px 0 0 0; font-size:13px;">
+                <p style="color:white;margin:4px 0 0 0;font-size:13px;">
                     Guru Pamong
                 </p>
             </div>
 
             <!-- BAWAH TENGAH: MAHASISWA -->
-            <div style="grid-column:2; background-color:rgba(0,0,0,0.55);
-                        padding:12px 10px; border-radius:10px;
-                        text-align:center; min-width:0;">
-                <p style="color:#F9D423; font-weight:bold; margin:0; font-size:15px;">
+            <div class="qori-tim-mahasiswa" style="
+                grid-column:2;
+                background-color:rgba(0,0,0,0.55);
+                padding:12px 10px;
+                border-radius:10px;
+                text-align:center;
+                min-width:0;
+                overflow-wrap:anywhere;
+            ">
+                <p style="color:#F9D423;font-weight:bold;margin:0;font-size:15px;">
                     Kendar Sultoni
                 </p>
-                <p style="color:white; margin:4px 0 0 0; font-size:13px;">
+                <p style="color:white;margin:4px 0 0 0;font-size:13px;">
                     Mahasiswa
                 </p>
             </div>
         </div>
 
-        <p style="color:white; text-align:center; font-size:12px; margin:10px 0 0 0;">
+        <p style="
+            color:white;
+            text-align:center;
+            font-size:12px;
+            margin:10px 0 0 0;
+        ">
             QORI AI - Madrasah Aliyah Al-Barokah |
             Media Belajar Iqro, Tahsin & Tahfidz
         </p>
     </div>
 
     <style>
-    @media (max-width: 600px) {
+    @media (max-width: 700px) {
         .qori-tim-grid {
-            grid-template-columns: 1fr !important;
+            grid-template-columns:1fr !important;
+        }
+        .qori-tim-grid .qori-tim-mahasiswa {
+            grid-column:1 !important;
         }
     }
     </style>
