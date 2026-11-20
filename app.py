@@ -72,25 +72,6 @@ st.markdown("""
     color: #000000 !important;
     background: #FFE082 !important;
 }
-/* ===== GRID TIM PENYUSUN QORI AI ===== */
-.qori-tim-grid {
-    display: grid !important;
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    gap: 10px !important;
-    align-items: stretch !important;
-    width: 100% !important;
-}
-.qori-tim-grid .qori-tim-mahasiswa {
-    grid-column: 2 !important;
-}
-@media screen and (max-width: 700px) {
-    .qori-tim-grid {
-        grid-template-columns: minmax(0, 1fr) !important;
-    }
-    .qori-tim-grid .qori-tim-mahasiswa {
-        grid-column: 1 !important;
-    }
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -410,113 +391,40 @@ def get_base64(file):
     except: return ""
 
 def tampilkan_tim_pembuat():
-    st.markdown("""
-    <div style="
-        background-color:rgba(255,255,255,0.12);
-        border:1.5px solid rgba(255,255,255,0.6);
-        padding:16px;
-        border-radius:15px;
-        margin-top:10px;
-    ">
-        <p style="
-            color:#F9D423;
-            font-weight:bold;
-            font-size:18px;
-            text-align:center;
-            margin:0 0 12px 0;
-        ">
-            👨‍🎓 Tim Penyusun QORI AI
-        </p>
+    """Menampilkan tim penyusun menggunakan komponen native Streamlit."""
+    st.markdown("### ⭐ Tim Penyusun QORI AI")
 
-        <div class="qori-tim-grid" style="
-            display:grid;
-            grid-template-columns:repeat(3, minmax(0, 1fr));
-            gap:10px;
-            align-items:stretch;
-        ">
-            <!-- KIRI: DOSEN PENGAMPU -->
-            <div style="
-                background-color:rgba(0,0,0,0.55);
-                padding:12px 10px;
-                border-radius:10px;
-                text-align:center;
-                min-width:0;
-                overflow-wrap:anywhere;
-            ">
-                <p style="color:#F9D423;font-weight:bold;margin:0;font-size:15px;">
-                    Dr. Muhamad Siddiq Asyhari, M.Pd
-                </p>
-                <p style="color:white;margin:4px 0 0 0;font-size:13px;">
-                    Dosen Pengampu
-                </p>
-            </div>
+    col1, col2, col3 = st.columns(3)
 
-            <!-- TENGAH: KEPALA MA -->
-            <div style="
-                background-color:rgba(0,0,0,0.55);
-                padding:12px 10px;
-                border-radius:10px;
-                text-align:center;
-                min-width:0;
-                overflow-wrap:anywhere;
-            ">
-                <p style="color:#F9D423;font-weight:bold;margin:0;font-size:15px;">
-                    Bapak Syamsul Hadi, S.Pd.I
-                </p>
-                <p style="color:white;margin:4px 0 0 0;font-size:13px;">
-                    Kepala MA Al-Barokah
-                </p>
-            </div>
+    with col1:
+        with st.container(border=True):
+            st.markdown("**Dr. Muhamad Siddiq Asyhari, M.Pd**")
+            st.caption("Dosen Pengampu")
 
-            <!-- KANAN: GURU PAMONG -->
-            <div style="
-                background-color:rgba(0,0,0,0.55);
-                padding:12px 10px;
-                border-radius:10px;
-                text-align:center;
-                min-width:0;
-                overflow-wrap:anywhere;
-            ">
-                <p style="color:#F9D423;font-weight:bold;margin:0;font-size:15px;">
-                    Bapak Muhamad Rais, S.Pd.I
-                </p>
-                <p style="color:white;margin:4px 0 0 0;font-size:13px;">
-                    Guru Pamong
-                </p>
-            </div>
+    with col2:
+        with st.container(border=True):
+            st.markdown("**Bapak Syamsul Hadi, S.Pd.I**")
+            st.caption("Kepala MA Al-Barokah")
 
-            <!-- BAWAH TENGAH: MAHASISWA -->
-            <div class="qori-tim-mahasiswa" style="
-                grid-column:2;
-                background-color:rgba(0,0,0,0.55);
-                padding:12px 10px;
-                border-radius:10px;
-                text-align:center;
-                min-width:0;
-                overflow-wrap:anywhere;
-            ">
-                <p style="color:#F9D423;font-weight:bold;margin:0;font-size:15px;">
-                    Kendar Sultoni
-                </p>
-                <p style="color:white;margin:4px 0 0 0;font-size:13px;">
-                    Mahasiswa
-                </p>
-            </div>
-        </div>
+    with col3:
+        with st.container(border=True):
+            st.markdown("**Bapak Muhamad Rais, S.Pd.I**")
+            st.caption("Guru Pamong")
 
-        <p style="
-            color:white;
-            text-align:center;
-            font-size:12px;
-            margin:10px 0 0 0;
-        ">
-            QORI AI - Madrasah Aliyah Al-Barokah |
-            Media Belajar Iqro, Tahsin & Tahfidz
-        </p>
-    </div>
+    # Mahasiswa berada di tengah pada baris berikutnya.
+    col_kiri, col_tengah, col_kanan = st.columns([1, 1, 1])
+    with col_tengah:
+        with st.container(border=True):
+            st.markdown("**Kendar Sultoni**")
+            st.caption("Mahasiswa")
 
-
-    """, unsafe_allow_html=True)
+    st.markdown(
+        "<div style='text-align:center; font-size:12px; margin-top:10px;'>"
+        "QORI AI - Madrasah Aliyah Al-Barokah | "
+        "Media Belajar Iqro, Tahsin &amp; Tahfidz"
+        "</div>",
+        unsafe_allow_html=True
+    )
 
 bg = get_base64("background.jpeg")
 if bg:
