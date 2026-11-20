@@ -72,6 +72,25 @@ st.markdown("""
     color: #000000 !important;
     background: #FFE082 !important;
 }
+/* ===== GRID TIM PENYUSUN QORI AI ===== */
+.qori-tim-grid {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+    align-items: stretch !important;
+    width: 100% !important;
+}
+.qori-tim-grid .qori-tim-mahasiswa {
+    grid-column: 2 !important;
+}
+@media screen and (max-width: 700px) {
+    .qori-tim-grid {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+    .qori-tim-grid .qori-tim-mahasiswa {
+        grid-column: 1 !important;
+    }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -496,16 +515,7 @@ def tampilkan_tim_pembuat():
         </p>
     </div>
 
-    <style>
-    @media (max-width: 700px) {
-        .qori-tim-grid {
-            grid-template-columns:1fr !important;
-        }
-        .qori-tim-grid .qori-tim-mahasiswa {
-            grid-column:1 !important;
-        }
-    }
-    </style>
+
     """, unsafe_allow_html=True)
 
 bg = get_base64("background.jpeg")
