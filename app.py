@@ -2029,14 +2029,40 @@ if st.session_state["lihat_nilai"] and st.session_state["siswa_pilih"] is None:
             rows+=f"<tr><td style='padding:10px; text-align:center; color:white;'>{no}</td><td style='padding:10px; color:white; font-weight:bold;'>{nama}</td><td style='padding:10px; text-align:center; color:white;'>{info['jk']}</td><td style='padding:10px; text-align:center; color:white;'>{info['kategori']}</td><td style='padding:10px; text-align:center; color:{warna}; font-weight:bold; font-size:20px;'>{nilai}</td><td style='padding:10px; text-align:center; color:{wk}; font-weight:bold;'>{ket}</td><td style='padding:10px; text-align:center; color:white;'>{u}x</td></tr>"
     st.markdown(f"<div style='background-color: rgba(0,0,0,0.75); padding:15px; border-radius:15px;'><p style='color:white; text-align:center;'>Total: {len(daftar_tampil)} | ⏳ Belum: {belum_ujian} | ✅ Tuntas: {tuntas} | ❌ Belum Tuntas: {belum}</p><table style='width:100%;'><tr style='background-color:#F9D423;'><th style='padding:10px; color:#000;'>No</th><th style='padding:10px; color:#000;'>Nama</th><th style='padding:10px; color:#000;'>JK</th><th style='padding:10px; color:#000;'>Kategori</th><th style='padding:10px; color:#000;'>Nilai</th><th style='padding:10px; color:#000;'>Ket</th><th style='padding:10px; color:#000;'>Ulang</th></tr>{rows}</table></div>", unsafe_allow_html=True)
     if st.session_state["login_role"] == "tim":
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow(["Nama", "Jenis Kelamin", "Kategori", "Nilai", "Status", "Jumlah Ujian"])
+        # Siapkan data nilai ujian dalam format Excel (.xlsx).
+        data_ujian_export = []
         for nama_export in daftar_tampil:
             info_export = DATA_SISWA[nama_export]
             nilai_export = hasil.get(nama_export)
-            writer.writerow([nama_export, info_export["jk"], info_export["kategori"], nilai_export if nilai_export is not None else "", "Tuntas" if nilai_export is not None and nilai_export >= KKM else ("Belum Tuntas" if nilai_export is not None else "Belum Ujian"), ulang.get(nama_export, 0)])
-        st.download_button("⬇️ Unduh Daftar Nilai (CSV - bisa dibuka di Excel)", data="\ufeff" + output.getvalue(), file_name="daftar_nilai_qori_ai.csv", mime="text/csv", use_container_width=True)
+            status_export = (
+                "Tuntas" if nilai_export is not None and nilai_export >= KKM
+                else ("Belum Tuntas" if nilai_export is not None else "Belum Ujian")
+            )
+            data_ujian_export.append({
+                "Nama": nama_export,
+                "Jenis Kelamin": info_export["jk"],
+                "Kategori": info_export["kategori"],
+                "Nilai": nilai_export if nilai_export is not None else "",
+                "Status": status_export,
+                "Jumlah Ujian": ulang.get(nama_export, 0),
+            })
+
+        df_ujian = pd.DataFrame(
+            data_ujian_export,
+            columns=["Nama", "Jenis Kelamin", "Kategori", "Nilai", "Status", "Jumlah Ujian"]
+        )
+        buffer_ujian = io.BytesIO()
+        with pd.ExcelWriter(buffer_ujian, engine="openpyxl") as writer_ujian:
+            df_ujian.to_excel(writer_ujian, index=False, sheet_name="Nilai Ujian")
+
+        st.download_button(
+            "📥 Download Daftar Hasil Nilai Ujian (Excel)",
+            data=buffer_ujian.getvalue(),
+            file_name="daftar_hasil_nilai_ujian_qori_ai.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="download_daftar_hasil_nilai_ujian_tim",
+        )
     if st.session_state["login_role"] == "tim":
         st.write("")
         st.markdown("<div style='background-color: rgba(120,20,20,0.9); padding:18px; border-radius:15px; text-align:center; border:2px solid #FF5252;'><h3 style='color:#FFFFFF; margin:0;'>🔄 Reset Nilai (Khusus Tim)</h3><p style='color:white; font-size:13px; margin:6px 0 0 0;'>Hati-hati! Nilai yang sudah direset tidak bisa dikembalikan.</p></div>", unsafe_allow_html=True)
