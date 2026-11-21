@@ -1,4 +1,11 @@
 import streamlit as st
+from supabase import create_client
+
+SUPABASE_URL = "https://dssztofurpfhettkxvou.supabase.co"
+SUPABASE_KEY = "sb_publishable_6V_iGP4BxZFtQVfaVsR3ow_itk9W0t1"
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 import streamlit.components.v1 as components
 import base64
 import random
