@@ -6,6 +6,24 @@ SUPABASE_KEY = "sb_publishable_6V_iGP4BxZFtQVfaVsR3ow_itk9W0t1"
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+
+# === FUNGSI SIMPAN KE SUPABASE ===
+def simpan_siswa(nama, kelas, nis):
+    return supabase.table("siswa").insert({"nama": nama, "kelas": kelas, "nis": nis}).execute()
+
+def simpan_hasil_ujian(nama_siswa, kelas, materi, skor, jawaban=None):
+    return supabase.table("hasil_ujian").insert({"nama_siswa": nama_siswa, "kelas": kelas, "materi": materi, "skor": skor, "jawaban": jawaban}).execute()
+
+def simpan_aktivitas(nama_siswa, aktivitas):
+    return supabase.table("riwayat_aktivitas").insert({"nama_siswa": nama_siswa, "aktivitas": aktivitas}).execute()
+
+def simpan_nilai(nama_siswa, materi, nilai):
+    return supabase.table("nilai_pembelajaran").insert({"nama_siswa": nama_siswa, "materi": materi, "nilai": nilai}).execute()
+
+def simpan_bukti(nama_siswa, nama_file, link_file):
+    return supabase.table("bukti_tugas").insert({"nama_siswa": nama_siswa, "nama_file": nama_file, "link_file": link_file}).execute()
+
+
 import streamlit.components.v1 as components
 import base64
 import random
