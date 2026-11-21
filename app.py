@@ -36,7 +36,7 @@ import csv
 import io
 import json
 import re
-import sqlite3
+
 import pandas as pd
 from urllib.request import Request, urlopen
 from openai import OpenAI
