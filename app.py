@@ -1529,9 +1529,6 @@ if st.session_state["login_role"]=="tim" and st.session_state["siswa_pilih"] is 
     if st.button("📋 Riwayat / Story Siswa (Khusus Tim)", use_container_width=True):
         st.session_state["lihat_riwayat"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; st.session_state["lihat_baca"]=False; st.rerun()
 if st.session_state["siswa_pilih"] is None:
-    if st.button("📖 Baca Juz 30 & Iqro 1-6 (Langsung Baca Di Sini)", use_container_width=True):
-        st.session_state["lihat_baca"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; catat_aktivitas("Buka Baca Juz 30 & Iqro"); st.rerun()
-if st.session_state["siswa_pilih"] is None:
     jml_baru = len([s for s in get_saran() if not s["balasan"]]) if st.session_state["login_role"]=="tim" else len([s for s in get_saran() if s["pengirim"]==st.session_state["login_nama"] and s["balasan"]])
     label_saran = f"💬 Kotak Saran / Kritik / Keluhan ({jml_baru} Baru)" if jml_baru>0 else "💬 Kotak Saran / Kritik / Keluhan"
     if st.button(label_saran, use_container_width=True):
@@ -1541,40 +1538,6 @@ if st.session_state["siswa_pilih"] is None:
     label_setoran = f"🎙️ Setoran Suara / Koreksi Bacaan ({jml_setoran_baru} Baru)" if jml_setoran_baru>0 else "🎙️ Setoran Suara / Koreksi Bacaan (Foto + Suara)"
     if st.button(label_setoran, use_container_width=True):
         st.session_state["lihat_setoran"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_baca"]=False; catat_aktivitas("Buka Setoran Suara"); st.rerun()
-
-# ===== BACA JUZ 30 & IQRO 1-6 =====
-if st.session_state.get("lihat_baca") and st.session_state["siswa_pilih"] is None:
-    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📖 Baca Juz 30 & Iqro 1-6</h2><p style='color:white;'>Baca dulu di sini, baru Setoran Suara</p></div>", unsafe_allow_html=True)
-    st.write("")
-    # Otomatis arahkan sesuai kelas siswa
-    if st.session_state["login_role"]=="siswa":
-        kat_siswa = DATA_SISWA.get(st.session_state["login_nama"],{}).get("kategori","Tahsin")
-        default_tab = "Iqro 1-6" if kat_siswa=="Iqro" else "Juz 30 (Tahsin & Tahfidz)"
-    else:
-        default_tab = "Juz 30 (Tahsin & Tahfidz)"
-    tab_pilih = st.radio("Pilih Bacaan:", ["Juz 30 (Tahsin & Tahfidz)", "Iqro 1-6"], index=0 if default_tab.startswith("Juz") else 1, horizontal=True, key="tab_baca")
-    if tab_pilih == "Juz 30 (Tahsin & Tahfidz)":
-        st.markdown("<p style='color:white; font-weight:bold;'>Pilih Surat Juz 30:</p>", unsafe_allow_html=True)
-        surat_baca = st.selectbox("Surat:", JUZ30_SURAH, key="surat_baca")
-        isi = JUZ30_BACA.get(surat_baca, {})
-        st.markdown(f"<div style='background-color: rgba(0,0,0,0.75); padding:18px; border-radius:15px; text-align:center;'><h3 style='color:#F9D423; margin:0;'>{surat_baca} - {isi.get('ayat','')}</h3><p style='color:white; font-size:26px; line-height:2.2; direction:rtl; text-align:right; margin:15px 0 0 0;'>{isi.get('arab','')}</p></div>", unsafe_allow_html=True)
-        st.write("")
-        st.markdown(f"<div style='background-color: rgba(255,255,255,0.12); padding:14px; border-radius:12px;'><p style='color:#F9D423; font-weight:bold; margin:0;'>Latin (Cara Baca):</p><p style='color:white;'>{isi.get('latin','')}</p><p style='color:#F9D423; font-weight:bold; margin:10px 0 0 0;'>Artinya:</p><p style='color:white;'>{isi.get('arti','')}</p></div>", unsafe_allow_html=True)
-        st.info("Untuk surat yang panjang (An-Naba sampai Al-Fajr dll), di atas ditampilkan awal suratnya. Lanjutkan baca lengkapnya di mushaf / Iqro, lalu Setoran Suara.")
-        if st.button("🎙️ Langsung Setoran Surat Ini", use_container_width=True):
-            st.session_state["lihat_baca"]=False; st.session_state["lihat_setoran"]=True; st.rerun()
-    else:
-        st.markdown("<p style='color:white; font-weight:bold;'>Pilih Iqro:</p>", unsafe_allow_html=True)
-        iqro_pilih = st.selectbox("Iqro:", list(IQRO_BACA.keys()), key="iqro_baca")
-        isi_iqro = IQRO_BACA[iqro_pilih]
-        st.markdown(f"<div style='background-color: rgba(0,0,0,0.75); padding:18px; border-radius:15px;'><h3 style='color:#F9D423; text-align:center; margin:0;'>{isi_iqro['judul']}</h3><p style='color:white; font-size:19px; line-height:2.0; white-space:pre-line; margin:12px 0 0 0;'>{isi_iqro['materi']}</p></div>", unsafe_allow_html=True)
-        st.info("Baca pelan-pelan, perhatikan harakatnya. Kalau sudah lancar, langsung Setoran Suara.")
-        if st.button("🎙️ Langsung Setoran Iqro Ini", use_container_width=True):
-            st.session_state["lihat_baca"]=False; st.session_state["lihat_setoran"]=True; st.rerun()
-    st.write("")
-    if st.button("⬅️ Tutup Bacaan", use_container_width=True):
-        st.session_state["lihat_baca"]=False; st.rerun()
-    st.stop()
 
 # ===== SETORAN SUARA - HANYA UPLOAD =====
 if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is None:
