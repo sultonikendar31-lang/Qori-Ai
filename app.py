@@ -1,8 +1,9 @@
 import streamlit as st
 from supabase import create_client
 
-SUPABASE_URL = "https://dssztofurpfhettkxvou.supabase.co"
-SUPABASE_KEY = "sb_publishable_6V_iGP4BxZFtQVfaVsR3ow_itk9W0t1"
+# Kredensial Supabase disimpan di Streamlit Cloud > App settings > Secrets.
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -957,6 +958,79 @@ if st.session_state["siswa_pilih"] is None and st.session_state["login_role"] ==
         st.info(f"{jumlah_belum} siswa memperoleh nilai di bawah KKM dan perlu tindak lanjut/remedial.")
 
 
+# ===== PENILAIAN GURU - BACA QUR'AN =====
+if st.session_state.get("login_role") == "tim" and st.session_state.get("siswa_pilih") is None:
+    st.divider()
+    st.header("👨‍🏫 Penilaian Bacaan Al-Qur'an")
+
+    try:
+        data_bacaan = (
+            supabase.table("bacaan_quran")
+            .select("*")
+            .eq("status", "menunggu")
+            .order("created_at", desc=True)
+            .execute()
+            .data
+        )
+
+        if not data_bacaan:
+            st.info("Belum ada bacaan yang menunggu dinilai.")
+        else:
+            for row in data_bacaan:
+                with st.expander(
+                    f"📌 {row.get('nama_siswa', '-')} - {row.get('kelas', '-')} - {row.get('surah', '-')}"
+                ):
+                    st.write(f"**Ayat:** {row.get('ayat_text', '-')}")
+                    st.write(f"Tanggal: {row.get('created_at', '-')}")
+                    if row.get("audio_url"):
+                        st.audio(row["audio_url"])
+
+                    st.subheader("Rubrik Penilaian (1-4)")
+                    st.caption("1=Kurang, 2=Cukup, 3=Baik, 4=Sangat Baik")
+                    c1, c2, c3 = st.columns(3)
+                    row_id = row.get("id")
+                    with c1:
+                        makhraj = st.number_input("1. Makhrajul Huruf", 1, 4, 3, key=f"makhraj_{row_id}")
+                        sifat = st.number_input("2. Sifat Huruf", 1, 4, 3, key=f"sifat_{row_id}")
+                    with c2:
+                        tajwid = st.number_input("3. Hukum Tajwid", 1, 4, 3, key=f"tajwid_{row_id}")
+                        harakat = st.number_input("4. Ketepatan Harakat", 1, 4, 3, key=f"harakat_{row_id}")
+                    with c3:
+                        lancar = st.number_input("5. Kelancaran", 1, 4, 3, key=f"lancar_{row_id}")
+                        mad = st.number_input("6. Panjang Pendek (Mad)", 1, 4, 3, key=f"mad_{row_id}")
+
+                    catatan = st.text_area(
+                        "Catatan Guru",
+                        key=f"catatan_{row_id}",
+                        placeholder="Contoh: Huruf 'ain masih kurang jelas, mad thabi'i kurang panjang...",
+                    )
+                    total = round(
+                        ((makhraj + sifat + tajwid + harakat + lancar + mad) / 24) * 100
+                    )
+                    st.metric("Total Nilai (otomatis)", f"{total} / 100")
+
+                    if st.button("💾 Simpan Nilai", key=f"simpan_nilai_bacaan_{row_id}"):
+                        supabase.table("nilai_bacaan").insert({
+                            "bacaan_id": row_id,
+                            "makhraj": makhraj,
+                            "sifat_huruf": sifat,
+                            "tajwid": tajwid,
+                            "harakat": harakat,
+                            "kelancaran": lancar,
+                            "mad": mad,
+                            "total_nilai": total,
+                            "catatan_guru": catatan,
+                        }).execute()
+                        supabase.table("bacaan_quran").update(
+                            {"status": "dinilai"}
+                        ).eq("id", row_id).execute()
+                        st.success("Nilai tersimpan!")
+                        st.rerun()
+    except Exception as e:
+        st.error(f"Gagal ambil data penilaian bacaan: {e}")
+
+
+
 # ===== MENU GAME QORI AI: KHUSUS SISWA =====
 # Akun TIM tidak menampilkan baris Game QORI AI di bagian atas.
 # TIM menggunakan menu kategori di Menu Utama bagian bawah.
@@ -1549,6 +1623,72 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
             st.warning("Akses dibatasi: kamu hanya dapat membuka kategori kelasmu sendiri.")
         else:
             tampilkan_daftar(kategori_aktif)
+
+# ===== TES BACA QUR'AN - SISWA =====
+if st.session_state.get("login_role") == "siswa" and st.session_state.get("siswa_pilih") is None:
+    st.divider()
+    st.header("🎙️ Tes Membaca Al-Qur'an")
+    st.write("Bagian ini untuk penelitian PAI. Bacaan kamu akan dinilai guru.")
+
+    nama_siswa_bacaan = st.session_state.get("login_nama") or st.text_input(
+        "Nama Siswa", key="nama_bacaan"
+    )
+    kelas_siswa_bacaan = st.text_input(
+        "Kelas", key="kelas_bacaan", placeholder="Contoh: 7A"
+    )
+    surah_bacaan = st.selectbox(
+        "Pilih Surah",
+        ["Al-Fatihah", "Al-Ikhlas", "An-Nas", "Al-Falaq", "Al-Kautsar"],
+        key="surah_tes_bacaan",
+    )
+    ayat_bacaan = st.text_area(
+        "Ayat yang dibaca",
+        "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ",
+        key="ayat_bacaan",
+    )
+
+    st.info(
+        "1. Klik tombol mikrofon di bawah\n"
+        "2. Baca dengan tartil & jelas\n"
+        "3. Klik Stop, lalu klik Kirim"
+    )
+    audio_bacaan = st.audio_input("Rekam Bacaan Kamu", key="audio_quran")
+
+    if audio_bacaan is not None:
+        st.audio(audio_bacaan)
+        if st.button("📤 Kirim Bacaan ke Guru", key="kirim_bacaan"):
+            if not nama_siswa_bacaan or not kelas_siswa_bacaan.strip():
+                st.error("Isi Nama dan Kelas dulu!")
+            else:
+                try:
+                    waktu_nama = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+                    nama_aman = "".join(
+                        c if c.isalnum() or c in ("-", "_") else "_"
+                        for c in nama_siswa_bacaan.strip()
+                    )
+                    file_name = (
+                        f"{nama_aman}_{waktu_nama}.wav"
+                    )
+                    supabase.storage.from_("audio-bacaan").upload(
+                        file_name,
+                        audio_bacaan.getvalue(),
+                        {"content-type": "audio/wav", "upsert": "true"},
+                    )
+                    audio_url = supabase.storage.from_("audio-bacaan").get_public_url(file_name)
+
+                    supabase.table("bacaan_quran").insert({
+                        "nama_siswa": nama_siswa_bacaan,
+                        "kelas": kelas_siswa_bacaan.strip(),
+                        "surah": surah_bacaan,
+                        "ayat_text": ayat_bacaan,
+                        "audio_url": audio_url,
+                        "status": "menunggu",
+                    }).execute()
+
+                    st.success("✅ Berhasil dikirim! Silakan tunggu penilaian guru.")
+                    st.balloons()
+                except Exception as e:
+                    st.error(f"Gagal kirim: {e}")
 
 if st.session_state["login_role"]=="tim" and st.session_state["siswa_pilih"] is None:
     if st.button("📋 Riwayat / Story Siswa (Khusus Tim)", use_container_width=True):
