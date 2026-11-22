@@ -18,8 +18,8 @@ NAMA_ARAB_HARAKAT = {
 }
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def ambil_full_surat(no_surah, versi_pembersihan="basmalah-tanpa-harakat-v3"):
-    """Ambil satu surat utuh dan bersihkan Basmalah yang menempel pada ayat pertama."""
+def ambil_full_surat(no_surah):
+    """Ambil satu surat utuh dari API tanpa mengubah teks ayat apa pun."""
     try:
         response = requests.get(
             f"https://api.alquran.cloud/v1/surah/{int(no_surah)}", timeout=15
@@ -34,25 +34,14 @@ def ambil_full_surat(no_surah, versi_pembersihan="basmalah-tanpa-harakat-v3"):
         if not ayahs:
             return None
 
-        ayat_bersih = []
-        for idx, ayah in enumerate(ayahs):
-            teks = str(ayah.get("text", "")).strip()
-
-            # Bersihkan Basmalah yang mungkin menempel pada ayat pertama.
-            # Harakat dihapus hanya untuk pemeriksaan; teks ayat asli tetap dipakai.
-            if idx == 0:
-                tanpa_harakat = re.sub(r"[\u064B-\u0652\u0670\u0640]", "", teks)
-                if tanpa_harakat.startswith("بسم الله الرحمن الرحيم"):
-                    kata = teks.split()
-                    teks = " ".join(kata[4:]).strip() if len(kata) > 4 else ""
-
-            ayat_bersih.append(teks)
+        # Teks ayat dikembalikan utuh persis seperti dari API.
+        ayat_utuh = [str(ayah.get("text", "")).strip() for ayah in ayahs]
 
         return {
             "nama": f"{data.get('number', no_surah)}. {data.get('englishName', '')}".strip(),
             "nama_arab": data.get("name", ""),
-            "ayat": ayat_bersih,
-            "jumlah_ayat": data.get("numberOfAyahs", len(ayat_bersih)),
+            "ayat": ayat_utuh,
+            "jumlah_ayat": data.get("numberOfAyahs", len(ayat_utuh)),
         }
     except Exception:
         return None
@@ -80,12 +69,6 @@ def tampilkan_halaman_surat_juz30(no_surah, program_key):
     mulai = halaman * per_halaman
     ayat_tampil = list(ayat_list[mulai:mulai + per_halaman])
 
-    # Basmalah ditampilkan sekali di awal setiap surat (Juz 30).
-    # Jika API menyertakan Basmalah di awal teks ayat pertama, bersihkan agar tidak dobel.
-    pakai_basmalah = no_surah not in (1, 9)
-    tampilkan_basmalah = pakai_basmalah and halaman == 0
-    # Pembersihan Basmalah sudah dilakukan di ambil_full_surat(), sebelum pagination.
-
     # Judul surah hanya ditampilkan pada halaman pertama.
     # Halaman 2 dan seterusnya langsung menampilkan ayat tanpa judul berulang.
     isi_html = ""
@@ -93,15 +76,6 @@ def tampilkan_halaman_surat_juz30(no_surah, program_key):
         isi_html += (
             f"<div style='text-align:center;font-size:36px;font-weight:bold;"
             f"color:#111 !important;margin-bottom:8px;direction:rtl;'>{NAMA_ARAB_HARAKAT[no_surah]}</div>"
-        )
-    if tampilkan_basmalah:
-        isi_html += (
-            "<div style='text-align:center;direction:rtl;font-size:36px;font-weight:bold;"
-            "color:#111 !important;margin:14px 0 8px 0;'>"
-            f"{BASMALAH}</div>"
-            "<p style='text-align:center;color:#666;font-size:13px;margin:0 0 16px 0;'>"
-            "Baca Basmalah dulu sebelum membaca surat</p>"
-            "<div style='border-bottom:1px solid #eee;margin-bottom:14px;'></div>"
         )
     for nomor_ayat, teks_ayat in enumerate(ayat_tampil, start=mulai + 1):
         isi_html += (
@@ -136,7 +110,6 @@ def tampilkan_halaman_surat_juz30(no_surah, program_key):
 
 # ===== DATA LENGKAP JUZ 30 (SURAH 78-114) =====
 # Sumber teks ayat: data yang diberikan pengguna.
-BASMALAH = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ"
 
 # Setiap surah = 1 string, ayat dipisah dengan \n
 AYAT_JUZ30 = {
