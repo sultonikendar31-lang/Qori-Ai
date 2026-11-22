@@ -18,8 +18,8 @@ NAMA_ARAB_HARAKAT = {
 }
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def ambil_full_surat(no_surah):
-    """Ambil satu surat utuh dari API dan bersihkan Basmalah yang menempel pada ayat pertama."""
+def ambil_full_surat(no_surah, versi_pembersihan="basmalah-tanpa-harakat-v3"):
+    """Ambil satu surat utuh dan bersihkan Basmalah yang menempel pada ayat pertama."""
     try:
         response = requests.get(
             f"https://api.alquran.cloud/v1/surah/{int(no_surah)}", timeout=15
@@ -38,15 +38,13 @@ def ambil_full_surat(no_surah):
         for idx, ayah in enumerate(ayahs):
             teks = str(ayah.get("text", "")).strip()
 
-            # Bersihkan di sumber data sebelum pagination.
-            # Basmalah yang menempel pada awal ayat pertama terdiri dari 4 kata.
-            # Basmalah terpisah yang ditampilkan di atas kotak tetap dipertahankan.
-            if idx == 0 and teks.startswith("بِسْمِ"):
-                kata = teks.split()
-                if len(kata) > 4:
-                    teks = " ".join(kata[4:])
-                else:
-                    teks = ""
+            # Bersihkan Basmalah yang mungkin menempel pada ayat pertama.
+            # Harakat dihapus hanya untuk pemeriksaan; teks ayat asli tetap dipakai.
+            if idx == 0:
+                tanpa_harakat = re.sub(r"[\u064B-\u0652\u0670\u0640]", "", teks)
+                if tanpa_harakat.startswith("بسم الله الرحمن الرحيم"):
+                    kata = teks.split()
+                    teks = " ".join(kata[4:]).strip() if len(kata) > 4 else ""
 
             ayat_bersih.append(teks)
 
@@ -81,23 +79,6 @@ def tampilkan_halaman_surat_juz30(no_surah, program_key):
     halaman = max(0, min(st.session_state[state_halaman], total_halaman - 1))
     mulai = halaman * per_halaman
     ayat_tampil = list(ayat_list[mulai:mulai + per_halaman])
-
-    # Pembersihan lapis kedua tepat sebelum ayat ditampilkan.
-    # Ini menangani variasi harakat/Unicode dari API dan tetap aman jika
-    # ambil_full_surat() sebelumnya sudah membersihkannya.
-    if halaman == 0 and ayat_tampil:
-        teks_awal = str(ayat_tampil[0]).strip()
-        kata_awal = teks_awal.split()
-
-        def normalisasi_huruf_arab(teks):
-            return "".join(
-                karakter for karakter in unicodedata.normalize("NFD", teks)
-                if unicodedata.category(karakter) != "Mn" and karakter != "ـ"
-            )
-
-        empat_kata_basmalah = ["بسم", "الله", "الرحمن", "الرحيم"]
-        if len(kata_awal) >= 4 and [normalisasi_huruf_arab(k) for k in kata_awal[:4]] == empat_kata_basmalah:
-            ayat_tampil[0] = " ".join(kata_awal[4:]).strip()
 
     # Basmalah ditampilkan sekali di awal setiap surat (Juz 30).
     # Jika API menyertakan Basmalah di awal teks ayat pertama, bersihkan agar tidak dobel.
