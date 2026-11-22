@@ -67,8 +67,33 @@ def tampilkan_halaman_surat_juz30(no_surah, program_key):
     # Jika API menyertakan Basmalah di awal teks ayat pertama, bersihkan agar tidak dobel.
     pakai_basmalah = no_surah not in (1, 9)
     tampilkan_basmalah = pakai_basmalah and halaman == 0
-    if ayat_tampil and BASMALAH in ayat_tampil[0]:
-        ayat_tampil[0] = ayat_tampil[0].replace(BASMALAH, "", 1).strip()
+    if ayat_tampil:
+        if program_key == "tahfidz":
+            # Khusus Tahfidz: beberapa respons API menempelkan Basmalah
+            # di depan ayat pertama. Hilangkan hanya awalan tersebut;
+            # Basmalah yang dirender di bagian atas kotak tetap dipertahankan.
+            teks_ayat1 = ayat_tampil[0].strip()
+            if teks_ayat1.startswith("بِسْمِ"):
+                penanda_akhir_basmalah = "الرَّحِيمِ"
+                posisi_akhir = teks_ayat1.find(penanda_akhir_basmalah)
+                if posisi_akhir == -1:
+                    penanda_akhir_basmalah = "الرَّحِيمِ"
+                    posisi_akhir = teks_ayat1.find(penanda_akhir_basmalah)
+                if posisi_akhir != -1:
+                    sisa_ayat = teks_ayat1[
+                        posisi_akhir + len(penanda_akhir_basmalah):
+                    ].strip()
+                    # Bersihkan harakat sisa yang mungkin tertinggal tepat setelah Basmalah.
+                    sisa_ayat = sisa_ayat.lstrip("ًٌٍَُِّْٰـ").strip()
+                    ayat_tampil[0] = sisa_ayat
+                else:
+                    # Cadangan jika format API berbeda tetapi Basmalah persis cocok.
+                    ayat_tampil[0] = teks_ayat1.replace(BASMALAH, "", 1).strip()
+            elif BASMALAH in teks_ayat1:
+                ayat_tampil[0] = teks_ayat1.replace(BASMALAH, "", 1).strip()
+        elif BASMALAH in ayat_tampil[0]:
+            # Tahsin tetap memakai pembersihan yang sudah berjalan sebelumnya.
+            ayat_tampil[0] = ayat_tampil[0].replace(BASMALAH, "", 1).strip()
 
     # Judul surah hanya ditampilkan pada halaman pertama.
     # Halaman 2 dan seterusnya langsung menampilkan ayat tanpa judul berulang.
