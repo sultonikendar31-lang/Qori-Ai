@@ -102,7 +102,7 @@ def tampilkan_halaman_surat_juz30(no_surah, program_key):
 
     for i, teks_ayat in enumerate(ayat_tampil):
         # Nomor ayat tetap berlanjut ant halaman: 1-5, 6-10, dan seterusnya.
-        nomor_ayat = mulai + i + 1
+        nomor_ayat = halaman * 5 + i + 1
         nomor_arab = ke_angka_arab(nomor_ayat)
         isi_html += (
             "<div style='text-align:right;direction:rtl;font-size:30px;line-height:2.2;"
