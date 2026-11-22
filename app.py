@@ -1,5 +1,118 @@
 import streamlit as st
 import datetime
+import requests
+
+# ===== DATA SURAH JUZ 30 DARI API AL-QURAN CLOUD =====
+DAFTAR_SURAH_JUZ30 = {
+    78: "An-Naba'", 79: "An-Nazi'at", 80: "'Abasa", 81: "At-Takwir",
+    82: "Al-Infithar", 83: "Al-Muthaffifin", 84: "Al-Insyiqaq", 85: "Al-Buruj",
+    86: "Ath-Thariq", 87: "Al-A'la", 88: "Al-Ghasyiyah", 89: "Al-Fajr",
+    90: "Al-Balad", 91: "Asy-Syams", 92: "Al-Lail", 93: "Adh-Dhuha",
+    94: "Asy-Syarh", 95: "At-Tin", 96: "Al-'Alaq", 97: "Al-Qadr",
+    98: "Al-Bayyinah", 99: "Az-Zalzalah", 100: "Al-'Adiyat",
+    101: "Al-Qari'ah", 102: "At-Takatsur", 103: "Al-'Ashr",
+    104: "Al-Humazah", 105: "Al-Fil", 106: "Quraisy", 107: "Al-Ma'un",
+    108: "Al-Kautsar", 109: "Al-Kafirun", 110: "An-Nashr",
+    111: "Al-Lahab", 112: "Al-Ikhlas", 113: "Al-Falaq", 114: "An-Nas",
+}
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def ambil_full_surat(no_surah):
+    """Mengambil seluruh ayat satu surah dari API AlQuran Cloud."""
+    try:
+        response = requests.get(
+            f"https://api.alquran.cloud/v1/surah/{int(no_surah)}", timeout=15
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get("code") != 200 or not payload.get("data"):
+            return None
+        data = payload["data"]
+        ayahs = data.get("ayahs") or []
+        if not ayahs:
+            return None
+        return {
+            "nama": f"{data['number']}. {data['englishName']} - {data['name']}",
+            "nama_arab": data["name"],
+            "ayat": [a["text"] for a in ayahs],
+            "jumlah_ayat": data.get("numberOfAyahs", len(ayahs)),
+        }
+    except Exception:
+        return None
+
+
+def tampilkan_halaman_surat_juz30(no_surah, program_key):
+    """Menampilkan lima ayat per halaman dari data satu surah yang sudah lengkap."""
+    surah_data = ambil_full_surat(no_surah)
+    if surah_data is None:
+        st.error("Surat belum berhasil dimuat dari API Al-Qur'an. Periksa koneksi internet lalu coba lagi.")
+        st.stop()
+
+    ayat_list = surah_data["ayat"]
+    state_halaman = f"hal_surat_{program_key}"
+    state_surah = f"surah_terakhir_{program_key}"
+    if st.session_state.get(state_surah) != no_surah:
+        st.session_state[state_halaman] = 0
+        st.session_state[state_surah] = no_surah
+    if state_halaman not in st.session_state:
+        st.session_state[state_halaman] = 0
+
+    per_halaman = 5
+    total_halaman = (len(ayat_list) + per_halaman - 1) // per_halaman
+    halaman = max(0, min(st.session_state[state_halaman], total_halaman - 1))
+    mulai = halaman * per_halaman
+    ayat_tampil = list(ayat_list[mulai:mulai + per_halaman])
+
+    # Basmalah ditampilkan sekali di awal setiap surat (Juz 30).
+    # Jika API menyertakan Basmalah di awal teks ayat pertama, bersihkan agar tidak dobel.
+    pakai_basmalah = no_surah not in (1, 9)
+    tampilkan_basmalah = pakai_basmalah and halaman == 0
+    if ayat_tampil and BASMALAH in ayat_tampil[0]:
+        ayat_tampil[0] = ayat_tampil[0].replace(BASMALAH, "", 1).strip()
+
+    isi_html = (
+        f"<div style='text-align:center;font-size:26px;font-weight:bold;"
+        f"color:#111 !important;margin-bottom:8px;'>{surah_data['nama_arab']} - {surah_data['nama']}</div>"
+    )
+    if tampilkan_basmalah:
+        isi_html += (
+            "<div style='text-align:center;direction:rtl;font-size:36px;font-weight:bold;"
+            "color:#111 !important;margin:14px 0 8px 0;'>"
+            f"{BASMALAH}</div>"
+            "<p style='text-align:center;color:#666;font-size:13px;margin:0 0 16px 0;'>"
+            "Baca Basmalah dulu sebelum membaca surat</p>"
+            "<div style='border-bottom:1px solid #eee;margin-bottom:14px;'></div>"
+        )
+    for nomor_ayat, teks_ayat in enumerate(ayat_tampil, start=mulai + 1):
+        isi_html += (
+            "<div style='text-align:right;direction:rtl;font-size:30px;line-height:2.2;"
+            "color:#111 !important;margin:6px 0;'>"
+            f"{teks_ayat} <span style='font-size:18px;color:#111;'>﴿{nomor_ayat}﴾</span></div>"
+        )
+    st.markdown(
+        f"<div style='background:white;border-radius:10px;padding:22px 20px;margin-top:10px;'>{isi_html}</div>",
+        unsafe_allow_html=True,
+    )
+    akhir = mulai + len(ayat_tampil)
+    st.caption(
+        f"Halaman {halaman + 1} dari {total_halaman} • Ayat {mulai + 1}–{akhir} "
+        f"dari {len(ayat_list)} ayat • {surah_data['nama']}"
+    )
+
+    kol_prev, kol_next = st.columns(2)
+    with kol_prev:
+        if st.button("⬅️ Sebelumnya", use_container_width=True,
+                      key=f"prev_{program_key}_{no_surah}", disabled=(halaman == 0)):
+            st.session_state[state_halaman] = halaman - 1
+            st.rerun()
+    with kol_next:
+        if st.button("Selanjutnya ➡️", use_container_width=True,
+                      key=f"next_{program_key}_{no_surah}", disabled=(halaman >= total_halaman - 1)):
+            st.session_state[state_halaman] = halaman + 1
+            st.rerun()
+
+    return surah_data, ayat_list, halaman, per_halaman, mulai, akhir, "\n".join(ayat_tampil)
+
 
 # ===== DATA LENGKAP JUZ 30 (SURAH 78-114) =====
 # Sumber teks ayat: data yang diberikan pengguna.
@@ -2766,54 +2879,18 @@ if st.session_state.get("login_role") == "siswa" and program_saya == "Tahfidz" a
 
         # ===== TAHFIDZ: TAMPILAN AYAT + BASMALAH + NEXT KHUSUS TAHFIDZ =====
         st.write("Setor hafalan kamu. Baca Basmalah terlebih dahulu, lalu coba hafalkan ayat yang ditampilkan.")
-        surah_tahfidz = st.selectbox(
-            "Pilih Surah (Juz 30) - Tahfidz",
-            list(AYAT_JUZ30.keys()),
-            key="surah_tahfidz",
+        no_surah_tahfidz = st.selectbox(
+            "Pilih Surah (Juz 30)",
+            options=list(DAFTAR_SURAH_JUZ30.keys()),
+            format_func=lambda x: f"{x}. {DAFTAR_SURAH_JUZ30[x]}",
+            key="surah_tahfidz_api",
         )
-
-        if st.session_state.get("surah_aktif_tahfidz") != surah_tahfidz:
-            st.session_state.surah_aktif_tahfidz = surah_tahfidz
-            st.session_state.halaman_ayat_tahfidz = 0
-
-        ayat_full_tahfidz = AYAT_JUZ30.get(surah_tahfidz, "")
-        ayat_tahfidz = ""
-        if ayat_full_tahfidz:
-            baris_tahfidz = ayat_full_tahfidz.split("\n")
-            PER_HALAMAN_TAHFIDZ = 5
-            total_hal_tahfidz = (len(baris_tahfidz) + PER_HALAMAN_TAHFIDZ - 1) // PER_HALAMAN_TAHFIDZ
-            hal_tahfidz = st.session_state.get("halaman_ayat_tahfidz", 0)
-            hal_tahfidz = max(0, min(hal_tahfidz, total_hal_tahfidz - 1))
-            mulai_tahfidz = hal_tahfidz * PER_HALAMAN_TAHFIDZ
-            potongan_tahfidz = baris_tahfidz[mulai_tahfidz:mulai_tahfidz + PER_HALAMAN_TAHFIDZ]
-
-            basmalah_html_tahfidz = (
-                f"<div style='text-align:center; font-size:30px; margin-bottom:12px;'>{BASMALAH}</div>"
-                if hal_tahfidz == 0 else ""
-            )
-            st.markdown(f"""
-            <div style="background:white; color:#111; padding:20px; border-radius:12px;
-                        text-align:right; font-size:28px; line-height:2.2; direction:rtl;">
-                {basmalah_html_tahfidz}
-                {'<br>'.join(potongan_tahfidz)}
-            </div>
-            <p style="text-align:center; color:grey;">Halaman {hal_tahfidz+1} dari {total_hal_tahfidz} •
-            Ayat/baris {mulai_tahfidz+1} - {min(mulai_tahfidz+PER_HALAMAN_TAHFIDZ, len(baris_tahfidz))}</p>
-            """, unsafe_allow_html=True)
-
-            kolom_prev_tahfidz, kolom_kosong_tahfidz, kolom_next_tahfidz = st.columns([1, 1, 1])
-            with kolom_prev_tahfidz:
-                if st.button("⬅️ Sebelumnya", key="prev_tahfidz", disabled=(hal_tahfidz == 0)):
-                    st.session_state.halaman_ayat_tahfidz = hal_tahfidz - 1
-                    st.rerun()
-            with kolom_next_tahfidz:
-                if st.button("Selanjutnya ➡️", key="next_tahfidz", disabled=(hal_tahfidz >= total_hal_tahfidz - 1)):
-                    st.session_state.halaman_ayat_tahfidz = hal_tahfidz + 1
-                    st.rerun()
-
-            ayat_tahfidz = "\n".join(potongan_tahfidz)
-        else:
-            ayat_tahfidz = st.text_area("Ayat Tahfidz", key="ayat_tahfidz_manual")
+        surah_tahfidz = f"{no_surah_tahfidz}. {DAFTAR_SURAH_JUZ30[no_surah_tahfidz]}"
+        (data_surat_tahfidz, baris_tahfidz, hal_tahfidz,
+         PER_HALAMAN_TAHFIDZ, mulai_tahfidz, akhir_tahfidz,
+         ayat_tahfidz) = tampilkan_halaman_surat_juz30(no_surah_tahfidz, "tahfidz")
+        ayat_full_tahfidz = "\n".join(baris_tahfidz)
+        total_hal_tahfidz = (len(baris_tahfidz) + PER_HALAMAN_TAHFIDZ - 1) // PER_HALAMAN_TAHFIDZ
 
         # ===== TAHFIDZ - KOTAK PANDUAN + REKAM HAFALAN =====
         st.markdown("""
@@ -2918,107 +2995,17 @@ if st.session_state.get("login_role") == "siswa" and program_saya == "Tahsin" an
         kelas_siswa_bacaan = st.session_state.get("kelas", "Tahsin")
         program_bacaan = st.session_state.get("program", "Tahsin")
         st.caption(f"Kelas: **{kelas_siswa_bacaan}** | Program: **{program_bacaan}**")
-        # ===== DAFTAR SURAH JUZ 30 FULL (78-114) =====
-        SURAH_JUZ30 = [
-            "78. An-Naba'",
-            "79. An-Nazi'at",
-            "80. 'Abasa",
-            "81. At-Takwir",
-            "82. Al-Infitar",
-            "83. Al-Mutaffifin",
-            "84. Al-Insyiqaq",
-            "85. Al-Buruj",
-            "86. At-Tariq",
-            "87. Al-A'la",
-            "88. Al-Ghasyiyah",
-            "89. Al-Fajr",
-            "90. Al-Balad",
-            "91. Asy-Syams",
-            "92. Al-Lail",
-            "93. Ad-Dhuha",
-            "94. Asy-Syarh",
-            "95. At-Tin",
-            "96. Al-'Alaq",
-            "97. Al-Qadr",
-            "98. Al-Bayyinah",
-            "99. Az-Zalzalah",
-            "100. Al-'Adiyat",
-            "101. Al-Qari'ah",
-            "102. At-Takatsur",
-            "103. Al-'Asr",
-            "104. Al-Humazah",
-            "105. Al-Fil",
-            "106. Quraisy",
-            "107. Al-Ma'un",
-            "108. Al-Kautsar",
-            "109. Al-Kafirun",
-            "110. An-Nasr",
-            "111. Al-Lahab",
-            "112. Al-Ikhlas",
-            "113. Al-Falaq",
-            "114. An-Nas",
-        ]
-
-        surah_bacaan = st.selectbox(
-            "Pilih Surah (Juz 30)", SURAH_JUZ30, key="surah_tes_bacaan"
+        # ===== PILIH SURAH DAN TAMPILKAN SELURUH AYAT DARI API =====
+        no_surah_bacaan = st.selectbox(
+            "Pilih Surah (Juz 30)",
+            options=list(DAFTAR_SURAH_JUZ30.keys()),
+            format_func=lambda x: f"{x}. {DAFTAR_SURAH_JUZ30[x]}",
+            key="surah_tes_bacaan_api",
         )
-        # ===== AYAT DITAMPILKAN BESAR + NAVIGASI PER HALAMAN =====
-        # Reset halaman setiap kali siswa mengganti surah.
-        if st.session_state.get("surah_aktif_tes") != surah_bacaan:
-            st.session_state.surah_aktif_tes = surah_bacaan
-            st.session_state.halaman_ayat_tes = 0
-
-        ayat_full = AYAT_JUZ30.get(surah_bacaan, "")
-        if ayat_full:
-            baris_ayat = ayat_full.split("\n")
-            PER_HALAMAN = 5
-            total_halaman = (len(baris_ayat) + PER_HALAMAN - 1) // PER_HALAMAN
-            hal = st.session_state.get("halaman_ayat_tes", 0)
-            hal = max(0, min(hal, total_halaman - 1))
-            mulai = hal * PER_HALAMAN
-            potongan = baris_ayat[mulai:mulai + PER_HALAMAN]
-
-            if hal == 0:
-                st.markdown(
-                    f"<div dir='rtl' style='text-align:center; font-family:serif; "
-                    f"font-size:25px; line-height:2; padding:8px 0 2px 0;'>"
-                    f"{BASMALAH}</div>",
-                    unsafe_allow_html=True,
-                )
-
-            st.markdown(
-                f"<div dir='rtl' style='background:#fff; color:#111; padding:22px; "
-                f"border-radius:14px; text-align:right; font-family:serif; "
-                f"font-size:30px; line-height:2.2; margin:12px 0;'>"
-                f"{'<br>'.join(potongan)}</div>",
-                unsafe_allow_html=True,
-            )
-            st.caption(
-                f"Halaman {hal + 1} dari {total_halaman} • "
-                f"Ayat/baris {mulai + 1}–{min(mulai + PER_HALAMAN, len(baris_ayat))}"
-            )
-
-            # Tampilkan tombol navigasi hanya jika surah memiliki lebih dari satu halaman.
-            if total_halaman > 1:
-                kolom_sebelumnya, kolom_tengah, kolom_selanjutnya = st.columns([1, 1, 1])
-                with kolom_sebelumnya:
-                    if st.button("⬅️ Sebelumnya", disabled=(hal == 0), key="ayat_tes_sebelumnya"):
-                        st.session_state.halaman_ayat_tes = hal - 1
-                        st.rerun()
-                with kolom_selanjutnya:
-                    if st.button("Selanjutnya ➡️", disabled=(hal >= total_halaman - 1), key="ayat_tes_selanjutnya"):
-                        st.session_state.halaman_ayat_tes = hal + 1
-                        st.rerun()
-
-            # Simpan teks halaman yang sedang ditampilkan bersama rekaman.
-            ayat_bacaan = "\n".join(potongan)
-        else:
-            st.info("Ayat untuk surah ini belum diisi. Ketik manual di bawah:")
-            ayat_bacaan = st.text_area(
-                "Ayat yang dibaca",
-                "",
-                key=f"ayat_manual_tes_{SURAH_JUZ30.index(surah_bacaan)}",
-            )
+        surah_bacaan = f"{no_surah_bacaan}. {DAFTAR_SURAH_JUZ30[no_surah_bacaan]}"
+        (data_surat_tahsin, baris_ayat, hal, PER_HALAMAN,
+         mulai, akhir_ayat, ayat_bacaan) = tampilkan_halaman_surat_juz30(no_surah_bacaan, "tahsin")
+        ayat_full = "\n".join(baris_ayat)
 
         st.info(
             "1. Klik tombol mikrofon di bawah\n"
