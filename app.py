@@ -3066,12 +3066,18 @@ if st.session_state.get("login_role") == "siswa" and program_saya == "Tahsin" an
 if st.session_state["login_role"]=="tim" and st.session_state["siswa_pilih"] is None:
     if st.button("📋 Riwayat / Story Siswa (Khusus Tim)", use_container_width=True):
         st.session_state["lihat_riwayat"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_setoran"]=False; st.session_state["lihat_baca"]=False; st.rerun()
-if st.session_state["siswa_pilih"] is None:
+if (
+    st.session_state["siswa_pilih"] is None
+    and not (st.session_state.get("login_role") == "siswa" and kategori_saya == "Iqro")
+):
     jml_baru = len([s for s in get_saran() if not s["balasan"]]) if st.session_state["login_role"]=="tim" else len([s for s in get_saran() if s["pengirim"]==st.session_state["login_nama"] and s["balasan"]])
     label_saran = f"💬 Kotak Saran / Kritik / Keluhan ({jml_baru} Baru)" if jml_baru>0 else "💬 Kotak Saran / Kritik / Keluhan"
     if st.button(label_saran, use_container_width=True):
         st.session_state["lihat_saran"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_setoran"]=False; st.session_state["lihat_baca"]=False; catat_aktivitas("Buka Kotak Saran"); st.rerun()
-if st.session_state["siswa_pilih"] is None:
+if (
+    st.session_state["siswa_pilih"] is None
+    and not (st.session_state.get("login_role") == "siswa" and kategori_saya == "Iqro")
+):
     jml_setoran_baru = len([s for s in get_setoran() if not s["koreksi"]]) if st.session_state["login_role"]=="tim" else len([s for s in get_setoran() if s["pengirim"]==st.session_state["login_nama"] and s["koreksi"]])
     if st.session_state.get("login_role") == "siswa":
         label_program_setoran = {
