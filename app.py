@@ -923,7 +923,16 @@ def reset_semua_hasil():
     CONN.execute("DELETE FROM ujian_sesi")
     CONN.commit()
 def get_aktivitas():
-    return [{"nama":r[0],"kelas":r[1],"aktivitas":r[2],"jam":r[3],"lama":r[4]} for r in CONN.execute("SELECT nama,kelas,aktivitas,jam,lama FROM aktivitas ORDER BY id DESC")]
+    # Sertakan ID unik agar tombol hapus hanya menghapus satu baris aktivitas.
+    return [
+        {"id": r[0], "nama": r[1], "kelas": r[2], "aktivitas": r[3], "jam": r[4], "lama": r[5]}
+        for r in CONN.execute(
+            "SELECT id, nama, kelas, aktivitas, jam, lama FROM aktivitas ORDER BY id DESC"
+        )
+    ]
+def hapus_aktivitas_id(aktivitas_id):
+    CONN.execute("DELETE FROM aktivitas WHERE id = ?", (aktivitas_id,))
+    CONN.commit()
 def tambah_aktivitas(nama, kelas, aktivitas, jam, lama):
     CONN.execute("INSERT INTO aktivitas(nama,kelas,aktivitas,jam,lama) VALUES(?,?,?,?,?)", (nama, kelas, aktivitas, jam, lama))
     CONN.commit()
@@ -3406,17 +3415,54 @@ if st.session_state.get("lihat_saran") and st.session_state["siswa_pilih"] is No
         st.session_state["lihat_saran"]=False; st.rerun()
     st.stop()
 
-# ===== RIWAYAT =====
-if st.session_state.get("lihat_riwayat") and st.session_state["siswa_pilih"] is None:
+# ===== RIWAYAT / STORY SISWA - KHUSUS TIM =====
+if st.session_state.get("lihat_riwayat") and st.session_state["siswa_pilih"] is None and st.session_state.get("login_role") == "tim":
     st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>📋 Riwayat / Story Siswa</h2><p style='color:white;'>Khusus Tim - Siswa TIDAK bisa lihat</p></div>", unsafe_allow_html=True)
     st.write("")
     riw = get_aktivitas()
-    if not riw: st.info("Belum ada aktivitas.")
+    if not riw:
+        st.info("Belum ada aktivitas.")
     else:
-        rows=""
-        for i,r in enumerate(riw,1):
-            rows+=f"<tr><td style='padding:10px; text-align:center; color:white;'>{i}</td><td style='padding:10px; color:white; font-weight:bold;'>{html.escape(str(r['nama']))}</td><td style='padding:10px; text-align:center; color:white;'>{html.escape(str(r['kelas']))}</td><td style='padding:10px; color:white;'>{html.escape(str(r['aktivitas']))}</td><td style='padding:10px; text-align:center; color:white;'>{html.escape(str(r['jam']))}</td><td style='padding:10px; text-align:center; color:#F9D423;'>{html.escape(str(r['lama']))}</td></tr>"
-        st.markdown(f"<div style='background-color: rgba(0,0,0,0.75); padding:15px; border-radius:15px;'><table style='width:100%;'><tr style='background-color:#F9D423;'><th style='padding:10px; color:#000;'>No</th><th style='padding:10px; color:#000;'>Nama</th><th style='padding:10px; color:#000;'>Kelas</th><th style='padding:10px; color:#000;'>Buka Apa</th><th style='padding:10px; color:#000;'>Jam</th><th style='padding:10px; color:#000;'>Lama</th></tr>{rows}</table></div>", unsafe_allow_html=True)
+        # Tampilkan data dan tombol hapus yang terikat ke ID unik setiap baris.
+        header = st.columns([0.45, 1.8, 0.9, 1.8, 1.5, 0.9, 0.8])
+        for col, label in zip(header, ["No", "Nama", "Kelas", "Buka Apa", "Jam", "Lama", "Hapus"]):
+            with col:
+                st.markdown(f"**{label}**")
+        st.divider()
+
+        for nomor, row in enumerate(riw, 1):
+            c_no, c_nama, c_kelas, c_aktivitas, c_jam, c_lama, c_hapus = st.columns(
+                [0.45, 1.8, 0.9, 1.8, 1.5, 0.9, 0.8]
+            )
+            with c_no:
+                st.write(nomor)
+            with c_nama:
+                st.write(row.get("nama") or "-")
+            with c_kelas:
+                st.write(row.get("kelas") or "-")
+            with c_aktivitas:
+                st.write(row.get("aktivitas") or "-")
+            with c_jam:
+                st.write(row.get("jam") or "-")
+            with c_lama:
+                st.write(row.get("lama") or "-")
+            with c_hapus:
+                if st.button("🗑️", key=f"hapus_aktivitas_{row['id']}", help="Hapus riwayat ini"):
+                    try:
+                        hapus_aktivitas_id(row["id"])
+                        st.success(f"Riwayat {row.get('nama') or 'siswa'} berhasil dihapus.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Gagal menghapus riwayat: {e}")
+
+        st.divider()
+        if st.button("🗑️ Hapus Semua Riwayat", key="hapus_semua_riwayat_tim", type="secondary"):
+            try:
+                reset_semua_riwayat()
+                st.success("Semua riwayat aktivitas siswa berhasil dihapus.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Gagal menghapus semua riwayat: {e}")
 
     st.markdown("### 🏆 Leaderboard Game QORI AI")
     leaderboard = get_leaderboard()
