@@ -3251,7 +3251,7 @@ if (
 
 # ===== SETORAN SUARA - HANYA UPLOAD =====
 if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is None:
-    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>🎙️ Setoran Suara / Koreksi Bacaan</h2><p style='color:white;'>Iqro | Tahsin | Tahfidz - Pilih Surat Juz 30 + Upload Suara</p></div>", unsafe_allow_html=True)
+    st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>🎙️ Setoran / Koreksi Bacaan</h2><p style='color:white;'>Iqro menggunakan Jilid dan Halaman | Tahsin/Tahfidz menggunakan pilihan Surat Juz 30</p></div>", unsafe_allow_html=True)
     st.write("")
     st.markdown("<p style='color:white; font-weight:bold; font-size:17px;'>📤 Kirim Setoran Baru:</p>", unsafe_allow_html=True)
     semua_program_setoran = ["Iqro", "Tahsin", "Tahfidz"]
@@ -3267,7 +3267,16 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
         index=0,
         key="kat_setoran",
     )
-    surat_juz30 = st.selectbox("📖 Pilih Surat Juz 30 (untuk setoran Tahsin / Tahfidz):", ["-- Ketik Sendiri / Bukan Juz 30 --"] + JUZ30_SURAH, key="surat_juz30")
+    # Pilihan surat Juz 30 hanya relevan untuk Tahsin dan Tahfidz.
+    # Saat kategori Iqro dipilih, komponen Juz 30 disembunyikan sepenuhnya.
+    if kat_setoran in ("Tahsin", "Tahfidz"):
+        surat_juz30 = st.selectbox(
+            "📖 Pilih Surat Juz 30 (untuk setoran Tahsin / Tahfidz):",
+            ["-- Ketik Sendiri / Bukan Juz 30 --"] + JUZ30_SURAH,
+            key="surat_juz30",
+        )
+    else:
+        surat_juz30 = None
 
     judul_setoran = st.text_input("Materi / Ayat / Judul Setoran:", placeholder="Contoh: Iqro 2 Hal. 5 atau keterangan tambahan setoran", key="judul_setoran")
     ket_setoran = st.text_area("Keterangan (opsional):", placeholder="Contoh: Mohon dikoreksi makhraj huruf... / Ayat yang ingin diperhatikan...", height=70, key="ket_setoran")
@@ -3449,7 +3458,7 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
     # ===== IQRO: MATERI LENGKAP PER HALAMAN + SETORAN =====
     if kat_setoran == "Iqro":
         iqro_level_pilih = st.selectbox(
-            "Pilih jilid:",
+            "📚 Pilih Jilid Iqro:",
             list(IQRO_BACA.keys()),
             key="setoran_iqro_level",
         )
@@ -3519,7 +3528,7 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
             unsafe_allow_html=True,
         )
         st.progress(halaman_iqro / jumlah_halaman_iqro)
-        st.caption(f"Progres {iqro_level_pilih}: {halaman_iqro}/{jumlah_halaman_iqro} halaman")
+        st.caption(f"📄 Halaman Iqro: {halaman_iqro} dari {jumlah_halaman_iqro} halaman | Progres {iqro_level_pilih}")
 
         nav_iqro_kiri, nav_iqro_tengah, nav_iqro_kanan = st.columns([1, 1, 1])
         with nav_iqro_kiri:
@@ -3661,7 +3670,7 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
                 catat_aktivitas(f"Kirim Setoran {kat_setoran} - {judul_final[:30]}")
                 st.success("✅ Setoran terkirim! Tim akan mendengarkan & mengoreksi.")
                 time.sleep(0.5); st.rerun()
-    elif surat_juz30 != "-- Ketik Sendiri / Bukan Juz 30 --":
+    elif kat_setoran in ("Tahsin", "Tahfidz") and surat_juz30 != "-- Ketik Sendiri / Bukan Juz 30 --":
         st.caption("Setoran Tahsin/Tahfidz Juz 30 dikirim per potongan maksimal 5 ayat. Upload suara potongan di bawah teks ayat, lalu tekan Next.")
     st.markdown("<hr>", unsafe_allow_html=True)
     st.markdown("<p style='color:white; font-weight:bold; font-size:17px;'>📋 Daftar Setoran:</p>", unsafe_allow_html=True)
