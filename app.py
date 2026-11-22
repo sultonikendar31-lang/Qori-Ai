@@ -2363,20 +2363,62 @@ if st.session_state.get("login_role") == "siswa" and program_saya == "Tahfidz" a
         st.header("📖 Penilaian Tahfidz Al-Qur'an")
         st.info("Setoran dinilai oleh guru/penguji. AI tidak menetapkan nilai hafalan.")
 
+        # ===== TAHFIDZ: TAMPILAN AYAT + BASMALAH + NEXT KHUSUS TAHFIDZ =====
+        st.write("Setor hafalan kamu. Baca Basmalah terlebih dahulu, lalu coba hafalkan ayat yang ditampilkan.")
+        surah_tahfidz = st.selectbox(
+            "Pilih Surah (Juz 30) - Tahfidz",
+            list(AYAT_JUZ30.keys()),
+            key="surah_tahfidz",
+        )
+
+        if st.session_state.get("surah_aktif_tahfidz") != surah_tahfidz:
+            st.session_state.surah_aktif_tahfidz = surah_tahfidz
+            st.session_state.halaman_ayat_tahfidz = 0
+
+        ayat_full_tahfidz = AYAT_JUZ30.get(surah_tahfidz, "")
+        ayat_tahfidz = ""
+        if ayat_full_tahfidz:
+            baris_tahfidz = ayat_full_tahfidz.split("\n")
+            PER_HALAMAN_TAHFIDZ = 5
+            total_hal_tahfidz = (len(baris_tahfidz) + PER_HALAMAN_TAHFIDZ - 1) // PER_HALAMAN_TAHFIDZ
+            hal_tahfidz = st.session_state.get("halaman_ayat_tahfidz", 0)
+            hal_tahfidz = max(0, min(hal_tahfidz, total_hal_tahfidz - 1))
+            mulai_tahfidz = hal_tahfidz * PER_HALAMAN_TAHFIDZ
+            potongan_tahfidz = baris_tahfidz[mulai_tahfidz:mulai_tahfidz + PER_HALAMAN_TAHFIDZ]
+
+            basmalah_html_tahfidz = (
+                f"<div style='text-align:center; font-size:30px; margin-bottom:12px;'>{BASMALAH}</div>"
+                if hal_tahfidz == 0 else ""
+            )
+            st.markdown(f"""
+            <div style="background:white; color:#111; padding:20px; border-radius:12px;
+                        text-align:right; font-size:28px; line-height:2.2; direction:rtl;">
+                {basmalah_html_tahfidz}
+                {'<br>'.join(potongan_tahfidz)}
+            </div>
+            <p style="text-align:center; color:grey;">Halaman {hal_tahfidz+1} dari {total_hal_tahfidz} •
+            Ayat/baris {mulai_tahfidz+1} - {min(mulai_tahfidz+PER_HALAMAN_TAHFIDZ, len(baris_tahfidz))}</p>
+            """, unsafe_allow_html=True)
+
+            kolom_prev_tahfidz, kolom_kosong_tahfidz, kolom_next_tahfidz = st.columns([1, 1, 1])
+            with kolom_prev_tahfidz:
+                if st.button("⬅️ Sebelumnya", key="prev_tahfidz", disabled=(hal_tahfidz == 0)):
+                    st.session_state.halaman_ayat_tahfidz = hal_tahfidz - 1
+                    st.rerun()
+            with kolom_next_tahfidz:
+                if st.button("Selanjutnya ➡️", key="next_tahfidz", disabled=(hal_tahfidz >= total_hal_tahfidz - 1)):
+                    st.session_state.halaman_ayat_tahfidz = hal_tahfidz + 1
+                    st.rerun()
+
+            ayat_tahfidz = "\n".join(potongan_tahfidz)
+        else:
+            ayat_tahfidz = st.text_area("Ayat Tahfidz", key="ayat_tahfidz_manual")
+
         with st.expander("1. Siswa: Setor Hafalan", expanded=False):
             with st.form("form_setor_tahfidz"):
                 col1, col2 = st.columns(2)
                 with col1:
-                    surah_tahfidz = st.selectbox(
-                        "Surah",
-                        [
-                            "Al-Fatihah", "An-Nas", "Al-Falaq", "Al-Ikhlas",
-                            "Al-Lahab", "An-Nasr", "Al-Kafirun", "Al-Kautsar",
-                            "Al-Ma'un", "Quraisy", "Al-Fil", "Al-Humazah",
-                            "Al-'Asr", "At-Takatsur", "Al-Qari'ah"
-                        ],
-                        key="surah_setor_tahfidz",
-                    )
+                    st.write(f"Surah yang disetorkan: **{surah_tahfidz}**")
                     ayat_mulai = st.text_input("Dari Ayat", placeholder="Contoh: 1", key="ayat_mulai_tahfidz")
                 with col2:
                     kelas_tahfidz = st.session_state.get("kelas", program_saya)
