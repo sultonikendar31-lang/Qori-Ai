@@ -2414,62 +2414,61 @@ if st.session_state.get("login_role") == "siswa" and program_saya == "Tahfidz" a
         else:
             ayat_tahfidz = st.text_area("Ayat Tahfidz", key="ayat_tahfidz_manual")
 
-        with st.expander("1. Siswa: Setor Hafalan", expanded=False):
-            with st.form("form_setor_tahfidz"):
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write(f"Surah yang disetorkan: **{surah_tahfidz}**")
-                    ayat_mulai = st.text_input("Dari Ayat", placeholder="Contoh: 1", key="ayat_mulai_tahfidz")
-                with col2:
-                    kelas_tahfidz = st.session_state.get("kelas", program_saya)
-                    ayat_sampai = st.text_input("Sampai Ayat", placeholder="Contoh: 7", key="ayat_sampai_tahfidz")
+        # ===== TAHFIDZ - KOTAK PANDUAN + REKAM HAFALAN =====
+        st.markdown("""
+        <div style="background:#FFF3E0; color:#4E342E; padding:16px; border-radius:12px; border:1px solid #FFCC80;">
+        <b>1.</b> Klik tombol mikrofon di bawah<br>
+        <b>2.</b> Baca <b>hafalan</b> dengan tartil dan jelas, tanpa melihat ayat<br>
+        <b>3.</b> Klik Stop, lalu klik <b>Kirim Setoran Tahfidz</b>
+        </div>
+        """, unsafe_allow_html=True)
+        st.write("")
 
-                audio_tahfidz = st.file_uploader(
-                    "Upload Rekaman Hafalan (mp3/wav/m4a)",
-                    type=["mp3", "wav", "m4a"],
-                    key="file_setor_tahfidz",
-                )
-                setor_tahfidz = st.form_submit_button("📤 Kirim Setoran")
+        st.subheader("🎙️ Rekam Hafalan Kamu")
+        audio_tahfidz = st.audio_input("Klik untuk rekam hafalan", key="audio_tahfidz")
+        if audio_tahfidz is not None:
+            st.audio(audio_tahfidz)
 
-            if setor_tahfidz:
-                nama_login_tahfidz = st.session_state.get("login_nama", "")
-                if not nama_login_tahfidz:
-                    st.error("Nama akun siswa tidak ditemukan. Silakan masuk kembali.")
-                elif not ayat_mulai.strip() or not ayat_sampai.strip():
-                    st.error("Lengkapi ayat mulai dan ayat sampai.")
-                elif audio_tahfidz is None:
-                    st.error("Upload dulu rekaman hafalannya.")
-                else:
-                    try:
-                        import uuid
-                        ekstensi = audio_tahfidz.name.rsplit(".", 1)[-1].lower()
-                        file_name = f"tahfidz_{uuid.uuid4().hex}.{ekstensi}"
-                        tipe_konten = audio_tahfidz.type or {
-                            "mp3": "audio/mpeg",
-                            "wav": "audio/wav",
-                            "m4a": "audio/mp4",
-                        }.get(ekstensi, "application/octet-stream")
+        if st.button("📤 Kirim Setoran Tahfidz", key="kirim_tahfidz", use_container_width=True):
+            nama_login_tahfidz = st.session_state.get("login_nama", "")
+            kelas_tahfidz = st.session_state.get("kelas", program_saya)
+            if audio_tahfidz is None:
+                st.warning("Rekam dulu hafalan kamu sebelum kirim!")
+            elif not nama_login_tahfidz:
+                st.error("Nama akun siswa tidak ditemukan. Silakan masuk kembali.")
+            elif not ayat_tahfidz.strip():
+                st.warning("Ayat hafalan belum tersedia. Pilih surah atau isi ayat terlebih dahulu.")
+            else:
+                try:
+                    import uuid
+                    nama_aman_tahfidz = "".join(
+                        c if c.isalnum() or c in ("-", "_") else "_"
+                        for c in nama_login_tahfidz.strip()
+                    )
+                    file_name_tahfidz = f"tahfidz_{nama_aman_tahfidz}_{uuid.uuid4().hex}.wav"
+                    tipe_audio_tahfidz = getattr(audio_tahfidz, "type", None) or "audio/wav"
 
-                        supabase.storage.from_("audio-bacaan").upload(
-                            file_name,
-                            audio_tahfidz.getvalue(),
-                            {"content-type": tipe_konten, "upsert": "false"},
-                        )
-                        audio_url_tahfidz = supabase.storage.from_("audio-bacaan").get_public_url(file_name)
+                    supabase.storage.from_("audio-bacaan").upload(
+                        file_name_tahfidz,
+                        audio_tahfidz.getvalue(),
+                        {"content-type": tipe_audio_tahfidz, "upsert": "false"},
+                    )
+                    audio_url_tahfidz = supabase.storage.from_("audio-bacaan").get_public_url(file_name_tahfidz)
 
-                        supabase.table("nilai_tahfidz").insert({
-                            "nama_siswa": nama_login_tahfidz,
-                            "kelas": kelas_tahfidz,
-                            "surah": surah_tahfidz,
-                            "ayat_mulai": ayat_mulai.strip(),
-                            "ayat_sampai": ayat_sampai.strip(),
-                            "audio_url": audio_url_tahfidz,
-                            "status": "menunggu",
-                        }).execute()
-                        st.success("✅ Setoran terkirim! Menunggu penilaian guru.")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Gagal mengirim setoran tahfidz: {e}")
+                    supabase.table("nilai_tahfidz").insert({
+                        "nama_siswa": nama_login_tahfidz,
+                        "kelas": kelas_tahfidz,
+                        "surah": surah_tahfidz,
+                        "ayat_mulai": f"Ayat {mulai_tahfidz + 1}" if ayat_full_tahfidz else "Manual",
+                        "ayat_sampai": f"Ayat {min(mulai_tahfidz + PER_HALAMAN_TAHFIDZ, len(baris_tahfidz))}" if ayat_full_tahfidz else "Manual",
+                        "audio_url": audio_url_tahfidz,
+                        "status": "menunggu",
+                    }).execute()
+                    st.success("✅ Setoran Tahfidz terkirim! Menunggu dinilai guru.")
+                    st.balloons()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Gagal mengirim setoran Tahfidz: {e}")
 
         # Riwayat siswa hanya menampilkan setoran milik akun yang sedang masuk.
         st.subheader("2. Riwayat Setoran dan Nilai Tahfidz Saya")
