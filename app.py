@@ -3188,42 +3188,92 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
                     st.session_state["setoran_iqro_halaman"] = halaman_iqro + 1
                     st.rerun()
 
-        st.info("Baca materi pada halaman ini dengan tartil. Setelah lancar, rekam dan kirim setoran kepada ustadz/guru.")
+        # Panduan rekaman Iqro
+        st.markdown("""
+        <div style='background:#FCE4EC; border-radius:10px;
+                    padding:16px 20px; margin-top:16px;'>
+            <p style='margin:4px 0; font-size:16px; color:#222 !important;'>
+                <b>1.</b> &nbsp;Klik tombol mikrofon di bawah.
+            </p>
+            <p style='margin:4px 0; font-size:16px; color:#222 !important;'>
+                <b>2.</b> &nbsp;Baca Iqro pelan-pelan dan ucapkan huruf dengan jelas.
+            </p>
+            <p style='margin:4px 0; font-size:16px; color:#222 !important;'>
+                <b>3.</b> &nbsp;Klik Stop, dengarkan hasil rekaman, lalu kirim setoran.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown(
+            "<p style='margin-top:16px; margin-bottom:6px; "
+            "font-weight:bold; color:white;'>🎙️ Rekam Bacaan Iqromu</p>",
+            unsafe_allow_html=True,
+        )
+
         if not st.session_state.get(flag_iqro, False):
-            st.markdown(
-                f"<div style='background:#FFFFFF; padding:12px; border-radius:12px; border:2px solid #1A5C2A;'>"
-                f"<p style='color:#000000; font-size:16px; font-weight:bold; margin:0;'>🎤 Upload Suara Bacaan Iqro:</p>"
-                f"<p style='color:#333333; font-size:14px; margin:0;'>Pilih rekaman untuk {html.escape(judul_iqro)}.</p></div>",
-                unsafe_allow_html=True,
-            )
-            audio_iqro = st.file_uploader(
-                "Pilih file suara di sini:",
-                type=["mp3", "wav", "m4a", "ogg", "webm", "opus", "aac"],
-                key=f"uploader_{kunci_iqro}",
-                label_visibility="collapsed",
+            audio_iqro = st.audio_input(
+                "Rekam Iqro",
+                key=f"rekam_iqro_{kunci_iqro}",
             )
         else:
             audio_iqro = None
 
         if st.session_state.get(flag_iqro, False):
             st.success(f"✅ Rekaman {judul_iqro} sudah tersimpan di Daftar Setoran.")
-        elif audio_iqro:
+        elif audio_iqro is not None:
             st.audio(audio_iqro)
-            if st.button("✅ Simpan Suara Halaman Ini", key=f"simpan_{kunci_iqro}", use_container_width=True):
+            st.success("Rekaman sudah tersedia. Dengarkan kembali sebelum dikirim.")
+
+            if st.button(
+                "📤 Kirim Setoran Iqro",
+                key=f"kirim_iqro_{kunci_iqro}",
+                use_container_width=True,
+                type="primary",
+            ):
                 if st.session_state.get("login_role") == "siswa":
-                    label_iqro = f"{nama_pengguna_iqro} | Kelas: {DATA_SISWA.get(nama_pengguna_iqro, {}).get('kategori', 'Iqro')}"
+                    label_iqro = (
+                        f"{nama_pengguna_iqro} | Kelas: "
+                        f"{DATA_SISWA.get(nama_pengguna_iqro, {}).get('kategori', 'Iqro')}"
+                    )
                 else:
-                    label_iqro = f"{NAMA_LENGKAP_TIM.get(nama_pengguna_iqro, nama_pengguna_iqro)} | {TIM_PENYUSUN.get(nama_pengguna_iqro, 'Tim')}"
-                judul_simpan_iqro = judul_iqro + (f" - {judul_setoran.strip()}" if judul_setoran.strip() else "")
-                tambah_setoran(
-                    nama_pengguna_iqro, label_iqro, "Iqro", judul_simpan_iqro,
-                    ket_setoran.strip(), None, "", audio_iqro.getvalue(), audio_iqro.name,
-                    time.strftime("%d/%m/%Y %H:%M", time.localtime()),
+                    label_iqro = (
+                        f"{NAMA_LENGKAP_TIM.get(nama_pengguna_iqro, nama_pengguna_iqro)} | "
+                        f"{TIM_PENYUSUN.get(nama_pengguna_iqro, 'Tim')}"
+                    )
+
+                judul_simpan_iqro = judul_iqro + (
+                    f" - {judul_setoran.strip()}" if judul_setoran.strip() else ""
                 )
-                catat_aktivitas(f"Kirim Setoran Iqro - {judul_simpan_iqro}")
-                st.session_state[flag_iqro] = True
-                st.success("Rekaman halaman Iqro berhasil disimpan.")
-                st.rerun()
+                audio_bytes_iqro = audio_iqro.getvalue()
+                nama_audio_iqro = getattr(audio_iqro, "name", "rekaman_iqro.wav")
+
+                try:
+                    tambah_setoran(
+                        nama_pengguna_iqro,
+                        label_iqro,
+                        "Iqro",
+                        judul_simpan_iqro,
+                        ket_setoran.strip(),
+                        None,
+                        "",
+                        audio_bytes_iqro,
+                        nama_audio_iqro,
+                        time.strftime("%d/%m/%Y %H:%M", time.localtime()),
+                    )
+                    catat_aktivitas(f"Kirim Setoran Iqro - {judul_simpan_iqro}")
+                    st.session_state[flag_iqro] = True
+                    st.balloons()
+                    st.success(
+                        f"Alhamdulillah! Setoran {iqro_level_pilih} halaman "
+                        f"{no_hal_iqro} berhasil dikirim. Guru dapat memeriksanya "
+                        "melalui menu Setoran / Penilaian."
+                    )
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Gagal menyimpan setoran Iqro: {e}")
+        else:
+            st.caption("Belum ada rekaman. Klik mikrofon di atas, lalu baca materi Iqro.")
+
 
         if st.session_state.get(flag_iqro, False):
             if halaman_iqro >= jumlah_halaman_iqro:
