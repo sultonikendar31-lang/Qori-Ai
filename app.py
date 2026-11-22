@@ -1436,7 +1436,13 @@ def tampil_siswa_iqro(nama_siswa, kelas_siswa="Iqro"):
         f"<p style='margin-top:14px;'><b>Kelas:</b> {kelas_aman} | <b>Program:</b> Iqro</p>",
         unsafe_allow_html=True,
     )
-    st.caption(f"Nama: {nama_aman}")
+    # Nama mengikuti akun yang sedang login agar setoran tidak tercatat atas nama siswa lain.
+    st.text_input(
+        "Nama",
+        value=str(nama_siswa or ""),
+        disabled=True,
+        key=f"nama_iqro_terlogin_{re.sub(r'[^A-Za-z0-9_-]', '_', str(nama_siswa or 'siswa'))}",
+    )
 
     # Data IQRO_DATA berisi materi lengkap Jilid 1-6 dari bank materi aplikasi.
     daftar_jilid = list(IQRO_DATA.keys())
@@ -1509,7 +1515,8 @@ def tampil_siswa_iqro(nama_siswa, kelas_siswa="Iqro"):
                 info_siswa = DATA_SISWA.get(nama_siswa, {})
                 kelas_label = info_siswa.get("kategori", kelas_siswa or "Iqro")
                 label_pengirim = f"{nama_siswa} | Kelas: {kelas_label}"
-                judul_setoran = f"{label_jilid[jilid_key]} - Halaman {no_hal} - {judul}"
+                # Simpan label lengkap jilid, halaman, dan judul/materi agar langsung terbaca di antrean Tim.
+                judul_setoran = f"{label_jilid[jilid_key]} - Hal {no_hal} - {judul}"
                 keterangan = f"Setoran dari halaman belajar {label_jilid[jilid_key]}, halaman {no_hal}."
                 waktu_nama_iqro = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
                 nama_aman_iqro = "".join(
@@ -1527,7 +1534,7 @@ def tampil_siswa_iqro(nama_siswa, kelas_siswa="Iqro"):
                     "nama_siswa": nama_siswa,
                     "kelas": kelas_label,
                     "program": "Iqro",
-                    "surah": f"{label_jilid[jilid_key]} Hal {no_hal}",
+                    "surah": judul_setoran,
                     "ayat_text": f"{judul}. {keterangan}",
                     "audio_url": url_audio_iqro,
                     "status": "menunggu",
