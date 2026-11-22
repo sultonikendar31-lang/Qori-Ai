@@ -1568,6 +1568,9 @@ def tampil_siswa_iqro(nama_siswa, kelas_siswa="Iqro"):
 for k, v in [("login_nama",None),("login_role",None),("login_jabatan",None),("program",None),("kategori_pilih",None),("messages",[]),("siswa_pilih",None),("seed_acak",1),("soal_acak",None),("kunci_acak",None),("kat_acak",None),("waktu_mulai",None),("waktu_habis",False),("ujian_selesai",False),("hasil_ujian",None),("lihat_nilai",False),("lihat_nilai_game",False),("lihat_riwayat",False),("lihat_saran",False),("lihat_setoran",False),("lihat_baca",False),("lihat_video",True),("waktu_login",None),("sudah_catat_masuk",False),("jawaban_tersimpan",{}),("login_error",""),("login_error_time",0),("preview_tim_ujian",False),("preview_kategori_ujian",None),("game",None),("game_question",None),("game_feedback",""),("game_question_no",0)]:
     if k not in st.session_state:
         st.session_state[k] = v
+# Fitur kotak Setoran/Penilaian Iqro terpisah sudah dihapus.
+st.session_state["lihat_setoran"] = False
+
 
 DURASI_UJIAN = 10*60
 KKM = 75
@@ -3235,145 +3238,6 @@ if (
     label_saran = f"💬 Kotak Saran / Kritik / Keluhan ({jml_baru} Baru)" if jml_baru>0 else "💬 Kotak Saran / Kritik / Keluhan"
     if st.button(label_saran, use_container_width=True):
         st.session_state["lihat_saran"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_setoran"]=False; st.session_state["lihat_baca"]=False; catat_aktivitas("Buka Kotak Saran"); st.rerun()
-# Tombol navigasi Setoran di bagian bawah hanya untuk Tim/Guru.
-# Siswa Tahsin, Tahfidz, dan Iqro menggunakan tombol kirim setoran
-# yang berada langsung pada halaman/program masing-masing agar tidak dobel.
-if (
-    st.session_state["siswa_pilih"] is None
-    and st.session_state.get("login_role") == "tim"
-):
-    try:
-        jml_setoran_baru = len(
-            supabase.table("bacaan_quran").select("id")
-            .eq("program", "Iqro").eq("status", "menunggu").execute().data or []
-        )
-    except Exception:
-        jml_setoran_baru = 0
-    label_setoran = f"🔤 Setoran / Penilaian Iqro ({jml_setoran_baru} Baru)" if jml_setoran_baru > 0 else "🔤 Setoran / Penilaian Iqro"
-    if st.button(label_setoran, use_container_width=True):
-        st.session_state["lihat_setoran"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_saran"]=False; st.session_state["lihat_baca"]=False; catat_aktivitas("Buka Setoran Suara"); st.rerun()
-
-# ===== KOTAK SETORAN / PENILAIAN IQRO SAJA =====
-if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is None:
-    st.header("🔤 Setoran / Penilaian Iqro")
-    st.caption("Khusus program Iqro. Setoran menggunakan Jilid dan Halaman, tanpa pilihan Surat Juz 30.")
-
-    # ---------- A. FORM SETORAN IQRO ----------
-    st.subheader("📩 Kirim Setoran Iqro")
-    daftar_siswa_iqro = [n for n, d in DATA_SISWA.items() if d.get("kategori") == "Iqro"]
-    opsi_nama_iqro = daftar_siswa_iqro or [st.session_state.get("login_nama", "")]
-    nama_setor_iqro = st.selectbox("Nama Siswa:", opsi_nama_iqro, key="kotak_iqro_nama")
-    kelas_setor_iqro = DATA_SISWA.get(nama_setor_iqro, {}).get("kategori", "Iqro")
-    jilid_setor_iqro = st.selectbox("Jilid Iqro:", ["1", "2", "3", "4", "5", "6"], key="kotak_iqro_jilid")
-    halaman_setor_iqro = st.text_input("Halaman Iqro:", value="1", key="kotak_iqro_halaman")
-    keterangan_setor_iqro = st.text_area("Keterangan (opsional):", placeholder="Contoh: Mohon dikoreksi makhraj huruf...", key="kotak_iqro_keterangan")
-    materi_setor_iqro = f"Iqro {jilid_setor_iqro} Hal {halaman_setor_iqro.strip()}"
-
-    if st.button("📩 Kirim Setoran Iqro", key="kotak_kirim_setoran_iqro", use_container_width=True):
-        if not nama_setor_iqro:
-            st.warning("Pilih nama siswa terlebih dahulu.")
-        elif not halaman_setor_iqro.strip():
-            st.warning("Isi halaman Iqro terlebih dahulu.")
-        else:
-            try:
-                # Gunakan kolom bacaan_quran yang sudah dipakai aplikasi.
-                supabase.table("bacaan_quran").insert({
-                    "nama_siswa": nama_setor_iqro,
-                    "kelas": kelas_setor_iqro,
-                    "program": "Iqro",
-                    "surah": materi_setor_iqro,
-                    "ayat_text": keterangan_setor_iqro.strip(),
-                    "status": "menunggu",
-                }).execute()
-                st.success("Setoran Iqro berhasil dikirim dan masuk antrean penilaian guru.")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Gagal mengirim setoran Iqro: {e}")
-
-    st.divider()
-    st.header("🔤 Penilaian Iqro")
-    st.subheader("1. Setoran yang Menunggu Penilaian")
-    try:
-        antrean_iqro = (
-            supabase.table("bacaan_quran").select("*")
-            .eq("program", "Iqro").eq("status", "menunggu")
-            .order("created_at", desc=True).execute().data or []
-        )
-    except Exception as e:
-        antrean_iqro = []
-        st.error(f"Gagal mengambil setoran Iqro: {e}")
-
-    if not antrean_iqro:
-        st.info("Tidak ada setoran Iqro yang menunggu dinilai.")
-    else:
-        for setoran_iqro in antrean_iqro:
-            id_bacaan_iqro = setoran_iqro.get("id")
-            nama_iqro = setoran_iqro.get("nama_siswa") or "-"
-            materi_iqro = setoran_iqro.get("surah") or "Iqro"
-            keterangan_iqro = setoran_iqro.get("ayat_text") or ""
-            with st.expander(f"{nama_iqro} — {materi_iqro}"):
-                st.write(f"**Kelas:** {setoran_iqro.get('kelas') or '-'}")
-                if keterangan_iqro:
-                    st.write(f"**Keterangan:** {keterangan_iqro}")
-                if setoran_iqro.get("audio_url"):
-                    st.audio(setoran_iqro.get("audio_url"))
-                skor_huruf_iqro = st.slider("Pengenalan Huruf (1-100)", 0, 100, 80, key=f"kotak_iqro_huruf_{id_bacaan_iqro}")
-                skor_lancar_iqro = st.slider("Kelancaran (1-100)", 0, 100, 80, key=f"kotak_iqro_lancar_{id_bacaan_iqro}")
-                skor_makhraj_iqro = st.slider("Makhraj (1-100)", 0, 100, 80, key=f"kotak_iqro_makhraj_{id_bacaan_iqro}")
-                total_iqro = skor_huruf_iqro + skor_lancar_iqro + skor_makhraj_iqro
-                nilai_iqro_akhir = round(total_iqro / 3, 1)
-                predikat_iqro = "Mumtaz" if nilai_iqro_akhir >= 90 else "Jayyid Jiddan" if nilai_iqro_akhir >= 80 else "Jayyid" if nilai_iqro_akhir >= 70 else "Perlu Diulang"
-                catatan_iqro = st.text_area("Catatan Guru", key=f"kotak_iqro_catatan_{id_bacaan_iqro}")
-                guru_iqro = st.text_input("Dinilai Oleh", value=st.session_state.get("login_nama", ""), key=f"kotak_iqro_guru_{id_bacaan_iqro}")
-                st.write(f"**Total Skor:** {total_iqro} | **Nilai Akhir:** {nilai_iqro_akhir} — {predikat_iqro}")
-                if st.button("💾 Simpan Nilai Iqro", key=f"kotak_iqro_simpan_{id_bacaan_iqro}"):
-                    try:
-                        cocok_materi = re.search(r"Iqro\s*(\d+).*?Hal(?:aman)?\s*(\d+)", materi_iqro, re.IGNORECASE)
-                        jilid_nilai_iqro = cocok_materi.group(1) if cocok_materi else "1"
-                        halaman_nilai_iqro = cocok_materi.group(2) if cocok_materi else "1"
-                        supabase.table("nilai_iqro").insert({
-                            "nama_siswa": nama_iqro,
-                            "kelas": setoran_iqro.get("kelas") or "Iqro",
-                            "program": "Iqro",
-                            "jilid": str(jilid_nilai_iqro),
-                            "halaman": str(halaman_nilai_iqro),
-                            "pengenalan_huruf": skor_huruf_iqro,
-                            "kelancaran": skor_lancar_iqro,
-                            "makhraj": skor_makhraj_iqro,
-                            "total_skor": total_iqro,
-                            "nilai_akhir": nilai_iqro_akhir,
-                            "predikat": predikat_iqro,
-                            "catatan_guru": catatan_iqro,
-                            "dinilai_oleh": guru_iqro,
-                            "status": "dinilai",
-                        }).execute()
-                        supabase.table("bacaan_quran").update({"status": "dinilai"}).eq("id", id_bacaan_iqro).execute()
-                        st.success("Nilai Iqro berhasil disimpan.")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Gagal menyimpan nilai Iqro: {e}")
-
-    st.subheader("2. Riwayat Nilai Iqro")
-    try:
-        riwayat_kotak_iqro = (
-            supabase.table("nilai_iqro").select("*")
-            .eq("program", "Iqro").eq("status", "dinilai")
-            .order("created_at", desc=True).limit(20).execute().data or []
-        )
-    except Exception as e:
-        riwayat_kotak_iqro = []
-        st.error(f"Gagal mengambil riwayat nilai Iqro: {e}")
-    if not riwayat_kotak_iqro:
-        st.info("Belum ada nilai Iqro.")
-    else:
-        for hasil_iqro in riwayat_kotak_iqro:
-            st.write(f"✅ {hasil_iqro.get('nama_siswa', '-')} — Iqro {hasil_iqro.get('jilid', '-')} Hal {hasil_iqro.get('halaman', '-')} | Nilai: {hasil_iqro.get('nilai_akhir', '-')} ({hasil_iqro.get('predikat', '-')})")
-
-    if st.button("⬅️ Tutup Penilaian Iqro", use_container_width=True):
-        st.session_state["lihat_setoran"] = False
-        st.rerun()
-    st.stop()
-
 # ===== KOTAK SARAN =====
 if st.session_state.get("lihat_saran") and st.session_state["siswa_pilih"] is None:
     st.markdown("<div style='background-color: rgba(20,50,35,0.95); padding:18px; border-radius:15px; text-align:center; border:2px solid #F9D423;'><h2 style='color:#F9D423; margin:0;'>💬 Kotak Saran / Kritik / Keluhan</h2></div>", unsafe_allow_html=True)
