@@ -3,6 +3,12 @@ import datetime
 import requests
 import unicodedata
 
+
+def ke_angka_arab(n):
+    """Ubah angka latin menjadi angka Arab-Indic (1 -> ١)."""
+    arab = "٠١٢٣٤٥٦٧٨٩"
+    return "".join(arab[int(d)] for d in str(n))
+
 # ===== DATA SURAH JUZ 30 DARI API AL-QURAN CLOUD =====
 NAMA_ARAB_HARAKAT = {
     78: "سُورَةُ النَّبَأِ", 79: "سُورَةُ النَّازِعَاتِ", 80: "سُورَةُ عَبَسَ", 81: "سُورَةُ التَّكْوِيرِ",
@@ -89,16 +95,19 @@ def tampilkan_halaman_surat_juz30(no_surah, program_key):
 
         if basmalah_pindah:
             isi_html += (
-                "<div style='text-align:center;direction:rtl;font-size:26px;"
-                "color:#111 !important;margin-bottom:16px;'>"
+                "<div style='text-align:center;direction:rtl;font-size:28px;"
+                "font-weight:bold;color:#111 !important;margin-bottom:16px;'>"
                 f"{basmalah_pindah}</div>"
             )
 
-    for nomor_ayat, teks_ayat in enumerate(ayat_tampil, start=mulai + 1):
+    for i, teks_ayat in enumerate(ayat_tampil):
+        # Nomor ayat tetap berlanjut ant halaman: 1-5, 6-10, dan seterusnya.
+        nomor_ayat = mulai + i + 1
+        nomor_arab = ke_angka_arab(nomor_ayat)
         isi_html += (
             "<div style='text-align:right;direction:rtl;font-size:30px;line-height:2.2;"
             "color:#111 !important;margin:6px 0;'>"
-            f"{teks_ayat} <span style='font-size:18px;color:#111;'>﴿{nomor_ayat}﴾</span></div>"
+            f"{teks_ayat} <span style='font-size:18px;color:#111;'>﴿{nomor_arab}﴾</span></div>"
         )
     st.markdown(
         f"<div style='background:white;border-radius:10px;padding:22px 20px;margin-top:10px;'>{isi_html}</div>",
