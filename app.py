@@ -1006,7 +1006,8 @@ def hapus_saran(sid):
     CONN.execute("DELETE FROM saran WHERE id=?", (sid,))
     CONN.commit()
 def tambah_setoran(pengirim, label, kategori, judul, keterangan, foto_bytes, foto_nama, audio_bytes, audio_nama, jam):
-    CONN.execute("INSERT INTO setoran(pengirim,label,kategori,judul,keterangan,foto,foto_nama,audio,audio_nama,jam,koreksi,pembalas,nilai_setoran) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (pengirim, label, kategori, judul, keterangan, foto_bytes, foto_nama, audio_bytes, audio_nama, jam, "", "", ""))
+    # 13 kolom harus dipasangkan dengan tepat 13 placeholder.
+    CONN.execute("INSERT INTO setoran(pengirim,label,kategori,judul,keterangan,foto,foto_nama,audio,audio_nama,jam,koreksi,pembalas,nilai_setoran) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (pengirim, label, kategori, judul, keterangan, foto_bytes, foto_nama, audio_bytes, audio_nama, jam, "", "", ""))
     CONN.commit()
 def get_setoran():
     rows = CONN.execute("""SELECT id,pengirim,label,kategori,judul,keterangan,foto,foto_nama,
@@ -2344,111 +2345,97 @@ if (
 
     # ---------- 3. PENILAIAN IQRO ----------
     st.header("🔤 Penilaian Iqro")
-    st.info("Penilaian dilakukan oleh guru/penguji. AI hanya dapat membantu transkrip awal.")
-
     st.subheader("1. Setoran yang Menunggu Penilaian")
+
     try:
-        data_iqro = (
+        res_iqro = (
             supabase.table("nilai_iqro").select("*")
             .eq("program", "Iqro").eq("status", "menunggu")
-            .order("created_at", desc=True).execute().data or []
+            .order("created_at", desc=True).execute()
         )
+        setoran_iqro = res_iqro.data or []
     except Exception as e:
-        data_iqro = []
-        st.error(f"Gagal mengambil setoran Iqro dari Supabase: {e}")
+        st.error(f"Gagal mengambil setoran Iqro: {e}")
+        setoran_iqro = []
 
-    if not data_iqro:
-        st.info("Tidak ada setoran Iqro yang menunggu penilaian.")
+    if not setoran_iqro:
+        st.info("Tidak ada setoran Iqro yang menunggu dinilai.")
     else:
-        for row in data_iqro:
-            rid = row.get("id")
-            nama_iqro = row.get("nama_siswa") or "-"
-            kelas_iqro = row.get("kelas") or "-"
-            jilid_lama = str(row.get("jilid") or "1")
-            halaman_lama = str(row.get("halaman") or "1")
-            with st.expander(
-                f"{nama_iqro} — {kelas_iqro} — Iqro {jilid_lama} Halaman {halaman_lama}"
-            ):
-                if row.get("audio_url"):
-                    st.audio(row["audio_url"])
-                jilid_opsi = ["1", "2", "3", "4", "5", "6"]
-                jilid_iqro = st.selectbox(
-                    "Jilid Iqro", jilid_opsi,
-                    index=jilid_opsi.index(jilid_lama) if jilid_lama in jilid_opsi else 0,
-                    key=f"iqro_jilid_{rid}",
+        for s in setoran_iqro:
+            nama = s.get("nama_siswa") or "-"
+            id_setoran = s.get("id")
+            jilid_lama = str(s.get("jilid") or "1")
+            hal_lama = str(s.get("halaman") or "1")
+            with st.expander(f"{nama} - Iqro {jilid_lama} Hal {hal_lama}"):
+                st.write(f"**Kelas:** {s.get('kelas') or '-'}")
+                pengenalan_huruf = st.slider(
+                    "Pengenalan Huruf (1-100)", 0, 100, 80,
+                    key=f"iqro_huruf_{id_setoran}"
                 )
-                halaman_iqro = st.text_input(
-                    "Halaman", value=halaman_lama, key=f"iqro_hal_{rid}"
+                kelancaran = st.slider(
+                    "Kelancaran (1-100)", 0, 100, 80,
+                    key=f"iqro_lancar_{id_setoran}"
                 )
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    iqro_pengenalan = st.slider(
-                        "Pengenalan Huruf (0–100)", 0, 100, 80, key=f"iqro_pengenalan_{rid}"
-                    )
-                with c2:
-                    iqro_kelancaran = st.slider(
-                        "Kelancaran (0–100)", 0, 100, 80, key=f"iqro_kelancaran_{rid}"
-                    )
-                with c3:
-                    iqro_makhraj = st.slider(
-                        "Makhraj (0–100)", 0, 100, 80, key=f"iqro_makhraj_{rid}"
-                    )
-                total_skor_iqro = iqro_pengenalan + iqro_kelancaran + iqro_makhraj
-                nilai_akhir_iqro = round(total_skor_iqro / 3, 1)
-                predikat_iqro = predikat_penilaian(nilai_akhir_iqro)
-                catatan_iqro = st.text_area("Catatan Guru", key=f"iqro_catatan_{rid}")
-                guru_iqro = st.text_input(
-                    "Dinilai Oleh (Nama Guru)",
+                makhraj = st.slider(
+                    "Makhraj (1-100)", 0, 100, 80,
+                    key=f"iqro_makhraj_{id_setoran}"
+                )
+                total_skor = pengenalan_huruf + kelancaran + makhraj
+                nilai_akhir = round(total_skor / 3, 1)
+                predikat = (
+                    "Mumtaz" if nilai_akhir >= 90 else
+                    "Jayyid Jiddan" if nilai_akhir >= 80 else
+                    "Jayyid" if nilai_akhir >= 70 else
+                    "Perlu Diulang"
+                )
+                catatan = st.text_area(
+                    "Catatan Guru", key=f"iqro_cat_{id_setoran}"
+                )
+                dinilai_oleh = st.text_input(
+                    "Dinilai Oleh",
                     value=st.session_state.get("login_nama", ""),
-                    key=f"iqro_guru_{rid}",
+                    key=f"iqro_guru_{id_setoran}"
                 )
-                st.write(
-                    f"**Total Skor:** {total_skor_iqro} / 300 | "
-                    f"**Nilai Akhir:** {nilai_akhir_iqro}/100 — {predikat_iqro}"
-                )
-                if st.button("💾 Simpan Nilai Iqro", key=f"iqro_simpan_{rid}"):
+                st.write(f"**Nilai Akhir:** {nilai_akhir} - {predikat}")
+                if st.button("Simpan Nilai Iqro", key=f"iqro_simpan_{id_setoran}"):
                     try:
-                        halaman_angka = int(str(halaman_iqro).strip())
-                        if halaman_angka < 1:
-                            raise ValueError("Halaman harus minimal 1.")
                         supabase.table("nilai_iqro").update({
-                            "jilid": jilid_iqro,
-                            "halaman": str(halaman_angka),
-                            "pengenalan_huruf": iqro_pengenalan,
-                            "kelancaran": iqro_kelancaran,
-                            "makhraj": iqro_makhraj,
-                            "total_skor": total_skor_iqro,
-                            "nilai_akhir": nilai_akhir_iqro,
-                            "predikat": predikat_iqro,
-                            "catatan_guru": catatan_iqro,
-                            "dinilai_oleh": guru_iqro,
+                            "pengenalan_huruf": pengenalan_huruf,
+                            "kelancaran": kelancaran,
+                            "makhraj": makhraj,
+                            "total_skor": total_skor,
+                            "nilai_akhir": nilai_akhir,
+                            "predikat": predikat,
+                            "catatan_guru": catatan,
+                            "dinilai_oleh": dinilai_oleh,
                             "status": "dinilai",
-                        }).eq("id", rid).execute()
-                        st.success(f"Nilai Iqro tersimpan: {nilai_akhir_iqro}/100.")
+                        }).eq("id", id_setoran).execute()
+                        st.success("Nilai Iqro tersimpan!")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Gagal menyimpan nilai Iqro: {e}")
 
     st.subheader("2. Riwayat Nilai Iqro")
     try:
-        riwayat_iqro = (
+        res2 = (
             supabase.table("nilai_iqro").select("*")
             .eq("program", "Iqro").eq("status", "dinilai")
-            .order("created_at", desc=True).limit(30).execute().data or []
+            .order("created_at", desc=True).limit(20).execute()
         )
-        if not riwayat_iqro:
-            st.info("Belum ada nilai Iqro.")
-        for row in riwayat_iqro:
-            st.write(
-                f"**{row.get('nama_siswa', '-')}** | Iqro {row.get('jilid', '-')} "
-                f"Halaman {row.get('halaman', '-')} | "
-                f"Nilai: **{row.get('nilai_akhir', '-')} / 100** "
-                f"({row.get('predikat', '-')}) | Guru: {row.get('dinilai_oleh', '-')}"
-            )
-            if row.get("catatan_guru"):
-                st.caption(f"Catatan: {row['catatan_guru']}")
+        riwayat_iqro = res2.data or []
     except Exception as e:
         st.error(f"Gagal mengambil riwayat nilai Iqro: {e}")
+        riwayat_iqro = []
+
+    if not riwayat_iqro:
+        st.info("Belum ada nilai Iqro.")
+    else:
+        for r in riwayat_iqro:
+            st.write(
+                f"✅ {r.get('nama_siswa', '-')} - Iqro {r.get('jilid', '-')} "
+                f"Hal {r.get('halaman', '-')} | Nilai: {r.get('nilai_akhir', '-')} "
+                f"({r.get('predikat', '-')})"
+            )
 
 # ===== MENU GAME QORI AI: KHUSUS SISWA =====
 # Akun TIM tidak menampilkan baris Game QORI AI di bagian atas.
@@ -3552,113 +3539,45 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
                     st.session_state["setoran_iqro_halaman"] = halaman_iqro + 1
                     st.rerun()
 
-        # Panduan rekaman Iqro
-        st.markdown("""
-        <div style='background:#FCE4EC; border-radius:10px;
-                    padding:16px 20px; margin-top:16px;'>
-            <p style='margin:4px 0; font-size:16px; color:#222 !important;'>
-                <b>1.</b> &nbsp;Klik tombol mikrofon di bawah.
-            </p>
-            <p style='margin:4px 0; font-size:16px; color:#222 !important;'>
-                <b>2.</b> &nbsp;Baca Iqro pelan-pelan dan ucapkan huruf dengan jelas.
-            </p>
-            <p style='margin:4px 0; font-size:16px; color:#222 !important;'>
-                <b>3.</b> &nbsp;Klik Stop, dengarkan hasil rekaman, lalu kirim setoran.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown(
-            "<p style='margin-top:16px; margin-bottom:6px; "
-            "font-weight:bold; color:white;'>🎙️ Rekam Bacaan Iqromu</p>",
-            unsafe_allow_html=True,
+        # ---------- SETORAN IQRO (SISWA) ----------
+        st.info(
+            "Periksa kembali jilid dan halaman yang dipilih, lalu kirim setoran. "
+            "Guru akan mengisi nilai setelah memeriksa bacaan."
         )
 
-        if not st.session_state.get(flag_iqro, False):
-            audio_iqro = st.audio_input(
-                "Rekam Iqro",
-                key=f"rekam_iqro_{kunci_iqro}",
-            )
-        else:
-            audio_iqro = None
-
         if st.session_state.get(flag_iqro, False):
-            st.success(f"✅ Rekaman {judul_iqro} sudah tersimpan di Daftar Setoran.")
-        elif audio_iqro is not None:
-            st.audio(audio_iqro)
-            st.success("Rekaman sudah tersedia. Dengarkan kembali sebelum dikirim.")
-
-            if st.button(
-                "📤 Kirim Setoran Iqro",
-                key=f"kirim_iqro_{kunci_iqro}",
-                use_container_width=True,
-                type="primary",
-            ):
-                if st.session_state.get("login_role") == "siswa":
-                    label_iqro = (
-                        f"{nama_pengguna_iqro} | Kelas: "
-                        f"{DATA_SISWA.get(nama_pengguna_iqro, {}).get('kategori', 'Iqro')}"
-                    )
-                else:
-                    label_iqro = (
-                        f"{NAMA_LENGKAP_TIM.get(nama_pengguna_iqro, nama_pengguna_iqro)} | "
-                        f"{TIM_PENYUSUN.get(nama_pengguna_iqro, 'Tim')}"
-                    )
-
+            st.success(f"✅ Setoran {judul_iqro} sudah dikirim dan menunggu penilaian guru.")
+        elif st.button(
+            "📤 Kirim Setoran Iqro",
+            key=f"kirim_iqro_{kunci_iqro}",
+            use_container_width=True,
+            type="primary",
+        ):
+            try:
+                kelas_iqro_siswa = DATA_SISWA.get(nama_pengguna_iqro, {}).get(
+                    "kategori", st.session_state.get("kelas", "Iqro")
+                )
+                supabase.table("nilai_iqro").insert({
+                    "nama_siswa": nama_pengguna_iqro,
+                    "kelas": kelas_iqro_siswa,
+                    "program": "Iqro",
+                    "jilid": str(jilid_nomor_iqro),
+                    "halaman": str(no_hal_iqro),
+                    "status": "menunggu",
+                }).execute()
                 judul_simpan_iqro = judul_iqro + (
                     f" - {judul_setoran.strip()}" if judul_setoran.strip() else ""
                 )
-                audio_bytes_iqro = audio_iqro.getvalue()
-                nama_audio_iqro = getattr(audio_iqro, "name", "rekaman_iqro.wav")
-
-                try:
-                    import uuid
-                    nama_aman_iqro = "".join(
-                        karakter if karakter.isalnum() or karakter in ("-", "_") else "_"
-                        for karakter in nama_pengguna_iqro.strip()
-                    )
-                    ekstensi_iqro = (nama_audio_iqro.rsplit(".", 1)[-1].lower()
-                                     if "." in nama_audio_iqro else "wav")
-                    if ekstensi_iqro not in {"wav", "mp3", "m4a", "ogg", "webm", "aac", "opus"}:
-                        ekstensi_iqro = "wav"
-                    file_name_iqro = (
-                        f"iqro_{nama_aman_iqro}_{jilid_nomor_iqro}_"
-                        f"{no_hal_iqro}_{uuid.uuid4().hex}.{ekstensi_iqro}"
-                    )
-                    tipe_audio_iqro = getattr(audio_iqro, "type", None) or "audio/wav"
-                    supabase.storage.from_("audio-bacaan").upload(
-                        file_name_iqro,
-                        audio_bytes_iqro,
-                        {"content-type": tipe_audio_iqro, "upsert": "false"},
-                    )
-                    audio_url_iqro = supabase.storage.from_("audio-bacaan").get_public_url(
-                        file_name_iqro
-                    )
-                    kelas_iqro_siswa = DATA_SISWA.get(nama_pengguna_iqro, {}).get(
-                        "kategori", st.session_state.get("kelas", "Iqro")
-                    )
-                    supabase.table("nilai_iqro").insert({
-                        "program": "Iqro",
-                        "nama_siswa": nama_pengguna_iqro,
-                        "kelas": kelas_iqro_siswa,
-                        "jilid": jilid_nomor_iqro,
-                        "halaman": str(no_hal_iqro),
-                        "audio_url": audio_url_iqro,
-                        "status": "menunggu",
-                    }).execute()
-                    catat_aktivitas(f"Kirim Setoran Iqro - {judul_simpan_iqro}")
-                    st.session_state[flag_iqro] = True
-                    st.balloons()
-                    st.success(
-                        f"Alhamdulillah! Setoran {iqro_level_pilih} halaman "
-                        f"{no_hal_iqro} berhasil dikirim ke Supabase. Guru dapat "
-                        "memeriksanya melalui menu Penilaian Siswa → Iqro."
-                    )
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Gagal mengirim setoran Iqro ke Supabase: {e}")
-        else:
-            st.caption("Belum ada rekaman. Klik mikrofon di atas, lalu baca materi Iqro.")
+                catat_aktivitas(f"Kirim Setoran Iqro - {judul_simpan_iqro}")
+                st.session_state[flag_iqro] = True
+                st.balloons()
+                st.success(
+                    f"Setoran {iqro_level_pilih} halaman {no_hal_iqro} berhasil dikirim. "
+                    "Guru akan memberikan penilaian."
+                )
+                st.rerun()
+            except Exception as e:
+                st.error(f"Setoran Iqro gagal disimpan: {e}")
 
 
         if st.session_state.get(flag_iqro, False):
@@ -3667,7 +3586,7 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
             else:
                 st.info("Setoran halaman ini sudah tersimpan. Klik Selanjutnya untuk melanjutkan.")
         else:
-            st.info("⏳ Simpan suara halaman ini terlebih dahulu untuk membuka halaman berikutnya.")
+            st.info("⏳ Kirim setoran halaman ini terlebih dahulu untuk membuka halaman berikutnya.")
 
         # Riwayat setoran dan hasil penilaian Iqro milik siswa yang sedang login.
         st.subheader("Riwayat Setoran dan Nilai Iqro Saya")
@@ -3686,8 +3605,6 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
                     f"Iqro {row_iqro_siswa.get('jilid', '-')} — Halaman "
                     f"{row_iqro_siswa.get('halaman', '-')} — {label_status_iqro}"
                 ):
-                    if row_iqro_siswa.get("audio_url"):
-                        st.audio(row_iqro_siswa["audio_url"])
                     if row_iqro_siswa.get("status") == "dinilai":
                         st.metric(
                             "Nilai Akhir",
