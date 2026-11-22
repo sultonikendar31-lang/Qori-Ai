@@ -3,17 +3,17 @@ import datetime
 import requests
 
 # ===== DATA SURAH JUZ 30 DARI API AL-QURAN CLOUD =====
-DAFTAR_SURAH_JUZ30 = {
-    78: "سورة النبأ", 79: "سورة النازعات", 80: "سورة عبس", 81: "سورة التكوير",
-    82: "سورة الانفطار", 83: "سورة المطففين", 84: "سورة الانشقاق", 85: "سورة البروج",
-    86: "سورة الطارق", 87: "سورة الأعلى", 88: "سورة الغاشية", 89: "سورة الفجر",
-    90: "سورة البلد", 91: "سورة الشمس", 92: "سورة الليل", 93: "سورة الضحى",
-    94: "سورة الشرح", 95: "سورة التين", 96: "سورة العلق", 97: "سورة القدر",
-    98: "سورة البينة", 99: "سورة الزلزلة", 100: "سورة العاديات",
-    101: "سورة القارعة", 102: "سورة التكاثر", 103: "سورة العصر",
-    104: "سورة الهمزة", 105: "سورة الفيل", 106: "سورة قريش", 107: "سورة الماعون",
-    108: "سورة الكوثر", 109: "سورة الكافرون", 110: "سورة النصر",
-    111: "سورة المسد", 112: "سورة الإخلاص", 113: "سورة الفلق", 114: "سورة الناس",
+NAMA_ARAB_HARAKAT = {
+    78: "سُورَةُ النَّبَأِ", 79: "سُورَةُ النَّازِعَاتِ", 80: "سُورَةُ عَبَسَ", 81: "سُورَةُ التَّكْوِيرِ",
+    82: "سُورَةُ الْانْفِطَارِ", 83: "سُورَةُ الْمُطَفِّفِينَ", 84: "سُورَةُ الْانْشِقَاقِ", 85: "سُورَةُ الْبُرُوجِ",
+    86: "سُورَةُ الطَّارِقِ", 87: "سُورَةُ الْأَعْلَىٰ", 88: "سُورَةُ الْغَاشِيَةِ", 89: "سُورَةُ الْفَجْرِ",
+    90: "سُورَةُ الْبَلَدِ", 91: "سُورَةُ الشَّمْسِ", 92: "سُورَةُ اللَّيْلِ", 93: "سُورَةُ الضُّحَىٰ",
+    94: "سُورَةُ الشَّرْحِ", 95: "سُورَةُ التِّينِ", 96: "سُورَةُ الْعَلَقِ", 97: "سُورَةُ الْقَدْرِ",
+    98: "سُورَةُ الْبَيِّنَةِ", 99: "سُورَةُ الزَّلْزَلَةِ", 100: "سُورَةُ الْعَادِيَاتِ",
+    101: "سُورَةُ الْقَارِعَةِ", 102: "سُورَةُ التَّكَاثُرِ", 103: "سُورَةُ الْعَصْرِ",
+    104: "سُورَةُ الْهُمَزَةِ", 105: "سُورَةُ الْفِيلِ", 106: "سُورَةُ قُرَيْشٍ", 107: "سُورَةُ الْمَاعُونِ",
+    108: "سُورَةُ الْكَوْثَرِ", 109: "سُورَةُ الْكَافِرُونَ", 110: "سُورَةُ النَّصْرِ",
+    111: "سُورَةُ الْمَسَدِ", 112: "سُورَةُ الْإِخْلَاصِ", 113: "سُورَةُ الْفَلَقِ", 114: "سُورَةُ النَّاسِ",
 }
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -72,7 +72,7 @@ def tampilkan_halaman_surat_juz30(no_surah, program_key):
 
     isi_html = (
         f"<div style='text-align:center;font-size:26px;font-weight:bold;"
-        f"color:#111 !important;margin-bottom:8px;direction:rtl;'>{DAFTAR_SURAH_JUZ30[no_surah]}</div>"
+        f"color:#111 !important;margin-bottom:8px;direction:rtl;'>{NAMA_ARAB_HARAKAT[no_surah]}</div>"
     )
     if tampilkan_basmalah:
         isi_html += (
@@ -2881,11 +2881,11 @@ if st.session_state.get("login_role") == "siswa" and program_saya == "Tahfidz" a
         st.write("Setor hafalan kamu. Baca Basmalah terlebih dahulu, lalu coba hafalkan ayat yang ditampilkan.")
         no_surah_tahfidz = st.selectbox(
             "Pilih Surah (Juz 30)",
-            options=list(DAFTAR_SURAH_JUZ30.keys()),
-            format_func=lambda x: f"{x}. {DAFTAR_SURAH_JUZ30[x]}",
+            options=list(NAMA_ARAB_HARAKAT.keys()),
+            format_func=lambda x: f"Surah ke-{x}",
             key="surah_tahfidz_api",
         )
-        surah_tahfidz = f"{no_surah_tahfidz}. {DAFTAR_SURAH_JUZ30[no_surah_tahfidz]}"
+        surah_tahfidz = f"{no_surah_tahfidz}. {NAMA_ARAB_HARAKAT[no_surah_tahfidz]}"
         (data_surat_tahfidz, baris_tahfidz, hal_tahfidz,
          PER_HALAMAN_TAHFIDZ, mulai_tahfidz, akhir_tahfidz,
          ayat_tahfidz) = tampilkan_halaman_surat_juz30(no_surah_tahfidz, "tahfidz")
@@ -2998,11 +2998,11 @@ if st.session_state.get("login_role") == "siswa" and program_saya == "Tahsin" an
         # ===== PILIH SURAH DAN TAMPILKAN SELURUH AYAT DARI API =====
         no_surah_bacaan = st.selectbox(
             "Pilih Surah (Juz 30)",
-            options=list(DAFTAR_SURAH_JUZ30.keys()),
-            format_func=lambda x: f"{x}. {DAFTAR_SURAH_JUZ30[x]}",
+            options=list(NAMA_ARAB_HARAKAT.keys()),
+            format_func=lambda x: f"Surah ke-{x}",
             key="surah_tes_bacaan_api",
         )
-        surah_bacaan = f"{no_surah_bacaan}. {DAFTAR_SURAH_JUZ30[no_surah_bacaan]}"
+        surah_bacaan = f"{no_surah_bacaan}. {NAMA_ARAB_HARAKAT[no_surah_bacaan]}"
         (data_surat_tahsin, baris_ayat, hal, PER_HALAMAN,
          mulai, akhir_ayat, ayat_bacaan) = tampilkan_halaman_surat_juz30(no_surah_bacaan, "tahsin")
         ayat_full = "\n".join(baris_ayat)
