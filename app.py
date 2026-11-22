@@ -1031,6 +1031,122 @@ if st.session_state.get("login_role") == "tim" and st.session_state.get("siswa_p
 
 
 
+# ===== MENU TAHFIDZ: PENILAIAN GURU / PENGUJI =====
+if st.session_state.get("login_role") == "tim" and st.session_state.get("siswa_pilih") is None:
+    st.divider()
+    st.header("📖 Penilaian Tahfidz Al-Qur'an")
+    st.info("Penilaian dilakukan oleh guru/penguji. AI hanya dapat membantu transkrip awal.")
+
+    st.subheader("1. Setoran yang Menunggu Penilaian")
+    try:
+        data_menunggu_tahfidz = (
+            supabase.table("nilai_tahfidz")
+            .select("*")
+            .eq("status", "menunggu")
+            .order("created_at", desc=True)
+            .execute()
+            .data
+        )
+    except Exception as e:
+        st.error(f"Gagal mengambil data setoran tahfidz: {e}")
+        data_menunggu_tahfidz = []
+
+    if not data_menunggu_tahfidz:
+        st.success("Tidak ada setoran tahfidz yang menunggu dinilai.")
+    else:
+        for row_tahfidz in data_menunggu_tahfidz:
+            id_tahfidz = row_tahfidz.get("id")
+            with st.expander(
+                f"{row_tahfidz.get('nama_siswa', '-')} - {row_tahfidz.get('surah', '-')} "
+                f"(Ayat {row_tahfidz.get('ayat_mulai', '-')}–{row_tahfidz.get('ayat_sampai', '-')})"
+            ):
+                st.write(f"**Kelas:** {row_tahfidz.get('kelas', '-')}")
+                if row_tahfidz.get("audio_url"):
+                    st.audio(row_tahfidz["audio_url"])
+
+                st.markdown("**Beri skor 1–4 untuk tiap aspek:**")
+                st.caption("1 = Kurang | 2 = Cukup | 3 = Baik | 4 = Sangat Baik")
+                k_tahfidz = str(id_tahfidz)
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    kelancaran = st.selectbox("1. Kelancaran Hafalan", [1, 2, 3, 4], key=f"kel_tahfidz_{k_tahfidz}")
+                    lafaz = st.selectbox("2. Ketepatan Lafaz Ayat", [1, 2, 3, 4], key=f"laf_tahfidz_{k_tahfidz}")
+                with c2:
+                    urutan = st.selectbox("3. Ketepatan Urutan Ayat", [1, 2, 3, 4], key=f"urt_tahfidz_{k_tahfidz}")
+                    makhraj = st.selectbox("4. Makharijul Huruf", [1, 2, 3, 4], key=f"mak_tahfidz_{k_tahfidz}")
+                with c3:
+                    tajwid = st.selectbox("5. Penerapan Tajwid", [1, 2, 3, 4], key=f"taj_tahfidz_{k_tahfidz}")
+                    pertahankan = st.selectbox("6. Mempertahankan Hafalan", [1, 2, 3, 4], key=f"per_tahfidz_{k_tahfidz}")
+
+                catatan_tahfidz = st.text_area(
+                    "Catatan Guru",
+                    key=f"cat_tahfidz_{k_tahfidz}",
+                    placeholder="Contoh: Makhraj huruf 'ain masih kurang jelas di ayat 3...",
+                )
+
+                if st.button("💾 Simpan Nilai Tahfidz", key=f"simpan_tahfidz_{k_tahfidz}"):
+                    try:
+                        total_tahfidz = (
+                            kelancaran + lafaz + urutan + makhraj + tajwid + pertahankan
+                        )
+                        nilai_tahfidz = round((total_tahfidz / 24) * 100, 1)
+
+                        if nilai_tahfidz >= 90:
+                            predikat_tahfidz = "Mumtaz (Istimewa)"
+                        elif nilai_tahfidz >= 80:
+                            predikat_tahfidz = "Jayyid Jiddan (Sangat Baik)"
+                        elif nilai_tahfidz >= 70:
+                            predikat_tahfidz = "Jayyid (Baik)"
+                        elif nilai_tahfidz >= 60:
+                            predikat_tahfidz = "Maqbul (Cukup)"
+                        else:
+                            predikat_tahfidz = "Perlu Bimbingan / Mengulang"
+
+                        supabase.table("nilai_tahfidz").update({
+                            "kelancaran": kelancaran,
+                            "lafaz_ayat": lafaz,
+                            "urutan_ayat": urutan,
+                            "makhraj": makhraj,
+                            "tajwid": tajwid,
+                            "mempertahankan_hafalan": pertahankan,
+                            "total_skor": total_tahfidz,
+                            "nilai_akhir": nilai_tahfidz,
+                            "predikat": predikat_tahfidz,
+                            "catatan_guru": catatan_tahfidz,
+                            "dinilai_oleh": st.session_state.get("login_nama"),
+                            "status": "dinilai",
+                        }).eq("id", id_tahfidz).execute()
+
+                        st.success(f"Tersimpan! Nilai: {nilai_tahfidz} - {predikat_tahfidz}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Gagal menyimpan nilai tahfidz: {e}")
+
+    st.subheader("2. Riwayat Nilai Tahfidz")
+    try:
+        riwayat_nilai_tahfidz = (
+            supabase.table("nilai_tahfidz")
+            .select("*")
+            .eq("status", "dinilai")
+            .order("created_at", desc=True)
+            .limit(30)
+            .execute()
+            .data
+        )
+        if riwayat_nilai_tahfidz:
+            for r_tahfidz in riwayat_nilai_tahfidz:
+                st.write(
+                    f"**{r_tahfidz.get('nama_siswa', '-')}** | "
+                    f"{r_tahfidz.get('surah', '-')} | "
+                    f"Nilai: **{r_tahfidz.get('nilai_akhir', '-')}** "
+                    f"({r_tahfidz.get('predikat', '-')}) | "
+                    f"Catatan: {r_tahfidz.get('catatan_guru') or '-'}"
+                )
+        else:
+            st.info("Belum ada nilai tahfidz.")
+    except Exception as e:
+        st.error(f"Gagal mengambil riwayat nilai tahfidz: {e}")
+
 # ===== MENU GAME QORI AI: KHUSUS SISWA =====
 # Akun TIM tidak menampilkan baris Game QORI AI di bagian atas.
 # TIM menggunakan menu kategori di Menu Utama bagian bawah.
@@ -1623,6 +1739,114 @@ if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai
             st.warning("Akses dibatasi: kamu hanya dapat membuka kategori kelasmu sendiri.")
         else:
             tampilkan_daftar(kategori_aktif)
+
+# ===== MENU TAHFIDZ: SETOR HAFALAN SISWA =====
+if st.session_state.get("login_role") == "siswa" and st.session_state.get("siswa_pilih") is None:
+    st.divider()
+    st.header("📖 Penilaian Tahfidz Al-Qur'an")
+    st.info("Setoran dinilai oleh guru/penguji. AI tidak menetapkan nilai hafalan.")
+
+    with st.expander("1. Siswa: Setor Hafalan", expanded=False):
+        with st.form("form_setor_tahfidz"):
+            col1, col2 = st.columns(2)
+            with col1:
+                surah_tahfidz = st.selectbox(
+                    "Surah",
+                    [
+                        "Al-Fatihah", "An-Nas", "Al-Falaq", "Al-Ikhlas",
+                        "Al-Lahab", "An-Nasr", "Al-Kafirun", "Al-Kautsar",
+                        "Al-Ma'un", "Quraisy", "Al-Fil", "Al-Humazah",
+                        "Al-'Asr", "At-Takatsur", "Al-Qari'ah"
+                    ],
+                    key="surah_setor_tahfidz",
+                )
+                ayat_mulai = st.text_input("Dari Ayat", placeholder="Contoh: 1", key="ayat_mulai_tahfidz")
+            with col2:
+                kelas_tahfidz = st.text_input(
+                    "Kelas",
+                    value=st.session_state.get("kelas_siswa", ""),
+                    key="kelas_setor_tahfidz",
+                )
+                ayat_sampai = st.text_input("Sampai Ayat", placeholder="Contoh: 7", key="ayat_sampai_tahfidz")
+
+            audio_tahfidz = st.file_uploader(
+                "Upload Rekaman Hafalan (mp3/wav/m4a)",
+                type=["mp3", "wav", "m4a"],
+                key="file_setor_tahfidz",
+            )
+            setor_tahfidz = st.form_submit_button("📤 Kirim Setoran")
+
+        if setor_tahfidz:
+            nama_login_tahfidz = st.session_state.get("login_nama", "")
+            if not nama_login_tahfidz:
+                st.error("Nama akun siswa tidak ditemukan. Silakan masuk kembali.")
+            elif not kelas_tahfidz.strip() or not ayat_mulai.strip() or not ayat_sampai.strip():
+                st.error("Lengkapi kelas, ayat mulai, dan ayat sampai.")
+            elif audio_tahfidz is None:
+                st.error("Upload dulu rekaman hafalannya.")
+            else:
+                try:
+                    import uuid
+                    ekstensi = audio_tahfidz.name.rsplit(".", 1)[-1].lower()
+                    file_name = f"tahfidz_{uuid.uuid4().hex}.{ekstensi}"
+                    tipe_konten = audio_tahfidz.type or {
+                        "mp3": "audio/mpeg",
+                        "wav": "audio/wav",
+                        "m4a": "audio/mp4",
+                    }.get(ekstensi, "application/octet-stream")
+
+                    supabase.storage.from_("audio-bacaan").upload(
+                        file_name,
+                        audio_tahfidz.getvalue(),
+                        {"content-type": tipe_konten, "upsert": "false"},
+                    )
+                    audio_url_tahfidz = supabase.storage.from_("audio-bacaan").get_public_url(file_name)
+
+                    supabase.table("nilai_tahfidz").insert({
+                        "nama_siswa": nama_login_tahfidz,
+                        "kelas": kelas_tahfidz.strip(),
+                        "surah": surah_tahfidz,
+                        "ayat_mulai": ayat_mulai.strip(),
+                        "ayat_sampai": ayat_sampai.strip(),
+                        "audio_url": audio_url_tahfidz,
+                        "status": "menunggu",
+                    }).execute()
+                    st.success("✅ Setoran terkirim! Menunggu penilaian guru.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Gagal mengirim setoran tahfidz: {e}")
+
+    # Riwayat siswa hanya menampilkan setoran milik akun yang sedang masuk.
+    st.subheader("2. Riwayat Setoran dan Nilai Tahfidz Saya")
+    try:
+        riwayat_siswa_tahfidz = (
+            supabase.table("nilai_tahfidz")
+            .select("*")
+            .eq("nama_siswa", st.session_state.get("login_nama", ""))
+            .order("created_at", desc=True)
+            .limit(30)
+            .execute()
+            .data
+        )
+        if not riwayat_siswa_tahfidz:
+            st.info("Belum ada riwayat setoran tahfidz.")
+        else:
+            for riwayat_row in riwayat_siswa_tahfidz:
+                label_riwayat = (
+                    f"{riwayat_row.get('surah', '-')} | "
+                    f"Ayat {riwayat_row.get('ayat_mulai', '-')}–{riwayat_row.get('ayat_sampai', '-')} | "
+                    f"{riwayat_row.get('status', 'menunggu').capitalize()}"
+                )
+                with st.expander(label_riwayat):
+                    st.write(f"Status: **{riwayat_row.get('status', 'menunggu')}**")
+                    if riwayat_row.get("audio_url"):
+                        st.audio(riwayat_row["audio_url"])
+                    if riwayat_row.get("nilai_akhir") is not None:
+                        st.metric("Nilai Akhir", riwayat_row.get("nilai_akhir"))
+                        st.write(f"Predikat: **{riwayat_row.get('predikat', '-')}**")
+                        st.write(f"Catatan guru: {riwayat_row.get('catatan_guru') or '-'}")
+    except Exception as e:
+        st.error(f"Gagal mengambil riwayat tahfidz: {e}")
 
 # ===== TES BACA QUR'AN - SISWA =====
 if st.session_state.get("login_role") == "siswa" and st.session_state.get("siswa_pilih") is None:
