@@ -2254,7 +2254,7 @@ if (
 
     # ---------- 1. PENILAIAN TAHSIN AL-QUR'AN ----------
     st.header("👨‍🏫 Penilaian Tahsin Al-Qur'an")
-    st.info("Penilaian dilakukan oleh guru/penguji. AI hanya dapat membantu transkrip awal.")
+    st.info("Penilaian dilakukan langsung oleh guru/penguji berdasarkan bacaan siswa.")
 
     st.subheader("1. Setoran yang Menunggu Penilaian")
     try:
@@ -2280,19 +2280,28 @@ if (
                 st.write(f"**Tanggal:** {row.get('created_at', '-')}")
                 if row.get("audio_url"):
                     st.audio(row["audio_url"])
+                st.info("🎧 Dengarkan audio siswa terlebih dahulu sampai selesai. Penilaian sepenuhnya dilakukan oleh guru.")
                 c1, c2, c3 = st.columns(3)
                 with c1:
-                    th_kelancaran = st.slider("Kelancaran", 0, 100, 80, key=f"ths_kel_{rid}")
+                    th_kelancaran = st.slider("1. Kelancaran (0-100)", 0, 100, 0, key=f"ths_kel_manual_v2_{rid}")
+                    st.caption("100 = Lancar tanpa berhenti | 80 = 1–2 kali tersendat | 60 = Sering berhenti | <50 = Banyak berhenti / dibantu")
                 with c2:
-                    th_tajwid = st.slider("Tajwid", 0, 100, 80, key=f"ths_taj_{rid}")
+                    th_tajwid = st.slider("2. Tajwid (0-100)", 0, 100, 0, key=f"ths_taj_manual_v2_{rid}")
+                    st.caption("100 = Tajwid sangat tepat | 80 = 1–2 kesalahan | 60 = 3–5 kesalahan | <50 = Banyak kesalahan")
                 with c3:
-                    th_hafalan = st.slider("Hafalan", 0, 100, 80, key=f"ths_haf_{rid}")
-                nilai_th = round((th_kelancaran + th_tajwid + th_hafalan) / 3)
+                    th_hafalan = st.slider("3. Hafalan (0-100)", 0, 100, 0, key=f"ths_haf_manual_v2_{rid}")
+                    st.caption("100 = Hafal penuh | 80 = 1 kali lupa / salah ayat | 60 = 2–3 kali lupa | <50 = Belum hafal")
+                nilai_th = round((th_kelancaran + th_tajwid + th_hafalan) / 3, 1)
                 predikat_th = predikat_penilaian(nilai_th)
-                catatan_th = st.text_area("Catatan Guru", key=f"ths_cat_{rid}")
+                catatan_th = st.text_area("Catatan Guru (wajib diisi)", key=f"ths_cat_manual_v2_{rid}")
                 st.metric("Nilai Akhir", f"{nilai_th}/100 — {predikat_th}")
-                if st.button("💾 Simpan Nilai Tahsin", key=f"ths_simpan_{rid}"):
-                    try:
+                if st.button("💾 Simpan Nilai Tahsin", key=f"ths_simpan_manual_v2_{rid}"):
+                    if min(th_kelancaran, th_tajwid, th_hafalan) <= 0:
+                        st.error("Semua komponen nilai harus diisi. Geser setiap slider dari 0 terlebih dahulu.")
+                    elif not catatan_th.strip():
+                        st.error("Catatan guru wajib diisi sebelum nilai disimpan.")
+                    else:
+                      try:
                         # Kompatibilitas dengan skema lama nilai_bacaan:
                         # kolom komponen lama tetap memakai skala 1-4; nilai asli 0-100
                         # untuk ketiga rubrik baru dicatat lengkap di catatan_guru.
@@ -2300,7 +2309,12 @@ if (
                             f"Kelancaran: {th_kelancaran}/100 | Tajwid: {th_tajwid}/100 | "
                             f"Hafalan: {th_hafalan}/100"
                         )
-                        catatan_lengkap_th = rincian_th + (f"\nCatatan: {catatan_th}" if catatan_th.strip() else "")
+                        guru_penilai_th = st.session_state.get("login_nama") or "Guru"
+                        catatan_lengkap_th = (
+                            rincian_th
+                            + f"\nDinilai oleh: {guru_penilai_th}"
+                            + f"\nCatatan: {catatan_th.strip()}"
+                        )
                         skor_th_kel = skor_100_ke_skala_lama(th_kelancaran)
                         skor_th_taj = skor_100_ke_skala_lama(th_tajwid)
                         skor_th_haf = skor_100_ke_skala_lama(th_hafalan)
@@ -2321,7 +2335,7 @@ if (
                         ).eq("id", rid).execute()
                         st.success(f"Nilai Tahsin tersimpan: {nilai_th}/100.")
                         st.rerun()
-                    except Exception as e:
+                      except Exception as e:
                         st.error(f"Gagal menyimpan nilai Tahsin: {e}")
 
     # Riwayat Tahsin: nilai_bacaan terhubung ke bacaan_quran melalui bacaan_id.
@@ -2365,7 +2379,7 @@ if (
 
     # ---------- 2. PENILAIAN TAHFIDZ AL-QUR'AN ----------
     st.header("📖 Penilaian Tahfidz Al-Qur'an")
-    st.info("Penilaian dilakukan oleh guru/penguji. AI hanya dapat membantu transkrip awal.")
+    st.info("Penilaian dilakukan langsung oleh guru/penguji berdasarkan bacaan siswa.")
 
     st.subheader("1. Setoran yang Menunggu Penilaian")
     try:
@@ -2391,19 +2405,28 @@ if (
                 st.write(f"**Kelas:** {row.get('kelas', '-')}")
                 if row.get("audio_url"):
                     st.audio(row["audio_url"])
+                st.info("🎧 Guru wajib menyimak langsung atau mendengarkan audio siswa. Penilaian sepenuhnya dilakukan oleh guru.")
                 c1, c2, c3 = st.columns(3)
                 with c1:
-                    tf_kelancaran = st.slider("Kelancaran", 0, 100, 80, key=f"tf_kel_{rid}")
+                    tf_kelancaran = st.slider("1. Kelancaran (0-100)", 0, 100, 0, key=f"tf_kel_manual_v2_{rid}")
+                    st.caption("100 = Lancar | 80 = 1–2 kali berhenti | 60 = Sering berhenti | <50 = Belum lancar")
                 with c2:
-                    tf_tajwid = st.slider("Tajwid", 0, 100, 80, key=f"tf_taj_{rid}")
+                    tf_tajwid = st.slider("2. Tajwid (0-100)", 0, 100, 0, key=f"tf_taj_manual_v2_{rid}")
+                    st.caption("100 = Tajwid sangat tepat | 80 = 1–2 kesalahan | 60 = Sering salah makhraj / tajwid")
                 with c3:
-                    tf_hafalan = st.slider("Hafalan", 0, 100, 80, key=f"tf_haf_{rid}")
-                nilai_tf = round((tf_kelancaran + tf_tajwid + tf_hafalan) / 3)
+                    tf_hafalan = st.slider("3. Hafalan (0-100)", 0, 100, 0, key=f"tf_haf_manual_v2_{rid}")
+                    st.caption("100 = Hafal penuh tanpa salah | 80 = 1 kali salah / lupa | 60 = 2–3 kali salah | <50 = Belum hafal")
+                nilai_tf = round((tf_kelancaran + tf_tajwid + tf_hafalan) / 3, 1)
                 predikat_tf = predikat_penilaian(nilai_tf)
-                catatan_tf = st.text_area("Catatan Guru", key=f"tf_cat_{rid}")
+                catatan_tf = st.text_area("Catatan Guru (wajib diisi)", key=f"tf_cat_manual_v2_{rid}")
                 st.metric("Nilai Akhir", f"{nilai_tf}/100 — {predikat_tf}")
-                if st.button("💾 Simpan Nilai Tahfidz", key=f"tf_simpan_{rid}"):
-                    try:
+                if st.button("💾 Simpan Nilai Tahfidz", key=f"tf_simpan_manual_v2_{rid}"):
+                    if min(tf_kelancaran, tf_tajwid, tf_hafalan) <= 0:
+                        st.error("Semua komponen nilai harus diisi. Geser setiap slider dari 0 terlebih dahulu.")
+                    elif not catatan_tf.strip():
+                        st.error("Catatan guru wajib diisi sebelum nilai disimpan.")
+                    else:
+                      try:
                         rincian_tf = (
                             f"Rubrik 0-100 — Kelancaran: {tf_kelancaran}; "
                             f"Tajwid: {tf_tajwid}; Hafalan: {tf_hafalan}"
@@ -2426,7 +2449,7 @@ if (
                         }).eq("id", rid).execute()
                         st.success(f"Nilai Tahfidz tersimpan: {nilai_tf}/100.")
                         st.rerun()
-                    except Exception as e:
+                      except Exception as e:
                         st.error(f"Gagal menyimpan nilai Tahfidz: {e}")
 
     # Riwayat Tahfidz dibaca dari tabel nilai_tahfidz.
@@ -2480,17 +2503,26 @@ if (
                     st.write(f"**Keterangan:** {s.get('ayat_text')}")
                 if s.get("audio_url"):
                     st.audio(s.get("audio_url"))
-                pengenalan_huruf = st.slider("Pengenalan Huruf (1-100)", 0, 100, 80, key=f"dashboard_iqro_huruf_{id_bacaan}")
-                kelancaran = st.slider("Kelancaran (1-100)", 0, 100, 80, key=f"dashboard_iqro_lancar_{id_bacaan}")
-                makhraj = st.slider("Makhraj (1-100)", 0, 100, 80, key=f"dashboard_iqro_makhraj_{id_bacaan}")
+                st.info("📖 Guru menyimak langsung bacaan Iqro siswa. Penilaian sepenuhnya dilakukan oleh guru.")
+                pengenalan_huruf = st.slider("1. Pengenalan Huruf (0-100)", 0, 100, 0, key=f"dashboard_iqro_huruf_manual_v2_{id_bacaan}")
+                st.caption("100 = Semua huruf dikenali dengan benar | 80 = 1–2 huruf salah | 60 = Banyak huruf tertukar | <50 = Belum mengenali sebagian besar huruf")
+                kelancaran = st.slider("2. Kelancaran (0-100)", 0, 100, 0, key=f"dashboard_iqro_lancar_manual_v2_{id_bacaan}")
+                st.caption("100 = Lancar | 80 = Sedikit tersendat | 60 = Sering dieja | <50 = Belum lancar")
+                makhraj = st.slider("3. Makhraj (0-100)", 0, 100, 0, key=f"dashboard_iqro_makhraj_manual_v2_{id_bacaan}")
+                st.caption("100 = Makhraj tepat | 80 = 1–2 makhraj kurang tepat | 60 = Banyak makhraj salah | <50 = Perlu bimbingan intensif")
                 total_skor = pengenalan_huruf + kelancaran + makhraj
                 nilai_akhir = round(total_skor / 3, 1)
-                predikat = "Mumtaz" if nilai_akhir >= 90 else "Jayyid Jiddan" if nilai_akhir >= 80 else "Jayyid" if nilai_akhir >= 70 else "Perlu Diulang"
-                catatan = st.text_area("Catatan Guru", key=f"dashboard_iqro_cat_{id_bacaan}")
-                dinilai_oleh = st.text_input("Dinilai Oleh", value=st.session_state.get("login_nama", ""), key=f"dashboard_iqro_guru_{id_bacaan}")
+                predikat = predikat_penilaian(nilai_akhir)
+                catatan = st.text_area("Catatan Guru (wajib diisi)", key=f"dashboard_iqro_cat_manual_v2_{id_bacaan}")
+                dinilai_oleh = st.text_input("Dinilai Oleh", value=st.session_state.get("login_nama", ""), key=f"dashboard_iqro_guru_manual_v2_{id_bacaan}")
                 st.write(f"**Nilai Akhir:** {nilai_akhir} — {predikat}")
-                if st.button("Simpan Nilai Iqro", key=f"dashboard_iqro_simpan_{id_bacaan}"):
-                    try:
+                if st.button("Simpan Nilai Iqro", key=f"dashboard_iqro_simpan_manual_v2_{id_bacaan}"):
+                    if min(pengenalan_huruf, kelancaran, makhraj) <= 0:
+                        st.error("Semua komponen nilai harus diisi. Geser setiap slider dari 0 terlebih dahulu.")
+                    elif not catatan.strip():
+                        st.error("Catatan guru wajib diisi sebelum nilai disimpan.")
+                    else:
+                      try:
                         cocok = re.search(r"Iqro\s*(\d+).*?Hal(?:aman)?\s*(\d+)", materi, re.IGNORECASE)
                         jilid_nilai = cocok.group(1) if cocok else "1"
                         halaman_nilai = cocok.group(2) if cocok else "1"
@@ -2513,7 +2545,7 @@ if (
                         supabase.table("bacaan_quran").update({"status": "dinilai"}).eq("id", id_bacaan).execute()
                         st.success("Nilai Iqro tersimpan!")
                         st.rerun()
-                    except Exception as e:
+                      except Exception as e:
                         st.error(f"Gagal menyimpan nilai Iqro: {e}")
 
     # Riwayat Iqro dibaca dari nilai_iqro, terpisah dari antrean bacaan_quran.
