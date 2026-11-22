@@ -70,10 +70,14 @@ def tampilkan_halaman_surat_juz30(no_surah, program_key):
     if ayat_tampil and BASMALAH in ayat_tampil[0]:
         ayat_tampil[0] = ayat_tampil[0].replace(BASMALAH, "", 1).strip()
 
-    isi_html = (
-        f"<div style='text-align:center;font-size:26px;font-weight:bold;"
-        f"color:#111 !important;margin-bottom:8px;direction:rtl;'>{NAMA_ARAB_HARAKAT[no_surah]}</div>"
-    )
+    # Judul surah hanya ditampilkan pada halaman pertama.
+    # Halaman 2 dan seterusnya langsung menampilkan ayat tanpa judul berulang.
+    isi_html = ""
+    if halaman == 0:
+        isi_html += (
+            f"<div style='text-align:center;font-size:36px;font-weight:bold;"
+            f"color:#111 !important;margin-bottom:8px;direction:rtl;'>{NAMA_ARAB_HARAKAT[no_surah]}</div>"
+        )
     if tampilkan_basmalah:
         isi_html += (
             "<div style='text-align:center;direction:rtl;font-size:36px;font-weight:bold;"
