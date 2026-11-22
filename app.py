@@ -1,4 +1,14 @@
 import streamlit as st
+
+# ===== AYAT JUZ 30 - TAMPIL PER HALAMAN =====
+# Data yang tersedia saat ini mengikuti teks ayat yang sudah dimasukkan.
+# Surah lain dapat dilengkapi kemudian; aplikasi menyediakan kolom manual.
+AYAT_JUZ30 = {
+    "78. An-Naba'": "عَمَّ يَتَسَاءَلُونَ\nعَنِ النَّبَإِ الْعَظِيمِ\nالَّذِي هُمْ فِيهِ مُخْتَلِفُونَ\nكَلَّا سَيَعْلَمُونَ\nثُمَّ كَلَّا سَيَعْلَمُونَ",
+    "112. Al-Ikhlas": "قُلْ هُوَ اللَّهُ أَحَدٌ\nاللَّهُ الصَّمَدُ\nلَمْ يَلِدْ وَلَمْ يُولَدْ\nوَلَمْ يَكُنْ لَهُ كُفُوًا أَحَدٌ",
+    "114. An-Nas": "قُلْ أَعُوذُ بِرَبِّ النَّاسِ\nمَلِكِ النَّاسِ\nإِلَٰهِ النَّاسِ\nمِنْ شَرِّ الْوَسْوَاسِ الْخَنَّاسِ\nالَّذِي يُوَسْوِسُ فِي صُدُورِ النَّاسِ\nمِنَ الْجِنَّةِ وَالنَّاسِ",
+    "108. Al-Kautsar": "إِنَّا أَعْطَيْنَاكَ الْكَوْثَرَ\nفَصَلِّ لِرَبِّكَ وَانْحَرْ\nإِنَّ شَانِئَكَ هُوَ الْأَبْتَرُ",
+}
 from supabase import create_client
 
 # Kredensial Supabase disimpan di Streamlit Cloud > App settings > Secrets.
@@ -611,6 +621,7 @@ if st.session_state["login_nama"] is None:
                     st.session_state["login_role"] = "tim"
                     st.session_state["login_jabatan"] = TIM_PENYUSUN[nama_bersih]
                     st.session_state["program"] = "Tim"
+                    st.session_state["kelas"] = "Tim"
                     tampil = NAMA_LENGKAP_TIM.get(nama_bersih, nama_bersih)
                 else:
                     st.session_state["login_role"] = "siswa"
@@ -638,6 +649,8 @@ if st.session_state["login_nama"] is None:
                     if program_final not in ["Iqro", "Tahsin", "Tahfidz"]:
                         program_final = str(program_lokal or "Tahsin").strip().title()
                     st.session_state["program"] = program_final
+                    # Kelas otomatis mengikuti program siswa dari Supabase.
+                    st.session_state["kelas"] = program_final
                     st.session_state["login_jabatan"] = f"Siswa {program_final}"
                     tampil = nama_bersih
                 # Reset sesi game saat akun berganti agar soal/skor akun sebelumnya
@@ -669,6 +682,8 @@ if st.session_state.get("login_role") == "tim":
     st.session_state["program"] = "Tim"
 
 program_saya = st.session_state.get("program", "Tahsin")
+if not st.session_state.get("kelas"):
+    st.session_state["kelas"] = program_saya
 
 # ===== BANNER SELAMAT DATANG =====
 if st.session_state["login_role"] == "siswa":
@@ -1801,11 +1816,7 @@ if st.session_state.get("login_role") == "siswa" and program_saya == "Tahfidz" a
                     )
                     ayat_mulai = st.text_input("Dari Ayat", placeholder="Contoh: 1", key="ayat_mulai_tahfidz")
                 with col2:
-                    kelas_tahfidz = st.text_input(
-                        "Kelas",
-                        value=st.session_state.get("kelas_siswa", ""),
-                        key="kelas_setor_tahfidz",
-                    )
+                    kelas_tahfidz = st.session_state.get("kelas", program_saya)
                     ayat_sampai = st.text_input("Sampai Ayat", placeholder="Contoh: 7", key="ayat_sampai_tahfidz")
 
                 audio_tahfidz = st.file_uploader(
@@ -1819,8 +1830,8 @@ if st.session_state.get("login_role") == "siswa" and program_saya == "Tahfidz" a
                 nama_login_tahfidz = st.session_state.get("login_nama", "")
                 if not nama_login_tahfidz:
                     st.error("Nama akun siswa tidak ditemukan. Silakan masuk kembali.")
-                elif not kelas_tahfidz.strip() or not ayat_mulai.strip() or not ayat_sampai.strip():
-                    st.error("Lengkapi kelas, ayat mulai, dan ayat sampai.")
+                elif not ayat_mulai.strip() or not ayat_sampai.strip():
+                    st.error("Lengkapi ayat mulai dan ayat sampai.")
                 elif audio_tahfidz is None:
                     st.error("Upload dulu rekaman hafalannya.")
                 else:
@@ -1843,7 +1854,7 @@ if st.session_state.get("login_role") == "siswa" and program_saya == "Tahfidz" a
 
                         supabase.table("nilai_tahfidz").insert({
                             "nama_siswa": nama_login_tahfidz,
-                            "kelas": kelas_tahfidz.strip(),
+                            "kelas": kelas_tahfidz,
                             "surah": surah_tahfidz,
                             "ayat_mulai": ayat_mulai.strip(),
                             "ayat_sampai": ayat_sampai.strip(),
@@ -1898,19 +1909,103 @@ if st.session_state.get("login_role") == "siswa" and program_saya == "Tahsin" an
         nama_siswa_bacaan = st.session_state.get("login_nama") or st.text_input(
             "Nama Siswa", key="nama_bacaan"
         )
-        kelas_siswa_bacaan = st.text_input(
-            "Kelas", key="kelas_bacaan", placeholder="Contoh: 7A"
-        )
+        # Kelas otomatis dari login, tidak perlu diisi lagi
+        kelas_siswa_bacaan = st.session_state.get("kelas", "Tahsin")
+        program_bacaan = st.session_state.get("program", "Tahsin")
+        st.caption(f"Kelas: **{kelas_siswa_bacaan}** | Program: **{program_bacaan}**")
+        # ===== DAFTAR SURAH JUZ 30 FULL (78-114) =====
+        SURAH_JUZ30 = [
+            "78. An-Naba'",
+            "79. An-Nazi'at",
+            "80. 'Abasa",
+            "81. At-Takwir",
+            "82. Al-Infitar",
+            "83. Al-Mutaffifin",
+            "84. Al-Insyiqaq",
+            "85. Al-Buruj",
+            "86. At-Tariq",
+            "87. Al-A'la",
+            "88. Al-Ghasyiyah",
+            "89. Al-Fajr",
+            "90. Al-Balad",
+            "91. Asy-Syams",
+            "92. Al-Lail",
+            "93. Ad-Dhuha",
+            "94. Asy-Syarh",
+            "95. At-Tin",
+            "96. Al-'Alaq",
+            "97. Al-Qadr",
+            "98. Al-Bayyinah",
+            "99. Az-Zalzalah",
+            "100. Al-'Adiyat",
+            "101. Al-Qari'ah",
+            "102. At-Takatsur",
+            "103. Al-'Asr",
+            "104. Al-Humazah",
+            "105. Al-Fil",
+            "106. Quraisy",
+            "107. Al-Ma'un",
+            "108. Al-Kautsar",
+            "109. Al-Kafirun",
+            "110. An-Nasr",
+            "111. Al-Lahab",
+            "112. Al-Ikhlas",
+            "113. Al-Falaq",
+            "114. An-Nas",
+        ]
+
         surah_bacaan = st.selectbox(
-            "Pilih Surah",
-            ["Al-Fatihah", "Al-Ikhlas", "An-Nas", "Al-Falaq", "Al-Kautsar"],
-            key="surah_tes_bacaan",
+            "Pilih Surah (Juz 30)", SURAH_JUZ30, key="surah_tes_bacaan"
         )
-        ayat_bacaan = st.text_area(
-            "Ayat yang dibaca",
-            "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ",
-            key="ayat_bacaan",
-        )
+        # ===== AYAT DITAMPILKAN BESAR + NAVIGASI PER HALAMAN =====
+        # Reset halaman setiap kali siswa mengganti surah.
+        if st.session_state.get("surah_aktif_tes") != surah_bacaan:
+            st.session_state.surah_aktif_tes = surah_bacaan
+            st.session_state.halaman_ayat_tes = 0
+
+        ayat_full = AYAT_JUZ30.get(surah_bacaan, "")
+        if ayat_full:
+            baris_ayat = ayat_full.split("\n")
+            PER_HALAMAN = 5
+            total_halaman = (len(baris_ayat) + PER_HALAMAN - 1) // PER_HALAMAN
+            hal = st.session_state.get("halaman_ayat_tes", 0)
+            hal = max(0, min(hal, total_halaman - 1))
+            mulai = hal * PER_HALAMAN
+            potongan = baris_ayat[mulai:mulai + PER_HALAMAN]
+
+            st.markdown(
+                f"<div dir='rtl' style='background:#fff; color:#111; padding:22px; "
+                f"border-radius:14px; text-align:right; font-family:serif; "
+                f"font-size:30px; line-height:2.2; margin:12px 0;'>"
+                f"{'<br>'.join(potongan)}</div>",
+                unsafe_allow_html=True,
+            )
+            st.caption(
+                f"Halaman {hal + 1} dari {total_halaman} • "
+                f"Ayat/baris {mulai + 1}–{min(mulai + PER_HALAMAN, len(baris_ayat))}"
+            )
+
+            # Tampilkan tombol navigasi hanya jika surah memiliki lebih dari satu halaman.
+            if total_halaman > 1:
+                kolom_sebelumnya, kolom_tengah, kolom_selanjutnya = st.columns([1, 1, 1])
+                with kolom_sebelumnya:
+                    if st.button("⬅️ Sebelumnya", disabled=(hal == 0), key="ayat_tes_sebelumnya"):
+                        st.session_state.halaman_ayat_tes = hal - 1
+                        st.rerun()
+                with kolom_selanjutnya:
+                    if st.button("Selanjutnya ➡️", disabled=(hal >= total_halaman - 1), key="ayat_tes_selanjutnya"):
+                        st.session_state.halaman_ayat_tes = hal + 1
+                        st.rerun()
+
+            # Simpan teks halaman yang sedang ditampilkan bersama rekaman.
+            ayat_bacaan = "\n".join(potongan)
+        else:
+            st.info("Ayat untuk surah ini belum diisi. Ketik manual di bawah:")
+            ayat_bacaan = st.text_area(
+                "Ayat yang dibaca",
+                "",
+                key=f"ayat_manual_tes_{SURAH_JUZ30.index(surah_bacaan)}",
+            )
 
         st.info(
             "1. Klik tombol mikrofon di bawah\n"
@@ -1922,8 +2017,8 @@ if st.session_state.get("login_role") == "siswa" and program_saya == "Tahsin" an
         if audio_bacaan is not None:
             st.audio(audio_bacaan)
             if st.button("📤 Kirim Bacaan ke Guru", key="kirim_bacaan"):
-                if not nama_siswa_bacaan or not kelas_siswa_bacaan.strip():
-                    st.error("Isi Nama dan Kelas dulu!")
+                if not nama_siswa_bacaan:
+                    st.error("Nama siswa tidak ditemukan. Silakan masuk kembali.")
                 else:
                     try:
                         waktu_nama = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
@@ -1943,7 +2038,7 @@ if st.session_state.get("login_role") == "siswa" and program_saya == "Tahsin" an
 
                         supabase.table("bacaan_quran").insert({
                             "nama_siswa": nama_siswa_bacaan,
-                            "kelas": kelas_siswa_bacaan.strip(),
+                            "kelas": kelas_siswa_bacaan,
                             "surah": surah_bacaan,
                             "ayat_text": ayat_bacaan,
                             "audio_url": audio_url,
