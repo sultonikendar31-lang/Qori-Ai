@@ -4,16 +4,16 @@ import requests
 
 # ===== DATA SURAH JUZ 30 DARI API AL-QURAN CLOUD =====
 DAFTAR_SURAH_JUZ30 = {
-    78: "An-Naba'", 79: "An-Nazi'at", 80: "'Abasa", 81: "At-Takwir",
-    82: "Al-Infithar", 83: "Al-Muthaffifin", 84: "Al-Insyiqaq", 85: "Al-Buruj",
-    86: "Ath-Thariq", 87: "Al-A'la", 88: "Al-Ghasyiyah", 89: "Al-Fajr",
-    90: "Al-Balad", 91: "Asy-Syams", 92: "Al-Lail", 93: "Adh-Dhuha",
-    94: "Asy-Syarh", 95: "At-Tin", 96: "Al-'Alaq", 97: "Al-Qadr",
-    98: "Al-Bayyinah", 99: "Az-Zalzalah", 100: "Al-'Adiyat",
-    101: "Al-Qari'ah", 102: "At-Takatsur", 103: "Al-'Ashr",
-    104: "Al-Humazah", 105: "Al-Fil", 106: "Quraisy", 107: "Al-Ma'un",
-    108: "Al-Kautsar", 109: "Al-Kafirun", 110: "An-Nashr",
-    111: "Al-Lahab", 112: "Al-Ikhlas", 113: "Al-Falaq", 114: "An-Nas",
+    78: "سورة النبأ", 79: "سورة النازعات", 80: "سورة عبس", 81: "سورة التكوير",
+    82: "سورة الانفطار", 83: "سورة المطففين", 84: "سورة الانشقاق", 85: "سورة البروج",
+    86: "سورة الطارق", 87: "سورة الأعلى", 88: "سورة الغاشية", 89: "سورة الفجر",
+    90: "سورة البلد", 91: "سورة الشمس", 92: "سورة الليل", 93: "سورة الضحى",
+    94: "سورة الشرح", 95: "سورة التين", 96: "سورة العلق", 97: "سورة القدر",
+    98: "سورة البينة", 99: "سورة الزلزلة", 100: "سورة العاديات",
+    101: "سورة القارعة", 102: "سورة التكاثر", 103: "سورة العصر",
+    104: "سورة الهمزة", 105: "سورة الفيل", 106: "سورة قريش", 107: "سورة الماعون",
+    108: "سورة الكوثر", 109: "سورة الكافرون", 110: "سورة النصر",
+    111: "سورة المسد", 112: "سورة الإخلاص", 113: "سورة الفلق", 114: "سورة الناس",
 }
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -32,7 +32,7 @@ def ambil_full_surat(no_surah):
         if not ayahs:
             return None
         return {
-            "nama": f"{data['number']}. {data['englishName']} - {data['name']}",
+            "nama": data["name"],
             "nama_arab": data["name"],
             "ayat": [a["text"] for a in ayahs],
             "jumlah_ayat": data.get("numberOfAyahs", len(ayahs)),
@@ -72,7 +72,7 @@ def tampilkan_halaman_surat_juz30(no_surah, program_key):
 
     isi_html = (
         f"<div style='text-align:center;font-size:26px;font-weight:bold;"
-        f"color:#111 !important;margin-bottom:8px;'>{surah_data['nama_arab']} - {surah_data['nama']}</div>"
+        f"color:#111 !important;margin-bottom:8px;direction:rtl;'>{DAFTAR_SURAH_JUZ30[no_surah]}</div>"
     )
     if tampilkan_basmalah:
         isi_html += (
@@ -96,7 +96,7 @@ def tampilkan_halaman_surat_juz30(no_surah, program_key):
     akhir = mulai + len(ayat_tampil)
     st.caption(
         f"Halaman {halaman + 1} dari {total_halaman} • Ayat {mulai + 1}–{akhir} "
-        f"dari {len(ayat_list)} ayat • {surah_data['nama']}"
+        f"dari {len(ayat_list)} ayat"
     )
 
     kol_prev, kol_next = st.columns(2)
