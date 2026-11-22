@@ -1,4 +1,5 @@
 import streamlit as st
+import datetime
 
 # ===== DATA LENGKAP JUZ 30 (SURAH 78-114) =====
 # Sumber teks ayat: data yang diberikan pengguna.
@@ -1205,6 +1206,162 @@ DATA_SISWA = {
     "IMAM MANSYUR IBNU HULKARIM": {"kategori": "Tahfidz", "level": "Tahfidz", "jk": "Laki-laki"},
 }
 
+
+# ================= SISWA IQRO - HALAMAN BELAJAR + SETORAN =================
+def tampil_siswa_iqro(nama_siswa, kelas_siswa="Iqro"):
+    """Halaman khusus siswa program Iqro; rekaman disimpan sebagai setoran kategori Iqro."""
+    nama_aman = html.escape(str(nama_siswa or "Siswa"))
+    kelas_aman = html.escape(str(kelas_siswa or "Iqro"))
+
+    st.markdown("""
+    <div style='text-align:center; padding:10px 0 0 0;'>
+        <h1 style='margin:0;'>Game QORI AI</h1>
+        <p style='color:#666; font-size:13px; margin:6px 0 14px 0;'>Akses siswa dibatasi: hanya Game Iqro yang ditampilkan untuk akun kamu.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Empat tombol utama mengikuti susunan halaman Tahsin/Tahfidz.
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("🎮 Game Iqro", use_container_width=True, key="menu_game_iqro_siswa_full"):
+            st.session_state["game"] = "iqro"
+            st.session_state["game_session_key"] = None
+            st.session_state["game_index"] = 0
+            st.session_state["game_question"] = None
+            st.session_state["game_feedback"] = ""
+            st.session_state["lihat_nilai_game"] = False
+            st.rerun()
+    with c2:
+        if st.button("📋 Daftar Hasil Nilai Game", use_container_width=True, key="menu_nilai_game_iqro_siswa_full"):
+            st.session_state["lihat_nilai_game"] = True
+            st.session_state["lihat_nilai"] = False
+            st.session_state["game"] = None
+            st.session_state["kategori_pilih"] = None
+            st.rerun()
+
+    c3, c4 = st.columns(2)
+    with c3:
+        st.button("📖 Iqro", use_container_width=True, type="primary", key="menu_iqro_aktif_siswa_full", disabled=True)
+    with c4:
+        if st.button("📄 Daftar Hasil Nilai Ujian", use_container_width=True, key="menu_nilai_ujian_iqro_siswa_full"):
+            st.session_state["lihat_nilai"] = True
+            st.session_state["lihat_nilai_game"] = False
+            st.session_state["kategori_pilih"] = None
+            st.session_state["game"] = None
+            st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("""
+    <div style='background:linear-gradient(rgba(0,0,0,.55),rgba(0,0,0,.55)),url("https://images.unsplash.com/photo-1542810634-71277d95dcbb?w=1200");background-size:cover;background-position:center;border-radius:10px;padding:22px 18px;'>
+        <h2 style='color:white;margin:0;'>🎙️ Tes Membaca Iqro</h2>
+        <p style='color:white;margin:8px 0 0 0;font-size:14px;'>Bagian ini untuk penelitian PAI. Bacaan kamu akan dinilai guru.</p>
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown(
+        f"<p style='margin-top:14px;'><b>Kelas:</b> {kelas_aman} | <b>Program:</b> Iqro</p>",
+        unsafe_allow_html=True,
+    )
+    st.caption(f"Nama: {nama_aman}")
+
+    # Data IQRO_DATA berisi materi lengkap Jilid 1-6 dari bank materi aplikasi.
+    daftar_jilid = list(IQRO_DATA.keys())
+    if not daftar_jilid:
+        st.error("Materi Iqro belum tersedia.")
+        return
+    label_jilid = {k: k.replace("📗 ", "").split(" - ")[0] for k in daftar_jilid}
+    kunci_nama = re.sub(r"[^A-Za-z0-9_-]", "_", str(nama_siswa or "siswa"))
+
+    jilid_key = st.selectbox(
+        "Pilih Jilid (Iqro 1-6)", daftar_jilid,
+        format_func=lambda x: label_jilid[x],
+        key=f"siswa_iqro_jilid_{kunci_nama}",
+    )
+    materi = IQRO_DATA[jilid_key]
+    label_hal = {i: f"Hal {m[0]} - {m[1]}" for i, m in enumerate(materi)}
+    idx_hal = st.selectbox(
+        "Pilih Halaman", list(range(len(materi))),
+        format_func=lambda i: label_hal[i],
+        key=f"siswa_iqro_hal_{kunci_nama}_{label_jilid[jilid_key].replace(' ', '_')}",
+    )
+    no_hal, judul, baris_list = materi[idx_hal]
+
+    isi_html = (
+        "<div style='text-align:center;font-size:30px;font-weight:bold;direction:rtl;margin-bottom:12px;'>"
+        + html.escape(str(judul)) + "</div>"
+    )
+    for baris in baris_list:
+        teks = str(baris)
+        aman = html.escape(teks)
+        ada_arab = any("\u0600" <= karakter <= "\u06FF" for karakter in teks)
+        align = "right" if ada_arab else "left"
+        arah = "rtl" if ada_arab else "ltr"
+        ukuran = "32px" if ada_arab else "19px"
+        isi_html += (
+            f"<div style='text-align:{align};direction:{arah};font-size:{ukuran};"
+            f"line-height:2;padding:3px 0;color:#111;'>{aman}</div>"
+        )
+
+    st.markdown(
+        f"<div style='background:white;color:#111;border-radius:10px;padding:22px 20px;margin-top:10px;box-shadow:0 2px 8px rgba(0,0,0,.08);'>{isi_html}</div>"
+        f"<p style='text-align:center;color:#666;font-size:13px;margin-top:8px;'>{html.escape(label_jilid[jilid_key])} • Halaman {no_hal} dari {len(materi)}</p>",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("""
+    <div style='background:#FCE4EC;border-radius:10px;padding:16px 20px;margin-top:16px;color:#111;'>
+        <p style='margin:4px 0;font-size:16px;'><b>1.</b> &nbsp;Klik tombol mikrofon di bawah</p>
+        <p style='margin:4px 0;font-size:16px;'><b>2.</b> &nbsp;Baca Iqro pelan-pelan, hurufnya jelas</p>
+        <p style='margin:4px 0;font-size:16px;'><b>3.</b> &nbsp;Klik Stop, lalu klik Kirim Setoran Iqro</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<p style='margin-top:16px;margin-bottom:6px;font-weight:bold;'>Rekam Bacaan Iqromu</p>", unsafe_allow_html=True)
+    id_halaman = f"{kunci_nama}_{label_jilid[jilid_key].replace(' ', '_')}_{no_hal}"
+    versi_audio_key = f"versi_audio_iqro_{id_halaman}"
+    if versi_audio_key not in st.session_state:
+        st.session_state[versi_audio_key] = 0
+    versi_audio = st.session_state[versi_audio_key]
+    rekaman = st.audio_input("Rekam Iqro", key=f"rekam_iqro_{id_halaman}_{versi_audio}")
+
+    if rekaman is not None:
+        st.audio(rekaman)
+        if st.button(
+            "📤 Kirim Setoran Iqro", use_container_width=True, type="primary",
+            key=f"kirim_iqro_{id_halaman}_{versi_audio}",
+        ):
+            try:
+                info_siswa = DATA_SISWA.get(nama_siswa, {})
+                kelas_label = info_siswa.get("kategori", kelas_siswa or "Iqro")
+                label_pengirim = f"{nama_siswa} | Kelas: {kelas_label}"
+                judul_setoran = f"{label_jilid[jilid_key]} - Halaman {no_hal} - {judul}"
+                keterangan = f"Setoran dari halaman belajar {label_jilid[jilid_key]}, halaman {no_hal}."
+                tambah_setoran(
+                    nama_siswa, label_pengirim, "Iqro", judul_setoran,
+                    keterangan, None, "", rekaman.getvalue(),
+                    f"rekaman_{label_jilid[jilid_key].replace(' ', '_')}_hal_{no_hal}.wav",
+                    time.strftime("%d/%m/%Y %H:%M", time.localtime()),
+                )
+                catat_aktivitas(f"Kirim Setoran Iqro - {label_jilid[jilid_key]} Halaman {no_hal}")
+                st.session_state[versi_audio_key] += 1
+                st.success(
+                    f"Alhamdulillah! Setoran {label_jilid[jilid_key]} halaman {no_hal} sudah terkirim. Guru akan menilai bacaan kamu."
+                )
+                st.balloons()
+            except Exception as e:
+                st.error(f"Setoran Iqro gagal disimpan: {e}")
+    else:
+        st.caption("Belum ada rekaman. Klik mikrofon di atas, lalu baca Iqromu.")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("💬 Kotak Saran / Kritik / Keluhan", use_container_width=True, key="saran_iqro_siswa_full"):
+        st.session_state["lihat_saran"] = True
+        st.session_state["lihat_setoran"] = False
+        st.rerun()
+    if st.button("📖 Setoran Iqro", use_container_width=True, key="btn_setoran_iqro_siswa_full"):
+        st.session_state["lihat_setoran"] = True
+        st.session_state["lihat_saran"] = False
+        st.rerun()
+
 for k, v in [("login_nama",None),("login_role",None),("login_jabatan",None),("program",None),("kategori_pilih",None),("messages",[]),("siswa_pilih",None),("seed_acak",1),("soal_acak",None),("kunci_acak",None),("kat_acak",None),("waktu_mulai",None),("waktu_habis",False),("ujian_selesai",False),("hasil_ujian",None),("lihat_nilai",False),("lihat_nilai_game",False),("lihat_riwayat",False),("lihat_saran",False),("lihat_setoran",False),("lihat_baca",False),("lihat_video",True),("waktu_login",None),("sudah_catat_masuk",False),("jawaban_tersimpan",{}),("login_error",""),("login_error_time",0),("preview_tim_ujian",False),("preview_kategori_ujian",None),("game",None),("game_question",None),("game_feedback",""),("game_question_no",0)]:
     if k not in st.session_state:
         st.session_state[k] = v
@@ -1990,30 +2147,35 @@ if program_saya == "Tim":
 
 # ===== MENU GAME QORI AI: KHUSUS SISWA =====
 # Akun TIM tidak menampilkan baris Game QORI AI di bagian atas.
-# TIM menggunakan menu kategori di Menu Utama bagian bawah.
 role_login = st.session_state.get("login_role")
 nama_login = st.session_state.get("login_nama", "")
-
-# DATA_SISWA menjadi sumber kategori utama untuk seluruh akun siswa.
 kategori_saya = DATA_SISWA.get(nama_login, {}).get("kategori") if role_login == "siswa" else None
-if role_login == "siswa" and not st.session_state.get("lihat_nilai_game", False) and not st.session_state.get("lihat_nilai", False):
-    st.markdown("### 🎮 Game QORI AI")
-    st.session_state["kategori_saya"] = kategori_saya
 
+if (
+    role_login == "siswa"
+    and kategori_saya == "Iqro"
+    and not st.session_state.get("lihat_nilai_game", False)
+    and not st.session_state.get("lihat_nilai", False)
+    and not st.session_state.get("lihat_saran", False)
+    and not st.session_state.get("lihat_setoran", False)
+    and not st.session_state.get("lihat_riwayat", False)
+    and not st.session_state.get("game")
+):
+    kelas_iqro = DATA_SISWA.get(nama_login, {}).get("kategori", "Iqro")
+    tampil_siswa_iqro(nama_login, kelas_iqro)
+
+elif role_login == "siswa" and not st.session_state.get("lihat_nilai_game", False) and not st.session_state.get("lihat_nilai", False):
+    st.markdown("### 🎮 Game QORI AI")
     game_per_kategori = {
-        "Iqro": ("iqro", "🔤 Game Iqro'", "📖 Iqro"),
         "Tahsin": ("tahsin", "📖 Game Tahsin", "📗 Tahsin"),
         "Tahfidz": ("tahfidz", "🧠 Game Tahfidz", "⭐ Tahfidz"),
     }
     konfigurasi_siswa = game_per_kategori.get(kategori_saya)
-
     if not konfigurasi_siswa:
         st.warning("Kategori akun siswa belum terdaftar. Silakan hubungi Tim QORI AI.")
     else:
         game_key_siswa, label_game_siswa, label_kategori_siswa = konfigurasi_siswa
         st.caption(f"Akses siswa dibatasi: hanya **Game {kategori_saya}** yang ditampilkan untuk akun kamu.")
-
-        # Siswa hanya melihat game kategorinya sendiri dan daftar nilainya sendiri.
         tombol_game, tombol_nilai_game = st.columns(2)
         with tombol_game:
             if st.button(label_game_siswa, use_container_width=True, key="tombol_game_siswa_kategori"):
@@ -2417,7 +2579,7 @@ def tampilkan_daftar(kategori):
         st.rerun()
 
 # ===== MENU UTAMA: TIM SEMUA KATEGORI, SISWA SESUAI KATEGORI AKUN =====
-if st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai"] and not st.session_state.get("lihat_nilai_game", False):
+if (st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nilai"] and not st.session_state.get("lihat_nilai_game", False) and not (st.session_state.get("login_role") == "siswa" and DATA_SISWA.get(st.session_state.get("login_nama", ""), {}).get("kategori") == "Iqro")):
     role_menu = st.session_state.get("login_role")
     nama_menu = st.session_state.get("login_nama", "")
     kategori_menu_siswa = DATA_SISWA.get(nama_menu, {}).get("kategori")
