@@ -2291,7 +2291,7 @@ if (
                 with c3:
                     th_hafalan = st.slider("3. Hafalan (0-100)", 0, 100, 0, key=f"ths_haf_manual_v2_{rid}")
                     st.caption("100 = Hafal penuh | 80 = 1 kali lupa / salah ayat | 60 = 2–3 kali lupa | <50 = Belum hafal")
-                nilai_th = round((th_kelancaran + th_tajwid + th_hafalan) / 3, 1)
+                nilai_th = int(round((th_kelancaran + th_tajwid + th_hafalan) / 3))
                 predikat_th = predikat_penilaian(nilai_th)
                 catatan_th = st.text_area("Catatan Guru (wajib diisi)", key=f"ths_cat_manual_v2_{rid}")
                 st.metric("Nilai Akhir", f"{nilai_th}/100 — {predikat_th}")
@@ -2416,7 +2416,7 @@ if (
                 with c3:
                     tf_hafalan = st.slider("3. Hafalan (0-100)", 0, 100, 0, key=f"tf_haf_manual_v2_{rid}")
                     st.caption("100 = Hafal penuh tanpa salah | 80 = 1 kali salah / lupa | 60 = 2–3 kali salah | <50 = Belum hafal")
-                nilai_tf = round((tf_kelancaran + tf_tajwid + tf_hafalan) / 3, 1)
+                nilai_tf = int(round((tf_kelancaran + tf_tajwid + tf_hafalan) / 3))
                 predikat_tf = predikat_penilaian(nilai_tf)
                 catatan_tf = st.text_area("Catatan Guru (wajib diisi)", key=f"tf_cat_manual_v2_{rid}")
                 st.metric("Nilai Akhir", f"{nilai_tf}/100 — {predikat_tf}")
@@ -2511,7 +2511,7 @@ if (
                 makhraj = st.slider("3. Makhraj (0-100)", 0, 100, 0, key=f"dashboard_iqro_makhraj_manual_v2_{id_bacaan}")
                 st.caption("100 = Makhraj tepat | 80 = 1–2 makhraj kurang tepat | 60 = Banyak makhraj salah | <50 = Perlu bimbingan intensif")
                 total_skor = pengenalan_huruf + kelancaran + makhraj
-                nilai_akhir = round(total_skor / 3, 1)
+                nilai_akhir = int(round(total_skor / 3))
                 predikat = predikat_penilaian(nilai_akhir)
                 catatan = st.text_area("Catatan Guru (wajib diisi)", key=f"dashboard_iqro_cat_manual_v2_{id_bacaan}")
                 dinilai_oleh = st.text_input("Dinilai Oleh", value=st.session_state.get("login_nama", ""), key=f"dashboard_iqro_guru_manual_v2_{id_bacaan}")
