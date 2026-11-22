@@ -69,14 +69,31 @@ def tampilkan_halaman_surat_juz30(no_surah, program_key):
     mulai = halaman * per_halaman
     ayat_tampil = list(ayat_list[mulai:mulai + per_halaman])
 
-    # Judul surah hanya ditampilkan pada halaman pertama.
-    # Halaman 2 dan seterusnya langsung menampilkan ayat tanpa judul berulang.
+    # Judul surah dan Basmalah ditampilkan di bagian atas halaman pertama.
+    # Basmalah dipindahkan dari awal ayat 1 berdasarkan jumlah kata, bukan harakat.
+    # Fungsi ini dipakai bersama oleh menu Tahsin dan Tahfidz.
     isi_html = ""
     if halaman == 0:
         isi_html += (
             f"<div style='text-align:center;font-size:36px;font-weight:bold;"
-            f"color:#111 !important;margin-bottom:8px;direction:rtl;'>{NAMA_ARAB_HARAKAT[no_surah]}</div>"
+            f"color:#111 !important;margin-bottom:6px;direction:rtl;'>{NAMA_ARAB_HARAKAT[no_surah]}</div>"
         )
+
+        basmalah_pindah = None
+        if ayat_tampil:
+            kata = ayat_tampil[0].strip().split()
+            # Ayat 1: empat kata Basmalah diikuti teks ayat aslinya.
+            if len(kata) > 4 and kata[0].startswith("ب"):
+                basmalah_pindah = " ".join(kata[:4])
+                ayat_tampil[0] = " ".join(kata[4:])
+
+        if basmalah_pindah:
+            isi_html += (
+                "<div style='text-align:center;direction:rtl;font-size:26px;"
+                "color:#111 !important;margin-bottom:16px;'>"
+                f"{basmalah_pindah}</div>"
+            )
+
     for nomor_ayat, teks_ayat in enumerate(ayat_tampil, start=mulai + 1):
         isi_html += (
             "<div style='text-align:right;direction:rtl;font-size:30px;line-height:2.2;"
