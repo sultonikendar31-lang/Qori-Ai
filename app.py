@@ -2191,6 +2191,50 @@ if (
         # Nilai 0-100 yang ditampilkan guru tetap disimpan lengkap pada catatan_guru.
         return max(1, min(4, int(round(float(nilai) / 25))))
 
+    def tampilkan_riwayat_tabel(judul, nama_tabel, data_riwayat, kolom, label_materi):
+        """Tampilkan riwayat sebagai tabel, filter nama, dan hapus per baris."""
+        st.subheader(judul)
+        data = data_riwayat or []
+        if not data:
+            st.info(f"Belum ada data pada {judul}.")
+            return
+
+        daftar_nama = sorted({str(r.get("_nama") or "-") for r in data})
+        nama_dipilih = st.selectbox(
+            f"Filter Nama Siswa — {judul}",
+            ["Semua Siswa"] + daftar_nama,
+            key=f"filter_riwayat_{nama_tabel}_{judul.replace(' ', '_')}"
+        )
+        if nama_dipilih != "Semua Siswa":
+            data = [r for r in data if str(r.get("_nama") or "-") == nama_dipilih]
+        if not data:
+            st.info(f"Tidak ada riwayat untuk {nama_dipilih}.")
+            return
+
+        tabel = []
+        for row in data:
+            tabel.append({label: row.get(key, "-") if row.get(key) is not None else "-" for label, key in kolom})
+        st.dataframe(pd.DataFrame(tabel), use_container_width=True, hide_index=True)
+
+        st.caption("Untuk menghapus, centang kotak pada baris yang dimaksud lalu tekan tombol Hapus.")
+        for row in data:
+            rid = row.get("id")
+            nama = row.get("_nama") or "-"
+            materi = row.get(label_materi) or "-"
+            c1, c2, c3 = st.columns([5, 1, 1])
+            with c1:
+                st.write(f"**{nama}** — {materi}")
+            with c2:
+                konfirmasi = st.checkbox("Pilih", key=f"pilih_hapus_{nama_tabel}_{rid}")
+            with c3:
+                if st.button("🗑️ Hapus", key=f"hapus_riwayat_{nama_tabel}_{rid}", disabled=not konfirmasi):
+                    try:
+                        supabase.table(nama_tabel).delete().eq("id", rid).execute()
+                        st.success(f"Riwayat {nama} berhasil dihapus.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Gagal menghapus riwayat: {e}")
+
     # ---------- 1. PENILAIAN TAHSIN AL-QUR'AN ----------
     st.header("👨‍🏫 Penilaian Tahsin Al-Qur'an")
     st.info("Penilaian dilakukan oleh guru/penguji. AI hanya dapat membantu transkrip awal.")
@@ -2263,19 +2307,40 @@ if (
                     except Exception as e:
                         st.error(f"Gagal menyimpan nilai Tahsin: {e}")
 
-    st.subheader("2. Riwayat Nilai Tahsin")
+    # Riwayat Tahsin: nilai_bacaan terhubung ke bacaan_quran melalui bacaan_id.
     try:
-        riwayat_th = supabase.table("nilai_bacaan").select("*").limit(100).execute().data or []
-        riwayat_th = [r for r in riwayat_th if not r.get("program") or r.get("program") == "Tahsin"]
-        riwayat_th = riwayat_th[-30:]
-        if not riwayat_th:
-            st.info("Belum ada riwayat nilai Tahsin.")
-        for r in reversed(riwayat_th):
-            st.write(
-                f"Bacaan ID: {r.get('bacaan_id', '-')} | "
-                f"Nilai: **{r.get('total_nilai', '-')} / 100** | "
-                f"{r.get('catatan_guru') or '-'}"
-            )
+        nilai_tahsin_rows = (
+            supabase.table("nilai_bacaan").select("*")
+            .order("created_at", desc=True).limit(100).execute().data or []
+        )
+        nilai_tahsin_rows = [r for r in nilai_tahsin_rows if not r.get("program") or r.get("program") == "Tahsin"]
+        bacaan_ids = [r.get("bacaan_id") for r in nilai_tahsin_rows if r.get("bacaan_id") is not None]
+        bacaan_map = {}
+        if bacaan_ids:
+            bacaan_rows = supabase.table("bacaan_quran").select("*").in_("id", bacaan_ids).execute().data or []
+            bacaan_map = {str(b.get("id")): b for b in bacaan_rows}
+        riwayat_tahsin_tabel = []
+        for r in nilai_tahsin_rows:
+            b = bacaan_map.get(str(r.get("bacaan_id")), {})
+            materi = b.get("surah") or b.get("materi") or b.get("ayat_text") or f"Bacaan ID {r.get('bacaan_id', '-')}"
+            nilai = r.get("total_nilai", "-")
+            try:
+                predikat = predikat_penilaian(float(nilai))
+            except (TypeError, ValueError):
+                predikat = "-"
+            riwayat_tahsin_tabel.append({
+                **r,
+                "_nama": b.get("nama_siswa") or "-",
+                "_materi": materi,
+                "_nilai": nilai,
+                "_predikat": predikat,
+                "_guru": "-",
+            })
+        tampilkan_riwayat_tabel(
+            "2. Riwayat Nilai Tahsin", "nilai_bacaan", riwayat_tahsin_tabel,
+            [("Nama Siswa", "_nama"), ("Materi", "_materi"), ("Nilai", "_nilai"), ("Predikat", "_predikat"), ("Dinilai Oleh", "_guru")],
+            "_materi"
+        )
     except Exception as e:
         st.error(f"Gagal mengambil riwayat Tahsin: {e}")
 
@@ -2347,22 +2412,24 @@ if (
                     except Exception as e:
                         st.error(f"Gagal menyimpan nilai Tahfidz: {e}")
 
-    st.subheader("2. Riwayat Nilai Tahfidz")
+    # Riwayat Tahfidz dibaca dari tabel nilai_tahfidz.
     try:
-        riwayat_tf = (
+        riwayat_tahfidz_tabel = (
             supabase.table("nilai_tahfidz").select("*")
             .eq("status", "dinilai").order("created_at", desc=True)
             .limit(100).execute().data or []
         )
-        riwayat_tf = [r for r in riwayat_tf if not r.get("program") or r.get("program") == "Tahfidz"][-30:]
-        if not riwayat_tf:
-            st.info("Belum ada riwayat nilai Tahfidz.")
-        for r in riwayat_tf:
-            st.write(
-                f"**{r.get('nama_siswa', '-')}** | {r.get('surah', '-')} | "
-                f"Nilai: **{r.get('nilai_akhir', '-')} / 100** ({r.get('predikat', '-')}) | "
-                f"{r.get('catatan_guru') or '-'}"
-            )
+        riwayat_tahfidz_tabel = [
+            {**r, "_nama": r.get("nama_siswa") or "-", "_materi": r.get("surah") or "-",
+             "_nilai": r.get("nilai_akhir", "-"), "_predikat": r.get("predikat", "-"),
+             "_guru": r.get("dinilai_oleh", "-")}
+            for r in riwayat_tahfidz_tabel if not r.get("program") or r.get("program") == "Tahfidz"
+        ]
+        tampilkan_riwayat_tabel(
+            "2. Riwayat Nilai Tahfidz", "nilai_tahfidz", riwayat_tahfidz_tabel,
+            [("Nama Siswa", "_nama"), ("Surah", "_materi"), ("Nilai", "_nilai"), ("Predikat", "_predikat"), ("Dinilai Oleh", "_guru")],
+            "_materi"
+        )
     except Exception as e:
         st.error(f"Gagal mengambil riwayat Tahfidz: {e}")
 
@@ -2432,26 +2499,32 @@ if (
                     except Exception as e:
                         st.error(f"Gagal menyimpan nilai Iqro: {e}")
 
-    st.subheader("2. Riwayat Nilai Iqro")
+    # Riwayat Iqro dibaca dari nilai_iqro, terpisah dari antrean bacaan_quran.
     try:
-        riwayat_iqro = (
+        riwayat_iqro_tabel = (
             supabase.table("nilai_iqro").select("*")
             .eq("program", "Iqro").eq("status", "dinilai")
-            .order("created_at", desc=True).limit(20).execute().data or []
+            .order("created_at", desc=True).limit(100).execute().data or []
+        )
+        riwayat_iqro_tabel = [
+            {**r,
+             "_nama": r.get("nama_siswa") or "-",
+             "_materi": f"Iqro {r.get('jilid', '-')}, Halaman {r.get('halaman', '-')}",
+             "_nilai": r.get("nilai_akhir", "-"),
+             "_predikat": r.get("predikat", "-"),
+             "_guru": r.get("dinilai_oleh", "-")}
+            for r in riwayat_iqro_tabel
+        ]
+        tampilkan_riwayat_tabel(
+            "2. Riwayat Nilai Iqro", "nilai_iqro", riwayat_iqro_tabel,
+            [("Nama Siswa", "_nama"), ("Jilid / Halaman", "_materi"),
+             ("Pengenalan Huruf", "pengenalan_huruf"), ("Kelancaran", "kelancaran"),
+             ("Makhraj", "makhraj"), ("Nilai Akhir", "_nilai"),
+             ("Predikat", "_predikat"), ("Dinilai Oleh", "_guru")],
+            "_materi"
         )
     except Exception as e:
-        st.error(f"Gagal mengambil riwayat nilai Iqro: {e}")
-        riwayat_iqro = []
-
-    if not riwayat_iqro:
-        st.info("Belum ada nilai Iqro.")
-    else:
-        for r in riwayat_iqro:
-            st.write(
-                f"✅ {r.get('nama_siswa', '-')} — Iqro {r.get('jilid', '-')} "
-                f"Hal {r.get('halaman', '-')} | Nilai: {r.get('nilai_akhir', '-')} "
-                f"({r.get('predikat', '-')})"
-            )
+        st.error(f"Gagal mengambil riwayat Iqro: {e}")
 
 # ===== MENU GAME QORI AI: KHUSUS SISWA =====
 # Akun TIM tidak menampilkan baris Game QORI AI di bagian atas.
