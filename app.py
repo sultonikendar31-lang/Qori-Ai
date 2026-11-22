@@ -883,6 +883,23 @@ def db():
         foto BLOB, foto_nama TEXT, audio BLOB, audio_nama TEXT,
         jam TEXT, koreksi TEXT, pembalas TEXT, nilai_setoran TEXT
     )""")
+    # Kolom tambahan penilaian Iqro pada tabel SQLite setoran yang sudah ada.
+    # Migrasi ini aman untuk database lama: kolom hanya ditambahkan jika belum tersedia.
+    kolom_setoran = {r[1] for r in c.execute("PRAGMA table_info(setoran)").fetchall()}
+    kolom_penilaian_iqro = {
+        "jilid_iqro": "INTEGER",
+        "halaman_iqro": "INTEGER",
+        "kelancaran_iqro": "INTEGER",
+        "ketepatan_huruf_iqro": "INTEGER",
+        "nilai_akhir_iqro": "INTEGER",
+        "predikat_iqro": "TEXT",
+        "catatan_guru_iqro": "TEXT",
+        "dinilai_oleh_iqro": "TEXT",
+        "tanggal_dinilai_iqro": "TEXT",
+    }
+    for nama_kolom, tipe_kolom in kolom_penilaian_iqro.items():
+        if nama_kolom not in kolom_setoran:
+            c.execute(f"ALTER TABLE setoran ADD COLUMN {nama_kolom} {tipe_kolom}")
     c.commit()
     return c
 CONN = db()
@@ -992,13 +1009,38 @@ def tambah_setoran(pengirim, label, kategori, judul, keterangan, foto_bytes, fot
     CONN.execute("INSERT INTO setoran(pengirim,label,kategori,judul,keterangan,foto,foto_nama,audio,audio_nama,jam,koreksi,pembalas,nilai_setoran) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (pengirim, label, kategori, judul, keterangan, foto_bytes, foto_nama, audio_bytes, audio_nama, jam, "", "", ""))
     CONN.commit()
 def get_setoran():
-    rows = CONN.execute("SELECT id,pengirim,label,kategori,judul,keterangan,foto,foto_nama,audio,audio_nama,jam,koreksi,pembalas,nilai_setoran FROM setoran ORDER BY id DESC").fetchall()
+    rows = CONN.execute("""SELECT id,pengirim,label,kategori,judul,keterangan,foto,foto_nama,
+        audio,audio_nama,jam,koreksi,pembalas,nilai_setoran,jilid_iqro,halaman_iqro,
+        kelancaran_iqro,ketepatan_huruf_iqro,nilai_akhir_iqro,predikat_iqro,
+        catatan_guru_iqro,dinilai_oleh_iqro,tanggal_dinilai_iqro
+        FROM setoran ORDER BY id DESC""").fetchall()
     out = []
     for r in rows:
-        out.append({"id":r[0],"pengirim":r[1],"label":r[2],"kategori":r[3],"judul":r[4],"keterangan":r[5] or "","foto":r[6],"foto_nama":r[7] or "","audio":r[8],"audio_nama":r[9] or "","jam":r[10],"koreksi":r[11] or "","pembalas":r[12] or "","nilai":r[13] or ""})
+        out.append({
+            "id":r[0],"pengirim":r[1],"label":r[2],"kategori":r[3],"judul":r[4],
+            "keterangan":r[5] or "","foto":r[6],"foto_nama":r[7] or "","audio":r[8],
+            "audio_nama":r[9] or "","jam":r[10],"koreksi":r[11] or "",
+            "pembalas":r[12] or "","nilai":r[13] or "","jilid_iqro":r[14],
+            "halaman_iqro":r[15],"kelancaran_iqro":r[16],"ketepatan_huruf_iqro":r[17],
+            "nilai_akhir_iqro":r[18],"predikat_iqro":r[19] or "",
+            "catatan_guru_iqro":r[20] or "","dinilai_oleh_iqro":r[21] or "",
+            "tanggal_dinilai_iqro":r[22] or "",
+        })
     return out
 def koreksi_setoran(sid, koreksi, pembalas, nilai_setoran):
     CONN.execute("UPDATE setoran SET koreksi=?, pembalas=?, nilai_setoran=? WHERE id=?", (koreksi, pembalas, nilai_setoran, sid))
+    CONN.commit()
+def simpan_penilaian_iqro(sid, jilid, halaman, kelancaran, ketepatan_huruf, nilai, predikat, catatan, dinilai_oleh):
+    """Simpan rubrik Iqro terstruktur pada baris setoran SQLite yang sudah ada."""
+    waktu = time.strftime("%d/%m/%Y %H:%M", time.localtime())
+    CONN.execute("""UPDATE setoran SET
+        koreksi=?, pembalas=?, nilai_setoran=?, jilid_iqro=?, halaman_iqro=?,
+        kelancaran_iqro=?, ketepatan_huruf_iqro=?, nilai_akhir_iqro=?,
+        predikat_iqro=?, catatan_guru_iqro=?, dinilai_oleh_iqro=?, tanggal_dinilai_iqro=?
+        WHERE id=? AND kategori='Iqro'""",
+        (catatan or "Penilaian Iqro", dinilai_oleh, str(nilai), int(jilid), int(halaman),
+         int(kelancaran), int(ketepatan_huruf), int(nilai), predikat, catatan or "",
+         dinilai_oleh, waktu, int(sid)))
     CONN.commit()
 def hapus_setoran(sid):
     CONN.execute("DELETE FROM setoran WHERE id=?", (sid,))
@@ -2099,196 +2141,314 @@ if st.session_state["siswa_pilih"] is None and st.session_state["login_role"] ==
         st.info(f"{jumlah_belum} siswa memperoleh nilai di bawah KKM dan perlu tindak lanjut/remedial.")
 
 
-# PROGRAM GATE: PANEL GURU TAHSIN UNTUK TIM
-if program_saya == "Tim":
-    # ===== PENILAIAN GURU - BACA QUR'AN =====
-    if st.session_state.get("login_role") == "tim" and st.session_state.get("siswa_pilih") is None:
-        st.divider()
-        st.header("👨‍🏫 Penilaian Bacaan Al-Qur'an")
+# ===== PENILAIAN SISWA: TIGA PROGRAM DITUMPUK KE BAWAH =====
+if (
+    program_saya == "Tim"
+    and st.session_state.get("login_role") == "tim"
+    and st.session_state.get("siswa_pilih") is None
+):
+    st.divider()
 
-        try:
-            data_bacaan = (
-                supabase.table("bacaan_quran")
-                .select("*")
-                .eq("status", "menunggu")
-                .order("created_at", desc=True)
-                .execute()
-                .data
-            )
+    def predikat_penilaian(nilai):
+        if nilai >= 90:
+            return "Mumtaz"
+        if nilai >= 80:
+            return "Jayyid Jiddan"
+        if nilai >= 70:
+            return "Jayyid"
+        if nilai >= 60:
+            return "Maqbul"
+        return "Perlu Bimbingan / Mengulang"
 
-            if not data_bacaan:
-                st.info("Belum ada bacaan yang menunggu dinilai.")
-            else:
-                for row in data_bacaan:
-                    with st.expander(
-                        f"📌 {row.get('nama_siswa', '-')} - {row.get('kelas', '-')} - {row.get('surah', '-')}"
-                    ):
-                        st.write(f"**Ayat:** {row.get('ayat_text', '-')}")
-                        st.write(f"Tanggal: {row.get('created_at', '-')}")
-                        if row.get("audio_url"):
-                            st.audio(row["audio_url"])
+    def skor_100_ke_skala_lama(nilai):
+        # Kolom komponen pada tabel Supabase lama memakai rentang 1-4.
+        # Nilai 0-100 yang ditampilkan guru tetap disimpan lengkap pada catatan_guru.
+        return max(1, min(4, int(round(float(nilai) / 25))))
 
-                        st.subheader("Rubrik Penilaian (1-4)")
-                        st.caption("1=Kurang, 2=Cukup, 3=Baik, 4=Sangat Baik")
-                        c1, c2, c3 = st.columns(3)
-                        row_id = row.get("id")
-                        with c1:
-                            makhraj = st.number_input("1. Makhrajul Huruf", 1, 4, 3, key=f"makhraj_{row_id}")
-                            sifat = st.number_input("2. Sifat Huruf", 1, 4, 3, key=f"sifat_{row_id}")
-                        with c2:
-                            tajwid = st.number_input("3. Hukum Tajwid", 1, 4, 3, key=f"tajwid_{row_id}")
-                            harakat = st.number_input("4. Ketepatan Harakat", 1, 4, 3, key=f"harakat_{row_id}")
-                        with c3:
-                            lancar = st.number_input("5. Kelancaran", 1, 4, 3, key=f"lancar_{row_id}")
-                            mad = st.number_input("6. Panjang Pendek (Mad)", 1, 4, 3, key=f"mad_{row_id}")
+    # ---------- 1. PENILAIAN TAHSIN AL-QUR'AN ----------
+    st.header("👨‍🏫 Penilaian Tahsin Al-Qur'an")
+    st.info("Penilaian dilakukan oleh guru/penguji. AI hanya dapat membantu transkrip awal.")
 
-                        catatan = st.text_area(
-                            "Catatan Guru",
-                            key=f"catatan_{row_id}",
-                            placeholder="Contoh: Huruf 'ain masih kurang jelas, mad thabi'i kurang panjang...",
+    st.subheader("1. Setoran yang Menunggu Penilaian")
+    try:
+        data_tahsin = (
+            supabase.table("bacaan_quran").select("*")
+            .eq("status", "menunggu").order("created_at", desc=True)
+            .execute().data or []
+        )
+        data_tahsin = [r for r in data_tahsin if not r.get("program") or r.get("program") == "Tahsin"]
+    except Exception as e:
+        data_tahsin = []
+        st.error(f"Gagal mengambil setoran Tahsin: {e}")
+
+    if not data_tahsin:
+        st.info("Tidak ada setoran Tahsin yang menunggu penilaian.")
+    else:
+        for row in data_tahsin:
+            rid = row.get("id")
+            with st.expander(
+                f"{row.get('nama_siswa', '-')} — {row.get('kelas', '-')} — {row.get('surah', '-') }"
+            ):
+                st.write(f"**Ayat:** {row.get('ayat_text', '-')}")
+                st.write(f"**Tanggal:** {row.get('created_at', '-')}")
+                if row.get("audio_url"):
+                    st.audio(row["audio_url"])
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    th_kelancaran = st.slider("Kelancaran", 0, 100, 80, key=f"ths_kel_{rid}")
+                with c2:
+                    th_tajwid = st.slider("Tajwid", 0, 100, 80, key=f"ths_taj_{rid}")
+                with c3:
+                    th_hafalan = st.slider("Hafalan", 0, 100, 80, key=f"ths_haf_{rid}")
+                nilai_th = round((th_kelancaran + th_tajwid + th_hafalan) / 3)
+                predikat_th = predikat_penilaian(nilai_th)
+                catatan_th = st.text_area("Catatan Guru", key=f"ths_cat_{rid}")
+                st.metric("Nilai Akhir", f"{nilai_th}/100 — {predikat_th}")
+                if st.button("💾 Simpan Nilai Tahsin", key=f"ths_simpan_{rid}"):
+                    try:
+                        # Kompatibilitas dengan skema lama nilai_bacaan:
+                        # kolom komponen lama tetap memakai skala 1-4; nilai asli 0-100
+                        # untuk ketiga rubrik baru dicatat lengkap di catatan_guru.
+                        rincian_th = (
+                            f"Kelancaran: {th_kelancaran}/100 | Tajwid: {th_tajwid}/100 | "
+                            f"Hafalan: {th_hafalan}/100"
                         )
-                        total = round(
-                            ((makhraj + sifat + tajwid + harakat + lancar + mad) / 24) * 100
+                        catatan_lengkap_th = rincian_th + (f"\nCatatan: {catatan_th}" if catatan_th.strip() else "")
+                        skor_th_kel = skor_100_ke_skala_lama(th_kelancaran)
+                        skor_th_taj = skor_100_ke_skala_lama(th_tajwid)
+                        skor_th_haf = skor_100_ke_skala_lama(th_hafalan)
+                        supabase.table("nilai_bacaan").insert({
+                            "bacaan_id": rid,
+                            "program": "Tahsin",
+                            "makhraj": skor_th_haf,
+                            "sifat_huruf": skor_th_haf,
+                            "tajwid": skor_th_taj,
+                            "harakat": skor_th_haf,
+                            "kelancaran": skor_th_kel,
+                            "mad": skor_th_kel,
+                            "total_nilai": nilai_th,
+                            "catatan_guru": catatan_lengkap_th,
+                        }).execute()
+                        supabase.table("bacaan_quran").update(
+                            {"status": "dinilai"}
+                        ).eq("id", rid).execute()
+                        st.success(f"Nilai Tahsin tersimpan: {nilai_th}/100.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Gagal menyimpan nilai Tahsin: {e}")
+
+    st.subheader("2. Riwayat Nilai Tahsin")
+    try:
+        riwayat_th = supabase.table("nilai_bacaan").select("*").limit(100).execute().data or []
+        riwayat_th = [r for r in riwayat_th if not r.get("program") or r.get("program") == "Tahsin"]
+        riwayat_th = riwayat_th[-30:]
+        if not riwayat_th:
+            st.info("Belum ada riwayat nilai Tahsin.")
+        for r in reversed(riwayat_th):
+            st.write(
+                f"Bacaan ID: {r.get('bacaan_id', '-')} | "
+                f"Nilai: **{r.get('total_nilai', '-')} / 100** | "
+                f"{r.get('catatan_guru') or '-'}"
+            )
+    except Exception as e:
+        st.error(f"Gagal mengambil riwayat Tahsin: {e}")
+
+    st.divider()
+
+    # ---------- 2. PENILAIAN TAHFIDZ AL-QUR'AN ----------
+    st.header("📖 Penilaian Tahfidz Al-Qur'an")
+    st.info("Penilaian dilakukan oleh guru/penguji. AI hanya dapat membantu transkrip awal.")
+
+    st.subheader("1. Setoran yang Menunggu Penilaian")
+    try:
+        data_tahfidz = (
+            supabase.table("nilai_tahfidz").select("*")
+            .eq("status", "menunggu").order("created_at", desc=True)
+            .execute().data or []
+        )
+        data_tahfidz = [r for r in data_tahfidz if not r.get("program") or r.get("program") == "Tahfidz"]
+    except Exception as e:
+        data_tahfidz = []
+        st.error(f"Gagal mengambil setoran Tahfidz: {e}")
+
+    if not data_tahfidz:
+        st.info("Tidak ada setoran Tahfidz yang menunggu penilaian.")
+    else:
+        for row in data_tahfidz:
+            rid = row.get("id")
+            with st.expander(
+                f"{row.get('nama_siswa', '-')} — {row.get('surah', '-')} "
+                f"(Ayat {row.get('ayat_mulai', '-')}–{row.get('ayat_sampai', '-')})"
+            ):
+                st.write(f"**Kelas:** {row.get('kelas', '-')}")
+                if row.get("audio_url"):
+                    st.audio(row["audio_url"])
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    tf_kelancaran = st.slider("Kelancaran", 0, 100, 80, key=f"tf_kel_{rid}")
+                with c2:
+                    tf_tajwid = st.slider("Tajwid", 0, 100, 80, key=f"tf_taj_{rid}")
+                with c3:
+                    tf_hafalan = st.slider("Hafalan", 0, 100, 80, key=f"tf_haf_{rid}")
+                nilai_tf = round((tf_kelancaran + tf_tajwid + tf_hafalan) / 3)
+                predikat_tf = predikat_penilaian(nilai_tf)
+                catatan_tf = st.text_area("Catatan Guru", key=f"tf_cat_{rid}")
+                st.metric("Nilai Akhir", f"{nilai_tf}/100 — {predikat_tf}")
+                if st.button("💾 Simpan Nilai Tahfidz", key=f"tf_simpan_{rid}"):
+                    try:
+                        rincian_tf = (
+                            f"Rubrik 0-100 — Kelancaran: {tf_kelancaran}; "
+                            f"Tajwid: {tf_tajwid}; Hafalan: {tf_hafalan}"
                         )
-                        st.metric("Total Nilai (otomatis)", f"{total} / 100")
+                        catatan_lengkap_tf = rincian_tf + (f"\nCatatan: {catatan_tf}" if catatan_tf.strip() else "")
+                        skor_tf_kel = skor_100_ke_skala_lama(tf_kelancaran)
+                        skor_tf_taj = skor_100_ke_skala_lama(tf_tajwid)
+                        skor_tf_haf = skor_100_ke_skala_lama(tf_hafalan)
+                        supabase.table("nilai_tahfidz").update({
+                            "kelancaran": skor_tf_kel,
+                            "tajwid": skor_tf_taj,
+                            "mempertahankan_hafalan": skor_tf_haf,
+                            # Skala total lama 6-24 dipertahankan agar kompatibel dengan rekap terdahulu.
+                            "total_skor": 2 * (skor_tf_kel + skor_tf_taj + skor_tf_haf),
+                            "nilai_akhir": nilai_tf,
+                            "predikat": predikat_tf,
+                            "catatan_guru": catatan_lengkap_tf,
+                            "dinilai_oleh": st.session_state.get("login_nama"),
+                            "status": "dinilai",
+                        }).eq("id", rid).execute()
+                        st.success(f"Nilai Tahfidz tersimpan: {nilai_tf}/100.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Gagal menyimpan nilai Tahfidz: {e}")
 
-                        if st.button("💾 Simpan Nilai", key=f"simpan_nilai_bacaan_{row_id}"):
-                            supabase.table("nilai_bacaan").insert({
-                                "bacaan_id": row_id,
-                                "makhraj": makhraj,
-                                "sifat_huruf": sifat,
-                                "tajwid": tajwid,
-                                "harakat": harakat,
-                                "kelancaran": lancar,
-                                "mad": mad,
-                                "total_nilai": total,
-                                "catatan_guru": catatan,
-                            }).execute()
-                            supabase.table("bacaan_quran").update(
-                                {"status": "dinilai"}
-                            ).eq("id", row_id).execute()
-                            st.success("Nilai tersimpan!")
-                            st.rerun()
-        except Exception as e:
-            st.error(f"Gagal ambil data penilaian bacaan: {e}")
-
-# PROGRAM GATE: PANEL GURU TAHFIDZ UNTUK TIM
-if program_saya == "Tim":
-    # ===== MENU TAHFIDZ: PENILAIAN GURU / PENGUJI =====
-    if st.session_state.get("login_role") == "tim" and st.session_state.get("siswa_pilih") is None:
-        st.divider()
-        st.header("📖 Penilaian Tahfidz Al-Qur'an")
-        st.info("Penilaian dilakukan oleh guru/penguji. AI hanya dapat membantu transkrip awal.")
-
-        st.subheader("1. Setoran yang Menunggu Penilaian")
-        try:
-            data_menunggu_tahfidz = (
-                supabase.table("nilai_tahfidz")
-                .select("*")
-                .eq("status", "menunggu")
-                .order("created_at", desc=True)
-                .execute()
-                .data
+    st.subheader("2. Riwayat Nilai Tahfidz")
+    try:
+        riwayat_tf = (
+            supabase.table("nilai_tahfidz").select("*")
+            .eq("status", "dinilai").order("created_at", desc=True)
+            .limit(100).execute().data or []
+        )
+        riwayat_tf = [r for r in riwayat_tf if not r.get("program") or r.get("program") == "Tahfidz"][-30:]
+        if not riwayat_tf:
+            st.info("Belum ada riwayat nilai Tahfidz.")
+        for r in riwayat_tf:
+            st.write(
+                f"**{r.get('nama_siswa', '-')}** | {r.get('surah', '-')} | "
+                f"Nilai: **{r.get('nilai_akhir', '-')} / 100** ({r.get('predikat', '-')}) | "
+                f"{r.get('catatan_guru') or '-'}"
             )
-        except Exception as e:
-            st.error(f"Gagal mengambil data setoran tahfidz: {e}")
-            data_menunggu_tahfidz = []
+    except Exception as e:
+        st.error(f"Gagal mengambil riwayat Tahfidz: {e}")
 
-        if not data_menunggu_tahfidz:
-            st.success("Tidak ada setoran tahfidz yang menunggu dinilai.")
-        else:
-            for row_tahfidz in data_menunggu_tahfidz:
-                id_tahfidz = row_tahfidz.get("id")
-                with st.expander(
-                    f"{row_tahfidz.get('nama_siswa', '-')} - {row_tahfidz.get('surah', '-')} "
-                    f"(Ayat {row_tahfidz.get('ayat_mulai', '-')}–{row_tahfidz.get('ayat_sampai', '-')})"
-                ):
-                    st.write(f"**Kelas:** {row_tahfidz.get('kelas', '-')}")
-                    if row_tahfidz.get("audio_url"):
-                        st.audio(row_tahfidz["audio_url"])
+    st.divider()
 
-                    st.markdown("**Beri skor 1–4 untuk tiap aspek:**")
-                    st.caption("1 = Kurang | 2 = Cukup | 3 = Baik | 4 = Sangat Baik")
-                    k_tahfidz = str(id_tahfidz)
-                    c1, c2, c3 = st.columns(3)
-                    with c1:
-                        kelancaran = st.selectbox("1. Kelancaran Hafalan", [1, 2, 3, 4], key=f"kel_tahfidz_{k_tahfidz}")
-                        lafaz = st.selectbox("2. Ketepatan Lafaz Ayat", [1, 2, 3, 4], key=f"laf_tahfidz_{k_tahfidz}")
-                    with c2:
-                        urutan = st.selectbox("3. Ketepatan Urutan Ayat", [1, 2, 3, 4], key=f"urt_tahfidz_{k_tahfidz}")
-                        makhraj = st.selectbox("4. Makharijul Huruf", [1, 2, 3, 4], key=f"mak_tahfidz_{k_tahfidz}")
-                    with c3:
-                        tajwid = st.selectbox("5. Penerapan Tajwid", [1, 2, 3, 4], key=f"taj_tahfidz_{k_tahfidz}")
-                        pertahankan = st.selectbox("6. Mempertahankan Hafalan", [1, 2, 3, 4], key=f"per_tahfidz_{k_tahfidz}")
+    # ---------- 3. PENILAIAN IQRO ----------
+    st.header("🔤 Penilaian Iqro")
+    st.info("Penilaian dilakukan oleh guru/penguji. AI hanya dapat membantu transkrip awal.")
 
-                    catatan_tahfidz = st.text_area(
-                        "Catatan Guru",
-                        key=f"cat_tahfidz_{k_tahfidz}",
-                        placeholder="Contoh: Makhraj huruf 'ain masih kurang jelas di ayat 3...",
+    st.subheader("1. Setoran yang Menunggu Penilaian")
+    try:
+        data_iqro = (
+            supabase.table("nilai_iqro").select("*")
+            .eq("program", "Iqro").eq("status", "menunggu")
+            .order("created_at", desc=True).execute().data or []
+        )
+    except Exception as e:
+        data_iqro = []
+        st.error(f"Gagal mengambil setoran Iqro dari Supabase: {e}")
+
+    if not data_iqro:
+        st.info("Tidak ada setoran Iqro yang menunggu penilaian.")
+    else:
+        for row in data_iqro:
+            rid = row.get("id")
+            nama_iqro = row.get("nama_siswa") or "-"
+            kelas_iqro = row.get("kelas") or "-"
+            jilid_lama = str(row.get("jilid") or "1")
+            halaman_lama = str(row.get("halaman") or "1")
+            with st.expander(
+                f"{nama_iqro} — {kelas_iqro} — Iqro {jilid_lama} Halaman {halaman_lama}"
+            ):
+                if row.get("audio_url"):
+                    st.audio(row["audio_url"])
+                jilid_opsi = ["1", "2", "3", "4", "5", "6"]
+                jilid_iqro = st.selectbox(
+                    "Jilid Iqro", jilid_opsi,
+                    index=jilid_opsi.index(jilid_lama) if jilid_lama in jilid_opsi else 0,
+                    key=f"iqro_jilid_{rid}",
+                )
+                halaman_iqro = st.text_input(
+                    "Halaman", value=halaman_lama, key=f"iqro_hal_{rid}"
+                )
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    iqro_pengenalan = st.slider(
+                        "Pengenalan Huruf (0–100)", 0, 100, 80, key=f"iqro_pengenalan_{rid}"
                     )
+                with c2:
+                    iqro_kelancaran = st.slider(
+                        "Kelancaran (0–100)", 0, 100, 80, key=f"iqro_kelancaran_{rid}"
+                    )
+                with c3:
+                    iqro_makhraj = st.slider(
+                        "Makhraj (0–100)", 0, 100, 80, key=f"iqro_makhraj_{rid}"
+                    )
+                total_skor_iqro = iqro_pengenalan + iqro_kelancaran + iqro_makhraj
+                nilai_akhir_iqro = round(total_skor_iqro / 3, 1)
+                predikat_iqro = predikat_penilaian(nilai_akhir_iqro)
+                catatan_iqro = st.text_area("Catatan Guru", key=f"iqro_catatan_{rid}")
+                guru_iqro = st.text_input(
+                    "Dinilai Oleh (Nama Guru)",
+                    value=st.session_state.get("login_nama", ""),
+                    key=f"iqro_guru_{rid}",
+                )
+                st.write(
+                    f"**Total Skor:** {total_skor_iqro} / 300 | "
+                    f"**Nilai Akhir:** {nilai_akhir_iqro}/100 — {predikat_iqro}"
+                )
+                if st.button("💾 Simpan Nilai Iqro", key=f"iqro_simpan_{rid}"):
+                    try:
+                        halaman_angka = int(str(halaman_iqro).strip())
+                        if halaman_angka < 1:
+                            raise ValueError("Halaman harus minimal 1.")
+                        supabase.table("nilai_iqro").update({
+                            "jilid": jilid_iqro,
+                            "halaman": str(halaman_angka),
+                            "pengenalan_huruf": iqro_pengenalan,
+                            "kelancaran": iqro_kelancaran,
+                            "makhraj": iqro_makhraj,
+                            "total_skor": total_skor_iqro,
+                            "nilai_akhir": nilai_akhir_iqro,
+                            "predikat": predikat_iqro,
+                            "catatan_guru": catatan_iqro,
+                            "dinilai_oleh": guru_iqro,
+                            "status": "dinilai",
+                        }).eq("id", rid).execute()
+                        st.success(f"Nilai Iqro tersimpan: {nilai_akhir_iqro}/100.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Gagal menyimpan nilai Iqro: {e}")
 
-                    if st.button("💾 Simpan Nilai Tahfidz", key=f"simpan_tahfidz_{k_tahfidz}"):
-                        try:
-                            total_tahfidz = (
-                                kelancaran + lafaz + urutan + makhraj + tajwid + pertahankan
-                            )
-                            nilai_tahfidz = round((total_tahfidz / 24) * 100, 1)
-
-                            if nilai_tahfidz >= 90:
-                                predikat_tahfidz = "Mumtaz (Istimewa)"
-                            elif nilai_tahfidz >= 80:
-                                predikat_tahfidz = "Jayyid Jiddan (Sangat Baik)"
-                            elif nilai_tahfidz >= 70:
-                                predikat_tahfidz = "Jayyid (Baik)"
-                            elif nilai_tahfidz >= 60:
-                                predikat_tahfidz = "Maqbul (Cukup)"
-                            else:
-                                predikat_tahfidz = "Perlu Bimbingan / Mengulang"
-
-                            supabase.table("nilai_tahfidz").update({
-                                "kelancaran": kelancaran,
-                                "lafaz_ayat": lafaz,
-                                "urutan_ayat": urutan,
-                                "makhraj": makhraj,
-                                "tajwid": tajwid,
-                                "mempertahankan_hafalan": pertahankan,
-                                "total_skor": total_tahfidz,
-                                "nilai_akhir": nilai_tahfidz,
-                                "predikat": predikat_tahfidz,
-                                "catatan_guru": catatan_tahfidz,
-                                "dinilai_oleh": st.session_state.get("login_nama"),
-                                "status": "dinilai",
-                            }).eq("id", id_tahfidz).execute()
-
-                            st.success(f"Tersimpan! Nilai: {nilai_tahfidz} - {predikat_tahfidz}")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Gagal menyimpan nilai tahfidz: {e}")
-
-        st.subheader("2. Riwayat Nilai Tahfidz")
-        try:
-            riwayat_nilai_tahfidz = (
-                supabase.table("nilai_tahfidz")
-                .select("*")
-                .eq("status", "dinilai")
-                .order("created_at", desc=True)
-                .limit(30)
-                .execute()
-                .data
+    st.subheader("2. Riwayat Nilai Iqro")
+    try:
+        riwayat_iqro = (
+            supabase.table("nilai_iqro").select("*")
+            .eq("program", "Iqro").eq("status", "dinilai")
+            .order("created_at", desc=True).limit(30).execute().data or []
+        )
+        if not riwayat_iqro:
+            st.info("Belum ada nilai Iqro.")
+        for row in riwayat_iqro:
+            st.write(
+                f"**{row.get('nama_siswa', '-')}** | Iqro {row.get('jilid', '-')} "
+                f"Halaman {row.get('halaman', '-')} | "
+                f"Nilai: **{row.get('nilai_akhir', '-')} / 100** "
+                f"({row.get('predikat', '-')}) | Guru: {row.get('dinilai_oleh', '-')}"
             )
-            if riwayat_nilai_tahfidz:
-                for r_tahfidz in riwayat_nilai_tahfidz:
-                    st.write(
-                        f"**{r_tahfidz.get('nama_siswa', '-')}** | "
-                        f"{r_tahfidz.get('surah', '-')} | "
-                        f"Nilai: **{r_tahfidz.get('nilai_akhir', '-')}** "
-                        f"({r_tahfidz.get('predikat', '-')}) | "
-                        f"Catatan: {r_tahfidz.get('catatan_guru') or '-'}"
-                    )
-            else:
-                st.info("Belum ada nilai tahfidz.")
-        except Exception as e:
-            st.error(f"Gagal mengambil riwayat nilai tahfidz: {e}")
+            if row.get("catatan_guru"):
+                st.caption(f"Catatan: {row['catatan_guru']}")
+    except Exception as e:
+        st.error(f"Gagal mengambil riwayat nilai Iqro: {e}")
 
 # ===== MENU GAME QORI AI: KHUSUS SISWA =====
 # Akun TIM tidak menampilkan baris Game QORI AI di bagian atas.
@@ -2953,6 +3113,7 @@ if st.session_state.get("login_role") == "siswa" and program_saya == "Tahfidz" a
                     audio_url_tahfidz = supabase.storage.from_("audio-bacaan").get_public_url(file_name_tahfidz)
 
                     supabase.table("nilai_tahfidz").insert({
+                        "program": "Tahfidz",
                         "nama_siswa": nama_login_tahfidz,
                         "kelas": kelas_tahfidz,
                         "surah": surah_tahfidz,
@@ -3056,6 +3217,7 @@ if st.session_state.get("login_role") == "siswa" and program_saya == "Tahsin" an
                         audio_url = supabase.storage.from_("audio-bacaan").get_public_url(file_name)
 
                         supabase.table("bacaan_quran").insert({
+                            "program": "Tahsin",
                             "nama_siswa": nama_siswa_bacaan,
                             "kelas": kelas_siswa_bacaan,
                             "surah": surah_bacaan,
@@ -3322,12 +3484,24 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
         flag_iqro = f"setoran_iqro_terunggah_{kunci_iqro}"
         judul_iqro = f"{iqro_level_pilih} - Halaman {no_hal_iqro}"
 
-        sudah_iqro_db = CONN.execute(
-            "SELECT 1 FROM setoran WHERE pengirim=? AND kategori='Iqro' AND judul LIKE ? LIMIT 1",
-            (nama_pengguna_iqro, judul_iqro + "%"),
-        ).fetchone() is not None
-        if sudah_iqro_db:
-            st.session_state[flag_iqro] = True
+        # Cek setoran halaman ini langsung ke Supabase, bukan SQLite lokal.
+        jilid_nomor_iqro = str(iqro_level_pilih.split()[-1])
+        try:
+            cek_setoran_iqro = (
+                supabase.table("nilai_iqro").select("id,jilid,halaman,status")
+                .eq("program", "Iqro")
+                .eq("nama_siswa", nama_pengguna_iqro)
+                .execute().data or []
+            )
+            sudah_iqro_supabase = any(
+                str(row.get("jilid", "")).strip() == jilid_nomor_iqro
+                and str(row.get("halaman", "")).strip() == str(no_hal_iqro).strip()
+                for row in cek_setoran_iqro
+            )
+            st.session_state[flag_iqro] = bool(sudah_iqro_supabase)
+        except Exception as e:
+            sudah_iqro_supabase = False
+            st.warning(f"Belum dapat memeriksa riwayat setoran Iqro di Supabase: {e}")
 
         st.markdown(f"### 📖 {judul_iqro}")
         st.caption(f"Materi: {judul_halaman_iqro}")
@@ -3438,29 +3612,51 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
                 nama_audio_iqro = getattr(audio_iqro, "name", "rekaman_iqro.wav")
 
                 try:
-                    tambah_setoran(
-                        nama_pengguna_iqro,
-                        label_iqro,
-                        "Iqro",
-                        judul_simpan_iqro,
-                        ket_setoran.strip(),
-                        None,
-                        "",
-                        audio_bytes_iqro,
-                        nama_audio_iqro,
-                        time.strftime("%d/%m/%Y %H:%M", time.localtime()),
+                    import uuid
+                    nama_aman_iqro = "".join(
+                        karakter if karakter.isalnum() or karakter in ("-", "_") else "_"
+                        for karakter in nama_pengguna_iqro.strip()
                     )
+                    ekstensi_iqro = (nama_audio_iqro.rsplit(".", 1)[-1].lower()
+                                     if "." in nama_audio_iqro else "wav")
+                    if ekstensi_iqro not in {"wav", "mp3", "m4a", "ogg", "webm", "aac", "opus"}:
+                        ekstensi_iqro = "wav"
+                    file_name_iqro = (
+                        f"iqro_{nama_aman_iqro}_{jilid_nomor_iqro}_"
+                        f"{no_hal_iqro}_{uuid.uuid4().hex}.{ekstensi_iqro}"
+                    )
+                    tipe_audio_iqro = getattr(audio_iqro, "type", None) or "audio/wav"
+                    supabase.storage.from_("audio-bacaan").upload(
+                        file_name_iqro,
+                        audio_bytes_iqro,
+                        {"content-type": tipe_audio_iqro, "upsert": "false"},
+                    )
+                    audio_url_iqro = supabase.storage.from_("audio-bacaan").get_public_url(
+                        file_name_iqro
+                    )
+                    kelas_iqro_siswa = DATA_SISWA.get(nama_pengguna_iqro, {}).get(
+                        "kategori", st.session_state.get("kelas", "Iqro")
+                    )
+                    supabase.table("nilai_iqro").insert({
+                        "program": "Iqro",
+                        "nama_siswa": nama_pengguna_iqro,
+                        "kelas": kelas_iqro_siswa,
+                        "jilid": jilid_nomor_iqro,
+                        "halaman": str(no_hal_iqro),
+                        "audio_url": audio_url_iqro,
+                        "status": "menunggu",
+                    }).execute()
                     catat_aktivitas(f"Kirim Setoran Iqro - {judul_simpan_iqro}")
                     st.session_state[flag_iqro] = True
                     st.balloons()
                     st.success(
                         f"Alhamdulillah! Setoran {iqro_level_pilih} halaman "
-                        f"{no_hal_iqro} berhasil dikirim. Guru dapat memeriksanya "
-                        "melalui menu Setoran / Penilaian."
+                        f"{no_hal_iqro} berhasil dikirim ke Supabase. Guru dapat "
+                        "memeriksanya melalui menu Penilaian Siswa → Iqro."
                     )
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Gagal menyimpan setoran Iqro: {e}")
+                    st.error(f"Gagal mengirim setoran Iqro ke Supabase: {e}")
         else:
             st.caption("Belum ada rekaman. Klik mikrofon di atas, lalu baca materi Iqro.")
 
@@ -3472,6 +3668,36 @@ if st.session_state.get("lihat_setoran") and st.session_state["siswa_pilih"] is 
                 st.info("Setoran halaman ini sudah tersimpan. Klik Selanjutnya untuk melanjutkan.")
         else:
             st.info("⏳ Simpan suara halaman ini terlebih dahulu untuk membuka halaman berikutnya.")
+
+        # Riwayat setoran dan hasil penilaian Iqro milik siswa yang sedang login.
+        st.subheader("Riwayat Setoran dan Nilai Iqro Saya")
+        try:
+            riwayat_iqro_siswa = (
+                supabase.table("nilai_iqro").select("*")
+                .eq("program", "Iqro")
+                .eq("nama_siswa", nama_pengguna_iqro)
+                .order("created_at", desc=True).limit(30).execute().data or []
+            )
+            if not riwayat_iqro_siswa:
+                st.info("Belum ada setoran Iqro yang tersimpan.")
+            for row_iqro_siswa in riwayat_iqro_siswa:
+                label_status_iqro = "Sudah dinilai" if row_iqro_siswa.get("status") == "dinilai" else "Menunggu penilaian"
+                with st.expander(
+                    f"Iqro {row_iqro_siswa.get('jilid', '-')} — Halaman "
+                    f"{row_iqro_siswa.get('halaman', '-')} — {label_status_iqro}"
+                ):
+                    if row_iqro_siswa.get("audio_url"):
+                        st.audio(row_iqro_siswa["audio_url"])
+                    if row_iqro_siswa.get("status") == "dinilai":
+                        st.metric(
+                            "Nilai Akhir",
+                            f"{row_iqro_siswa.get('nilai_akhir', '-')} / 100",
+                        )
+                        st.write(f"Predikat: **{row_iqro_siswa.get('predikat', '-')}**")
+                        st.write(f"Catatan guru: {row_iqro_siswa.get('catatan_guru') or '-'}")
+                        st.caption(f"Dinilai oleh: {row_iqro_siswa.get('dinilai_oleh') or '-'}")
+        except Exception as e:
+            st.error(f"Gagal mengambil riwayat Iqro dari Supabase: {e}")
 
     # Untuk Tahsin/Tahfidz yang bukan bacaan Juz 30, tetap sediakan unggah manual.
     mode_setoran_manual = kat_setoran in ("Tahsin", "Tahfidz") and surat_juz30 == "-- Ketik Sendiri / Bukan Juz 30 --"
