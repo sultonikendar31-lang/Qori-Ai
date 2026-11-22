@@ -2191,8 +2191,12 @@ if (
         # Nilai 0-100 yang ditampilkan guru tetap disimpan lengkap pada catatan_guru.
         return max(1, min(4, int(round(float(nilai) / 25))))
 
-    def tampilkan_riwayat_tabel(judul, nama_tabel, data_riwayat, kolom, label_materi):
-        """Tampilkan riwayat sebagai tabel, filter nama, dan hapus per baris."""
+    def tampilkan_riwayat_tabel(judul, nama_tabel, data_riwayat, kolom, label_materi, hapus_langsung=False):
+        """Tampilkan riwayat sebagai tabel, filter nama, dan hapus per baris.
+
+        Jika hapus_langsung=True, satu tombol Hapus langsung menghapus ID baris
+        terkait tanpa checkbox. Pengaturan ini dipakai khusus riwayat Tahsin.
+        """
         st.subheader(judul)
         data = data_riwayat or []
         if not data:
@@ -2216,18 +2220,31 @@ if (
             tabel.append({label: row.get(key, "-") if row.get(key) is not None else "-" for label, key in kolom})
         st.dataframe(pd.DataFrame(tabel), use_container_width=True, hide_index=True)
 
-        st.caption("Untuk menghapus, centang kotak pada baris yang dimaksud lalu tekan tombol Hapus.")
+        if not hapus_langsung:
+            st.caption("Untuk menghapus, centang kotak pada baris yang dimaksud lalu tekan tombol Hapus.")
+        else:
+            st.caption("Tekan tombol Hapus pada baris yang ingin dihapus. Tidak perlu mencentang kotak.")
+
         for row in data:
             rid = row.get("id")
             nama = row.get("_nama") or "-"
             materi = row.get(label_materi) or "-"
-            c1, c2, c3 = st.columns([5, 1, 1])
+            c1, c2 = st.columns([5, 1])
             with c1:
                 st.write(f"**{nama}** — {materi}")
             with c2:
-                konfirmasi = st.checkbox("Pilih", key=f"pilih_hapus_{nama_tabel}_{rid}")
-            with c3:
-                if st.button("🗑️ Hapus", key=f"hapus_riwayat_{nama_tabel}_{rid}", disabled=not konfirmasi):
+                if hapus_langsung:
+                    tombol_hapus = st.button(
+                        "🗑️ Hapus", key=f"hapus_tahsin_langsung_{nama_tabel}_{rid}"
+                    )
+                else:
+                    konfirmasi = st.checkbox("Pilih", key=f"pilih_hapus_{nama_tabel}_{rid}")
+                    tombol_hapus = st.button(
+                        "🗑️ Hapus", key=f"hapus_riwayat_{nama_tabel}_{rid}",
+                        disabled=not konfirmasi
+                    )
+
+                if tombol_hapus:
                     try:
                         supabase.table(nama_tabel).delete().eq("id", rid).execute()
                         st.success(f"Riwayat {nama} berhasil dihapus.")
@@ -2339,7 +2356,7 @@ if (
         tampilkan_riwayat_tabel(
             "2. Riwayat Nilai Tahsin", "nilai_bacaan", riwayat_tahsin_tabel,
             [("Nama Siswa", "_nama"), ("Materi", "_materi"), ("Nilai", "_nilai"), ("Predikat", "_predikat"), ("Dinilai Oleh", "_guru")],
-            "_materi"
+            "_materi", hapus_langsung=True
         )
     except Exception as e:
         st.error(f"Gagal mengambil riwayat Tahsin: {e}")
