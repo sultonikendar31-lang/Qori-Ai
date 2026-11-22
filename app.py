@@ -18,7 +18,7 @@ NAMA_ARAB_HARAKAT = {
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def ambil_full_surat(no_surah):
-    """Mengambil seluruh ayat satu surah dari API AlQuran Cloud."""
+    """Ambil satu surat utuh dari API dan bersihkan Basmalah yang menempel pada ayat pertama."""
     try:
         response = requests.get(
             f"https://api.alquran.cloud/v1/surah/{int(no_surah)}", timeout=15
@@ -27,15 +27,33 @@ def ambil_full_surat(no_surah):
         payload = response.json()
         if payload.get("code") != 200 or not payload.get("data"):
             return None
+
         data = payload["data"]
         ayahs = data.get("ayahs") or []
         if not ayahs:
             return None
+
+        ayat_bersih = []
+        for idx, ayah in enumerate(ayahs):
+            teks = str(ayah.get("text", "")).strip()
+
+            # Bersihkan di sumber data sebelum pagination.
+            # Basmalah yang menempel pada awal ayat pertama terdiri dari 4 kata.
+            # Basmalah terpisah yang ditampilkan di atas kotak tetap dipertahankan.
+            if idx == 0 and teks.startswith("بِسْمِ"):
+                kata = teks.split()
+                if len(kata) > 4:
+                    teks = " ".join(kata[4:])
+                else:
+                    teks = ""
+
+            ayat_bersih.append(teks)
+
         return {
-            "nama": data["name"],
-            "nama_arab": data["name"],
-            "ayat": [a["text"] for a in ayahs],
-            "jumlah_ayat": data.get("numberOfAyahs", len(ayahs)),
+            "nama": f"{data.get('number', no_surah)}. {data.get('englishName', '')}".strip(),
+            "nama_arab": data.get("name", ""),
+            "ayat": ayat_bersih,
+            "jumlah_ayat": data.get("numberOfAyahs", len(ayat_bersih)),
         }
     except Exception:
         return None
@@ -67,33 +85,7 @@ def tampilkan_halaman_surat_juz30(no_surah, program_key):
     # Jika API menyertakan Basmalah di awal teks ayat pertama, bersihkan agar tidak dobel.
     pakai_basmalah = no_surah not in (1, 9)
     tampilkan_basmalah = pakai_basmalah and halaman == 0
-    if ayat_tampil:
-        if program_key == "tahfidz":
-            # Khusus Tahfidz: beberapa respons API menempelkan Basmalah
-            # di depan ayat pertama. Hilangkan hanya awalan tersebut;
-            # Basmalah yang dirender di bagian atas kotak tetap dipertahankan.
-            teks_ayat1 = ayat_tampil[0].strip()
-            if teks_ayat1.startswith("بِسْمِ"):
-                penanda_akhir_basmalah = "الرَّحِيمِ"
-                posisi_akhir = teks_ayat1.find(penanda_akhir_basmalah)
-                if posisi_akhir == -1:
-                    penanda_akhir_basmalah = "الرَّحِيمِ"
-                    posisi_akhir = teks_ayat1.find(penanda_akhir_basmalah)
-                if posisi_akhir != -1:
-                    sisa_ayat = teks_ayat1[
-                        posisi_akhir + len(penanda_akhir_basmalah):
-                    ].strip()
-                    # Bersihkan harakat sisa yang mungkin tertinggal tepat setelah Basmalah.
-                    sisa_ayat = sisa_ayat.lstrip("ًٌٍَُِّْٰـ").strip()
-                    ayat_tampil[0] = sisa_ayat
-                else:
-                    # Cadangan jika format API berbeda tetapi Basmalah persis cocok.
-                    ayat_tampil[0] = teks_ayat1.replace(BASMALAH, "", 1).strip()
-            elif BASMALAH in teks_ayat1:
-                ayat_tampil[0] = teks_ayat1.replace(BASMALAH, "", 1).strip()
-        elif BASMALAH in ayat_tampil[0]:
-            # Tahsin tetap memakai pembersihan yang sudah berjalan sebelumnya.
-            ayat_tampil[0] = ayat_tampil[0].replace(BASMALAH, "", 1).strip()
+    # Pembersihan Basmalah sudah dilakukan di ambil_full_surat(), sebelum pagination.
 
     # Judul surah hanya ditampilkan pada halaman pertama.
     # Halaman 2 dan seterusnya langsung menampilkan ayat tanpa judul berulang.
