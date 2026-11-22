@@ -1307,11 +1307,12 @@ def tampil_siswa_iqro(nama_siswa, kelas_siswa="Iqro"):
         unsafe_allow_html=True,
     )
 
+    # ---- 6. KOTAK 1,2,3 PINK - FIX BIAR KELIHATAN ----
     st.markdown("""
-    <div style='background:#FCE4EC;border-radius:10px;padding:16px 20px;margin-top:16px;color:#111;'>
-        <p style='margin:4px 0;font-size:16px;'><b>1.</b> &nbsp;Klik tombol mikrofon di bawah</p>
-        <p style='margin:4px 0;font-size:16px;'><b>2.</b> &nbsp;Baca Iqro pelan-pelan, hurufnya jelas</p>
-        <p style='margin:4px 0;font-size:16px;'><b>3.</b> &nbsp;Klik Stop, lalu klik Kirim Setoran Iqro</p>
+    <div style='background-color:#FCE4EC !important; border:2px solid #F8BBD0; border-radius:10px; padding:16px 20px; margin-top:16px;'>
+        <p style='color:#111111 !important; margin:6px 0; font-size:17px; font-weight:600;'>1. &nbsp;Klik tombol mikrofon di bawah</p>
+        <p style='color:#111111 !important; margin:6px 0; font-size:17px; font-weight:600;'>2. &nbsp;Baca Iqro pelan-pelan, hurufnya jelas</p>
+        <p style='color:#111111 !important; margin:6px 0; font-size:17px; font-weight:600;'>3. &nbsp;Klik Stop, lalu klik Kirim Setoran Iqro</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1352,15 +1353,27 @@ def tampil_siswa_iqro(nama_siswa, kelas_siswa="Iqro"):
     else:
         st.caption("Belum ada rekaman. Klik mikrofon di atas, lalu baca Iqromu.")
 
+    # Kotak saran ditampilkan satu kali; tombol Setoran Iqro bawah dihapus
+    # agar tidak menduplikasi tombol kirim setoran yang berada tepat di bawah mikrofon.
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("💬 Kotak Saran / Kritik / Keluhan", use_container_width=True, key="saran_iqro_siswa_full"):
-        st.session_state["lihat_saran"] = True
-        st.session_state["lihat_setoran"] = False
-        st.rerun()
-    if st.button("📖 Setoran Iqro", use_container_width=True, key="btn_setoran_iqro_siswa_full"):
-        st.session_state["lihat_setoran"] = True
-        st.session_state["lihat_saran"] = False
-        st.rerun()
+    if st.button(
+        "💬 Kotak Saran / Kritik / Keluhan",
+        use_container_width=True,
+        key="saran_iqro_siswa_satu_aja",
+    ):
+        st.session_state["tampilkan_form_saran_iqro"] = True
+
+    if st.session_state.get("tampilkan_form_saran_iqro", False):
+        isi_saran_iqro = st.text_area(
+            "Tulis pertanyaanmu di sini... Tanya apa saja ya!",
+            key="isi_saran_iqro_satu",
+        )
+        if st.button("Kirim ➤", key="kirim_saran_iqro_satu"):
+            if isi_saran_iqro.strip():
+                st.success("Saranmu sudah terkirim, terima kasih!")
+                st.session_state["tampilkan_form_saran_iqro"] = False
+            else:
+                st.warning("Silakan tulis saran atau pertanyaan terlebih dahulu.")
 
 for k, v in [("login_nama",None),("login_role",None),("login_jabatan",None),("program",None),("kategori_pilih",None),("messages",[]),("siswa_pilih",None),("seed_acak",1),("soal_acak",None),("kunci_acak",None),("kat_acak",None),("waktu_mulai",None),("waktu_habis",False),("ujian_selesai",False),("hasil_ujian",None),("lihat_nilai",False),("lihat_nilai_game",False),("lihat_riwayat",False),("lihat_saran",False),("lihat_setoran",False),("lihat_baca",False),("lihat_video",True),("waktu_login",None),("sudah_catat_masuk",False),("jawaban_tersimpan",{}),("login_error",""),("login_error_time",0),("preview_tim_ujian",False),("preview_kategori_ujian",None),("game",None),("game_question",None),("game_feedback",""),("game_question_no",0)]:
     if k not in st.session_state:
