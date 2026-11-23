@@ -986,215 +986,364 @@ def ambil_ayat_surat_quran(nomor_surat):
 
 api_key = st.secrets.get("OPENAI_API_KEY", "")
 
-# ===== DATABASE SQLITE =====
+# ===== PENYIMPANAN DATA UTAMA DI SUPABASE =====
+# Semua data operasional (nilai, aktivitas, game, saran, sesi ujian, setoran)
+# disimpan di Supabase. SQLite hanya dipakai opsional untuk migrasi satu kali
+# jika qori_ai.db lama masih tersedia di server.
 DB = os.environ.get("QORI_DB_PATH", "qori_ai.db")
-def db():
-    c = sqlite3.connect(DB, check_same_thread=False, timeout=30)
-    c.execute("PRAGMA journal_mode=WAL")
-    c.execute("PRAGMA foreign_keys=ON")
-    c.execute("CREATE TABLE IF NOT EXISTS hasil (nama TEXT PRIMARY KEY, nilai INTEGER, ulang INTEGER)")
-    c.execute("CREATE TABLE IF NOT EXISTS aktivitas (id INTEGER PRIMARY KEY AUTOINCREMENT, nama TEXT, kelas TEXT, aktivitas TEXT, jam TEXT, lama TEXT)")
-    c.execute("CREATE TABLE IF NOT EXISTS saran (id INTEGER PRIMARY KEY AUTOINCREMENT, pengirim TEXT, label TEXT, role TEXT, jenis TEXT, isi TEXT, jam TEXT, balasan TEXT, pembalas TEXT)")
-    c.execute("CREATE TABLE IF NOT EXISTS ujian_sesi (nama TEXT PRIMARY KEY, mulai REAL NOT NULL, seed INTEGER NOT NULL)")
-    c.execute("""CREATE TABLE IF NOT EXISTS game_scores (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nama TEXT NOT NULL, kelas TEXT NOT NULL, game TEXT NOT NULL,
-        skor INTEGER NOT NULL, jam TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )""")
-    c.execute("""CREATE TABLE IF NOT EXISTS game_attempts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        attempt_id TEXT NOT NULL UNIQUE,
-        nama TEXT NOT NULL, kelas TEXT NOT NULL, game TEXT NOT NULL,
-        level INTEGER NOT NULL, skor INTEGER NOT NULL,
-        benar INTEGER NOT NULL, total_soal INTEGER NOT NULL,
-        jam TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )""")
-    c.execute("""CREATE TABLE IF NOT EXISTS setoran (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        pengirim TEXT, label TEXT, kategori TEXT, judul TEXT, keterangan TEXT,
-        foto BLOB, foto_nama TEXT, audio BLOB, audio_nama TEXT,
-        jam TEXT, koreksi TEXT, pembalas TEXT, nilai_setoran TEXT
-    )""")
-    # Kolom tambahan penilaian Iqro pada tabel SQLite setoran yang sudah ada.
-    # Migrasi ini aman untuk database lama: kolom hanya ditambahkan jika belum tersedia.
-    kolom_setoran = {r[1] for r in c.execute("PRAGMA table_info(setoran)").fetchall()}
-    kolom_penilaian_iqro = {
-        "jilid_iqro": "INTEGER",
-        "halaman_iqro": "INTEGER",
-        "kelancaran_iqro": "INTEGER",
-        "ketepatan_huruf_iqro": "INTEGER",
-        "nilai_akhir_iqro": "INTEGER",
-        "predikat_iqro": "TEXT",
-        "catatan_guru_iqro": "TEXT",
-        "dinilai_oleh_iqro": "TEXT",
-        "tanggal_dinilai_iqro": "TEXT",
-    }
-    for nama_kolom, tipe_kolom in kolom_penilaian_iqro.items():
-        if nama_kolom not in kolom_setoran:
-            c.execute(f"ALTER TABLE setoran ADD COLUMN {nama_kolom} {tipe_kolom}")
-    c.commit()
-    return c
-CONN = db()
-def get_hasil():
-    return {r[0]: r[1] for r in CONN.execute("SELECT nama,nilai FROM hasil")}
-def get_ulang():
-    return {r[0]: r[1] for r in CONN.execute("SELECT nama,ulang FROM hasil")}
-def simpan_hasil(nama, nilai):
-    cur = CONN.execute("SELECT ulang FROM hasil WHERE nama=?", (nama,))
-    row = cur.fetchone()
-    ulang = (row[0]+1) if row else 1
-    CONN.execute("INSERT INTO hasil(nama,nilai,ulang) VALUES(?,?,?) ON CONFLICT(nama) DO UPDATE SET nilai=excluded.nilai, ulang=excluded.ulang", (nama, nilai, ulang))
-    CONN.commit()
-    return ulang
-def hapus_hasil_satu(nama):
-    CONN.execute("DELETE FROM hasil WHERE nama=?", (nama,))
-    CONN.execute("DELETE FROM ujian_sesi WHERE nama=?", (nama,))
-    CONN.commit()
-def reset_semua_hasil():
-    CONN.execute("DELETE FROM hasil")
-    CONN.execute("DELETE FROM ujian_sesi")
-    CONN.commit()
-def get_aktivitas():
-    # Sertakan ID unik agar tombol hapus hanya menghapus satu baris aktivitas.
-    return [
-        {"id": r[0], "nama": r[1], "kelas": r[2], "aktivitas": r[3], "jam": r[4], "lama": r[5]}
-        for r in CONN.execute(
-            "SELECT id, nama, kelas, aktivitas, jam, lama FROM aktivitas ORDER BY id DESC"
+
+
+def _db_client():
+    """Gunakan service-role hanya di server Streamlit, tidak pernah di browser."""
+    if supabase_admin is None:
+        raise RuntimeError(
+            "SUPABASE_SERVICE_ROLE_KEY belum diatur di Streamlit Cloud > Settings > Secrets. "
+            "Tambahkan service-role key agar penyimpanan data aman dan tidak ditolak RLS."
         )
+    return supabase_admin
+
+
+def _ambil_baris(tabel, kolom="*", **kwargs):
+    query = _db_client().table(tabel).select(kolom)
+    for k, v in kwargs.items():
+        query = query.eq(k, v)
+    return query.execute().data or []
+
+
+def get_hasil():
+    return {r["nama"]: r.get("nilai") for r in _ambil_baris("hasil", "nama,nilai")}
+
+
+def get_ulang():
+    return {r["nama"]: int(r.get("ulang") or 0) for r in _ambil_baris("hasil", "nama,ulang")}
+
+
+def simpan_hasil(nama, nilai):
+    client = _db_client()
+    lama = client.table("hasil").select("ulang").eq("nama", nama).limit(1).execute().data or []
+    ulang = int(lama[0].get("ulang") or 0) + 1 if lama else 1
+    client.table("hasil").upsert(
+        {"nama": nama, "nilai": int(nilai), "ulang": ulang}, on_conflict="nama"
+    ).execute()
+    return ulang
+
+
+def hapus_hasil_satu(nama):
+    client = _db_client()
+    client.table("hasil").delete().eq("nama", nama).execute()
+    client.table("ujian_sesi").delete().eq("nama", nama).execute()
+
+
+def reset_semua_hasil():
+    client = _db_client()
+    client.table("hasil").delete().neq("nama", "__QORI_DELETE_ALL_SENTINEL__").execute()
+    client.table("ujian_sesi").delete().neq("nama", "__QORI_DELETE_ALL_SENTINEL__").execute()
+
+
+def get_aktivitas():
+    rows = _db_client().table("aktivitas").select("*").order("id", desc=True).execute().data or []
+    return [
+        {"id": r.get("id"), "nama": r.get("nama"), "kelas": r.get("kelas"),
+         "aktivitas": r.get("aktivitas"), "jam": r.get("jam"), "lama": r.get("lama")}
+        for r in rows
     ]
+
+
 def hapus_aktivitas_id(aktivitas_id):
-    CONN.execute("DELETE FROM aktivitas WHERE id = ?", (aktivitas_id,))
-    CONN.commit()
+    _db_client().table("aktivitas").delete().eq("id", int(aktivitas_id)).execute()
+
+
 def tambah_aktivitas(nama, kelas, aktivitas, jam, lama):
-    CONN.execute("INSERT INTO aktivitas(nama,kelas,aktivitas,jam,lama) VALUES(?,?,?,?,?)", (nama, kelas, aktivitas, jam, lama))
-    CONN.commit()
+    _db_client().table("aktivitas").insert({
+        "nama": nama, "kelas": kelas, "aktivitas": aktivitas, "jam": jam, "lama": lama
+    }).execute()
+
+
 def hapus_riwayat_satu(nama):
-    CONN.execute("DELETE FROM aktivitas WHERE nama=?", (nama,))
-    CONN.commit()
+    _db_client().table("aktivitas").delete().eq("nama", nama).execute()
+
+
 def reset_semua_riwayat():
-    CONN.execute("DELETE FROM aktivitas")
-    CONN.commit()
+    _db_client().table("aktivitas").delete().neq("id", -1).execute()
+
 
 def simpan_skor_game(nama, kelas, game, skor):
-    CONN.execute(
-        "INSERT INTO game_scores(nama,kelas,game,skor,jam) VALUES(?,?,?,?,datetime('now','localtime'))",
-        (nama, kelas, game, skor)
-    )
-    CONN.commit()
+    _db_client().table("game_scores").insert({
+        "nama": nama, "kelas": kelas, "game": game, "skor": int(skor),
+        "jam": datetime.datetime.now().astimezone().isoformat()
+    }).execute()
+
 
 def get_leaderboard():
-    rows = CONN.execute("""
-        SELECT nama, kelas, SUM(skor), COUNT(*), GROUP_CONCAT(game, ', ')
-        FROM game_scores GROUP BY nama, kelas
-        ORDER BY SUM(skor) DESC, COUNT(*) DESC, nama ASC
-    """).fetchall()
-    return [{"nama":r[0],"kelas":r[1],"total":r[2],"jumlah_main":r[3],"game":r[4] or "-"} for r in rows]
+    rows = _db_client().table("game_scores").select("nama,kelas,game,skor").execute().data or []
+    rekap = {}
+    for r in rows:
+        key = (r.get("nama") or "", r.get("kelas") or "")
+        item = rekap.setdefault(key, {"nama": key[0], "kelas": key[1], "total": 0, "jumlah_main": 0, "games": []})
+        item["total"] += int(r.get("skor") or 0)
+        item["jumlah_main"] += 1
+        game = r.get("game") or ""
+        if game and game not in item["games"]:
+            item["games"].append(game)
+    hasil = []
+    for item in rekap.values():
+        item["game"] = ", ".join(item.pop("games")) or "-"
+        hasil.append(item)
+    return sorted(hasil, key=lambda x: (-x["total"], -x["jumlah_main"], x["nama"].casefold()))
+
 
 def reset_leaderboard():
-    CONN.execute("DELETE FROM game_scores")
-    CONN.execute("DELETE FROM game_attempts")
-    CONN.commit()
+    client = _db_client()
+    client.table("game_scores").delete().neq("id", -1).execute()
+    client.table("game_attempts").delete().neq("id", -1).execute()
+
 
 def simpan_hasil_game(attempt_id, nama, kelas, game, level, skor, total_soal=25):
-    """Simpan satu hasil akhir sesi game; attempt_id mencegah duplikasi saat rerun."""
-    benar = int(skor // 10)
-    CONN.execute(
-        """INSERT OR IGNORE INTO game_attempts
-        (attempt_id,nama,kelas,game,level,skor,benar,total_soal,jam)
-        VALUES(?,?,?,?,?,?,?,?,datetime('now','localtime'))""",
-        (attempt_id, nama, kelas, game, int(level), int(skor), benar, int(total_soal))
-    )
-    CONN.commit()
+    """Simpan hasil akhir sesi; attempt_id unik mencegah duplikasi saat rerun."""
+    payload = {
+        "attempt_id": str(attempt_id), "nama": nama, "kelas": kelas, "game": game,
+        "level": int(level), "skor": int(skor), "benar": int(int(skor) // 10),
+        "total_soal": int(total_soal),
+        "jam": datetime.datetime.now().astimezone().isoformat(),
+    }
+    _db_client().table("game_attempts").upsert(
+        payload, on_conflict="attempt_id", ignore_duplicates=True
+    ).execute()
+
 
 def get_rekap_nilai_game(nama_game):
-    """Nilai terbaik dan jumlah percobaan per siswa pada setiap level game."""
-    rows = CONN.execute(
-        """SELECT nama, kelas, level, MAX(skor), COUNT(*), MAX(jam)
-        FROM game_attempts WHERE game=?
-        GROUP BY nama, kelas, level
-        ORDER BY nama COLLATE NOCASE, level""",
-        (nama_game,)
-    ).fetchall()
+    rows = (_db_client().table("game_attempts").select(
+        "nama,kelas,level,skor,jam"
+    ).eq("game", nama_game).execute().data or [])
     hasil = {}
-    for nama, kelas, level, skor, jumlah, jam in rows:
-        hasil.setdefault(nama, {"kelas": kelas, "level": {}})
-        hasil[nama]["level"][int(level)] = {
-            "skor": int(skor), "percobaan": int(jumlah), "jam": jam
-        }
+    for r in rows:
+        nama = r.get("nama") or ""
+        level = int(r.get("level") or 0)
+        skor = int(r.get("skor") or 0)
+        item = hasil.setdefault(nama, {"kelas": r.get("kelas") or "", "level": {}})
+        current = item["level"].get(level)
+        if current is None:
+            item["level"][level] = {"skor": skor, "percobaan": 1, "jam": r.get("jam")}
+        else:
+            current["percobaan"] += 1
+            if skor > current["skor"]:
+                current["skor"] = skor
+            if (r.get("jam") or "") > (current.get("jam") or ""):
+                current["jam"] = r.get("jam")
     return hasil
 
+
 def hapus_nilai_game_satu(nama):
-    """Hapus seluruh nilai/percobaan game milik satu siswa dari database."""
-    CONN.execute("DELETE FROM game_attempts WHERE nama=?", (nama,))
-    CONN.execute("DELETE FROM game_scores WHERE nama=?", (nama,))
-    CONN.commit()
+    client = _db_client()
+    client.table("game_attempts").delete().eq("nama", nama).execute()
+    client.table("game_scores").delete().eq("nama", nama).execute()
+
 
 def reset_semua_nilai_game():
-    """Hapus seluruh nilai game dari database."""
-    CONN.execute("DELETE FROM game_attempts")
-    CONN.execute("DELETE FROM game_scores")
-    CONN.commit()
+    reset_leaderboard()
+
 
 def get_saran():
-    return [{"id":r[0],"pengirim":r[1],"label":r[2],"role":r[3],"jenis":r[4],"isi":r[5],"jam":r[6],"balasan":r[7] or "","pembalas":r[8] or ""} for r in CONN.execute("SELECT id,pengirim,label,role,jenis,isi,jam,balasan,pembalas FROM saran ORDER BY id DESC")]
+    rows = _db_client().table("saran").select("*").order("id", desc=True).execute().data or []
+    return [{
+        "id": r.get("id"), "pengirim": r.get("pengirim"), "label": r.get("label"),
+        "role": r.get("role"), "jenis": r.get("jenis"), "isi": r.get("isi"),
+        "jam": r.get("jam"), "balasan": r.get("balasan") or "",
+        "pembalas": r.get("pembalas") or ""
+    } for r in rows]
+
+
 def tambah_saran(pengirim, label, role, jenis, isi, jam):
-    CONN.execute("INSERT INTO saran(pengirim,label,role,jenis,isi,jam,balasan,pembalas) VALUES(?,?,?,?,?,?,?,?)", (pengirim, label, role, jenis, isi, jam, "", ""))
-    CONN.commit()
+    _db_client().table("saran").insert({
+        "pengirim": pengirim, "label": label, "role": role, "jenis": jenis,
+        "isi": isi, "jam": jam, "balasan": "", "pembalas": ""
+    }).execute()
+
+
 def balas_saran(sid, balasan, pembalas):
-    CONN.execute("UPDATE saran SET balasan=?, pembalas=? WHERE id=?", (balasan, pembalas, sid))
-    CONN.commit()
+    _db_client().table("saran").update({
+        "balasan": balasan, "pembalas": pembalas
+    }).eq("id", int(sid)).execute()
+
+
 def hapus_saran(sid):
-    CONN.execute("DELETE FROM saran WHERE id=?", (sid,))
-    CONN.commit()
+    _db_client().table("saran").delete().eq("id", int(sid)).execute()
+
+
+def _upload_setoran_file(data, nama_file, folder):
+    if not data:
+        return None
+    ekstensi = os.path.splitext(nama_file or "file.bin")[1][:12]
+    nama_path = f"{folder}/{int(time.time() * 1000)}_{random.randrange(100000, 999999)}{ekstensi}"
+    _db_client().storage.from_("qori-setoran").upload(
+        nama_path, data, {"upsert": "true"}
+    )
+    return nama_path
+
+
 def tambah_setoran(pengirim, label, kategori, judul, keterangan, foto_bytes, foto_nama, audio_bytes, audio_nama, jam):
-    # 13 kolom harus dipasangkan dengan tepat 13 placeholder.
-    CONN.execute("INSERT INTO setoran(pengirim,label,kategori,judul,keterangan,foto,foto_nama,audio,audio_nama,jam,koreksi,pembalas,nilai_setoran) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (pengirim, label, kategori, judul, keterangan, foto_bytes, foto_nama, audio_bytes, audio_nama, jam, "", "", ""))
-    CONN.commit()
+    foto_path = _upload_setoran_file(foto_bytes, foto_nama, "foto")
+    audio_path = _upload_setoran_file(audio_bytes, audio_nama, "audio")
+    return _db_client().table("setoran").insert({
+        "pengirim": pengirim, "label": label, "kategori": kategori, "judul": judul,
+        "keterangan": keterangan, "foto_path": foto_path, "foto_nama": foto_nama,
+        "audio_path": audio_path, "audio_nama": audio_nama, "jam": jam,
+        "koreksi": "", "pembalas": "", "nilai_setoran": ""
+    }).execute()
+
+
+def _url_setoran(path):
+    if not path:
+        return None
+    try:
+        return _db_client().storage.from_("qori-setoran").create_signed_url(path, 3600).get("signedURL")
+    except Exception:
+        return None
+
+
 def get_setoran():
-    rows = CONN.execute("""SELECT id,pengirim,label,kategori,judul,keterangan,foto,foto_nama,
-        audio,audio_nama,jam,koreksi,pembalas,nilai_setoran,jilid_iqro,halaman_iqro,
-        kelancaran_iqro,ketepatan_huruf_iqro,nilai_akhir_iqro,predikat_iqro,
-        catatan_guru_iqro,dinilai_oleh_iqro,tanggal_dinilai_iqro
-        FROM setoran ORDER BY id DESC""").fetchall()
+    rows = _db_client().table("setoran").select("*").order("id", desc=True).execute().data or []
     out = []
     for r in rows:
         out.append({
-            "id":r[0],"pengirim":r[1],"label":r[2],"kategori":r[3],"judul":r[4],
-            "keterangan":r[5] or "","foto":r[6],"foto_nama":r[7] or "","audio":r[8],
-            "audio_nama":r[9] or "","jam":r[10],"koreksi":r[11] or "",
-            "pembalas":r[12] or "","nilai":r[13] or "","jilid_iqro":r[14],
-            "halaman_iqro":r[15],"kelancaran_iqro":r[16],"ketepatan_huruf_iqro":r[17],
-            "nilai_akhir_iqro":r[18],"predikat_iqro":r[19] or "",
-            "catatan_guru_iqro":r[20] or "","dinilai_oleh_iqro":r[21] or "",
-            "tanggal_dinilai_iqro":r[22] or "",
+            "id": r.get("id"), "pengirim": r.get("pengirim"), "label": r.get("label"),
+            "kategori": r.get("kategori"), "judul": r.get("judul"),
+            "keterangan": r.get("keterangan") or "", "foto": _url_setoran(r.get("foto_path")),
+            "foto_nama": r.get("foto_nama") or "", "audio": _url_setoran(r.get("audio_path")),
+            "audio_nama": r.get("audio_nama") or "", "jam": r.get("jam"),
+            "koreksi": r.get("koreksi") or "", "pembalas": r.get("pembalas") or "",
+            "nilai": r.get("nilai_setoran") or "", "jilid_iqro": r.get("jilid_iqro"),
+            "halaman_iqro": r.get("halaman_iqro"), "kelancaran_iqro": r.get("kelancaran_iqro"),
+            "ketepatan_huruf_iqro": r.get("ketepatan_huruf_iqro"),
+            "nilai_akhir_iqro": r.get("nilai_akhir_iqro"), "predikat_iqro": r.get("predikat_iqro") or "",
+            "catatan_guru_iqro": r.get("catatan_guru_iqro") or "",
+            "dinilai_oleh_iqro": r.get("dinilai_oleh_iqro") or "",
+            "tanggal_dinilai_iqro": r.get("tanggal_dinilai_iqro") or ""
         })
     return out
+
+
 def koreksi_setoran(sid, koreksi, pembalas, nilai_setoran):
-    CONN.execute("UPDATE setoran SET koreksi=?, pembalas=?, nilai_setoran=? WHERE id=?", (koreksi, pembalas, nilai_setoran, sid))
-    CONN.commit()
+    _db_client().table("setoran").update({
+        "koreksi": koreksi, "pembalas": pembalas, "nilai_setoran": nilai_setoran
+    }).eq("id", int(sid)).execute()
+
+
 def simpan_penilaian_iqro(sid, jilid, halaman, kelancaran, ketepatan_huruf, nilai, predikat, catatan, dinilai_oleh):
-    """Simpan rubrik Iqro terstruktur pada baris setoran SQLite yang sudah ada."""
     waktu = time.strftime("%d/%m/%Y %H:%M", time.localtime())
-    CONN.execute("""UPDATE setoran SET
-        koreksi=?, pembalas=?, nilai_setoran=?, jilid_iqro=?, halaman_iqro=?,
-        kelancaran_iqro=?, ketepatan_huruf_iqro=?, nilai_akhir_iqro=?,
-        predikat_iqro=?, catatan_guru_iqro=?, dinilai_oleh_iqro=?, tanggal_dinilai_iqro=?
-        WHERE id=? AND kategori='Iqro'""",
-        (catatan or "Penilaian Iqro", dinilai_oleh, str(nilai), int(jilid), int(halaman),
-         int(kelancaran), int(ketepatan_huruf), int(nilai), predikat, catatan or "",
-         dinilai_oleh, waktu, int(sid)))
-    CONN.commit()
+    _db_client().table("setoran").update({
+        "koreksi": catatan or "Penilaian Iqro", "pembalas": dinilai_oleh,
+        "nilai_setoran": str(nilai), "jilid_iqro": int(jilid),
+        "halaman_iqro": int(halaman), "kelancaran_iqro": int(kelancaran),
+        "ketepatan_huruf_iqro": int(ketepatan_huruf), "nilai_akhir_iqro": int(nilai),
+        "predikat_iqro": predikat, "catatan_guru_iqro": catatan or "",
+        "dinilai_oleh_iqro": dinilai_oleh, "tanggal_dinilai_iqro": waktu
+    }).eq("id", int(sid)).eq("kategori", "Iqro").execute()
+
+
 def hapus_setoran(sid):
-    CONN.execute("DELETE FROM setoran WHERE id=?", (sid,))
-    CONN.commit()
+    client = _db_client()
+    rows = client.table("setoran").select("foto_path,audio_path").eq("id", int(sid)).limit(1).execute().data or []
+    if rows:
+        paths = [x for x in [rows[0].get("foto_path"), rows[0].get("audio_path")] if x]
+        if paths:
+            try:
+                client.storage.from_("qori-setoran").remove(paths)
+            except Exception:
+                pass
+    client.table("setoran").delete().eq("id", int(sid)).execute()
+
+
 def simpan_sesi_ujian(nama, mulai, seed):
-    CONN.execute("INSERT INTO ujian_sesi(nama,mulai,seed) VALUES(?,?,?) ON CONFLICT(nama) DO UPDATE SET mulai=excluded.mulai, seed=excluded.seed", (nama, mulai, seed))
-    CONN.commit()
+    _db_client().table("ujian_sesi").upsert({
+        "nama": nama, "mulai": float(mulai), "seed": int(seed)
+    }, on_conflict="nama").execute()
+
+
 def ambil_sesi_ujian(nama):
-    return CONN.execute("SELECT mulai,seed FROM ujian_sesi WHERE nama=?", (nama,)).fetchone()
+    rows = _db_client().table("ujian_sesi").select("mulai,seed").eq("nama", nama).limit(1).execute().data or []
+    return (rows[0]["mulai"], rows[0]["seed"]) if rows else None
+
+
 def hapus_sesi_ujian(nama):
-    CONN.execute("DELETE FROM ujian_sesi WHERE nama=?", (nama,))
-    CONN.commit()
+    _db_client().table("ujian_sesi").delete().eq("nama", nama).execute()
+
+
+# Migrasi satu kali otomatis: jika qori_ai.db lama masih ada di server, salin
+# semua tabel ke Supabase dengan kunci unik agar aman dijalankan ulang.
+def migrasi_sqlite_lokal_ke_supabase():
+    if not os.path.isfile(DB) or supabase_admin is None:
+        return
+    client = supabase_admin
+    try:
+        if client.table("qori_migrasi_log").select("migration_key").eq(
+            "migration_key", "sqlite_qori_ai_v1"
+        ).limit(1).execute().data:
+            return
+        local = sqlite3.connect(DB)
+        local.row_factory = sqlite3.Row
+        nama_tabel = {r[0] for r in local.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+
+        def rows_tabel(nama):
+            if nama not in nama_tabel:
+                return []
+            return [dict(r) for r in local.execute(f'SELECT * FROM "{nama}"').fetchall()]
+
+        mapping = [
+            ("hasil", "hasil", "nama"),
+            ("aktivitas", "aktivitas", "id"),
+            ("saran", "saran", "id"),
+            ("ujian_sesi", "ujian_sesi", "nama"),
+            ("game_scores", "game_scores", "id"),
+            ("game_attempts", "game_attempts", "attempt_id"),
+        ]
+        for sumber, tujuan, konflik in mapping:
+            data = rows_tabel(sumber)
+            if data:
+                for i in range(0, len(data), 250):
+                    client.table(tujuan).upsert(
+                        data[i:i+250], on_conflict=konflik
+                    ).execute()
+
+        data_setoran = rows_tabel("setoran")
+        for row in data_setoran:
+            foto = row.pop("foto", None)
+            audio = row.pop("audio", None)
+            foto_nama = row.get("foto_nama") or "foto.bin"
+            audio_nama = row.get("audio_nama") or "audio.bin"
+            if foto:
+                row["foto_path"] = _upload_setoran_file(foto, foto_nama, "migrasi/foto")
+            if audio:
+                row["audio_path"] = _upload_setoran_file(audio, audio_nama, "migrasi/audio")
+            # Kolom tambahan tidak ada pada instalasi SQLite paling lama.
+            for kolom in ("jilid_iqro", "halaman_iqro", "kelancaran_iqro", "ketepatan_huruf_iqro",
+                          "nilai_akhir_iqro", "predikat_iqro", "catatan_guru_iqro",
+                          "dinilai_oleh_iqro", "tanggal_dinilai_iqro"):
+                row.setdefault(kolom, None)
+            row.setdefault("foto_path", None)
+            row.setdefault("audio_path", None)
+            row.pop("foto", None); row.pop("audio", None)
+            client.table("setoran").upsert(row, on_conflict="id").execute()
+
+        local.close()
+        # Sinkronkan sequence setelah ID SQLite lama dimasukkan secara eksplisit.
+        try:
+            client.rpc("qori_sync_sequences").execute()
+        except Exception:
+            pass
+        client.table("qori_migrasi_log").insert({
+            "migration_key": "sqlite_qori_ai_v1",
+            "catatan": "Migrasi otomatis dari qori_ai.db lokal"
+        }).execute()
+    except Exception as e:
+        # Jangan menandai migrasi selesai jika ada tabel yang gagal disalin.
+        st.warning(f"Migrasi data lokal ke Supabase belum selesai: {e}")
+
+
+try:
+    migrasi_sqlite_lokal_ke_supabase()
+except Exception:
+    pass
 
 # ===== TIM =====
 TIM_PENYUSUN = {
@@ -2052,12 +2201,10 @@ if st.session_state.get("game"):
         nama_game_progres = {"iqro": "Game Iqro'", "tahsin": "Game Tahsin", "tahfidz": "Game Tahfidz"}.get(game_key)
         level_tersimpan = set()
         if nama_game_progres and kategori_progres:
-            level_tersimpan = {
-                int(row[0]) for row in CONN.execute(
-                    "SELECT DISTINCT level FROM game_attempts WHERE nama=? AND game=?",
-                    (nama_progres, nama_game_progres)
-                ).fetchall()
-            }
+            progres_rows = (_db_client().table("game_attempts")
+                .select("level").eq("nama", nama_progres)
+                .eq("game", nama_game_progres).execute().data or [])
+            level_tersimpan = {int(row["level"]) for row in progres_rows}
         level_berikutnya = next((i for i in range(1, 7) if i not in level_tersimpan), 6)
         level_maksimal_dibuka = 6 if len(level_tersimpan) == 6 else level_berikutnya
         level_tersedia = [i for i in range(1, level_maksimal_dibuka + 1)]
