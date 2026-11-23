@@ -1,3 +1,7 @@
 streamlit
+requests
 supabase
+openai
 pandas
+openpyxl
+streamlit-autorefresh
