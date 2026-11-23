@@ -1202,12 +1202,14 @@ TIM_PENYUSUN = {
     "SYAMSUL HADI": "Kepala MA Al-Barokah",
     "MUHAMAD RAIS": "Guru Pamong",
     "KENDAR SULTONI": "Mahasiswa",
+    "ADE ROMLI": "Tim",
 }
 NAMA_LENGKAP_TIM = {
     "MUHAMAD RAIS": "Bapak Muhamad Rais, S.Pd.I",
     "MUHAMAD SIDDIQ ASYHARI": "Dr. Muhamad Siddiq Asyhari, M.Pd",
     "SYAMSUL HADI": "Bapak Syamsul Hadi, S.Pd.I",
     "KENDAR SULTONI": "Kendar Sultoni",
+    "ADE ROMLI": "Ade Romli",
 }
 JUZ30_SURAH = [
     "Surah An-Naba (78)", "Surah An-Nazi'at (79)", "Surah 'Abasa (80)",
