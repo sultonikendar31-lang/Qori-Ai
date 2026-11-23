@@ -1054,17 +1054,6 @@ def simpan_hasil(nama, nilai):
     client.table("hasil").upsert(
         {"nama": nama, "nilai": int(nilai), "ulang": ulang}, on_conflict="nama"
     ).execute()
-    # Simpan setiap percobaan agar perkembangan nilai ujian tidak tertimpa.
-    try:
-        client.table("qori_exam_history").insert({
-            "nama_siswa": nama,
-            "nilai": int(nilai),
-            "percobaan": ulang,
-            "materi": str(st.session_state.get("program") or "Ujian"),
-            "tanggal_ujian": datetime.datetime.now().astimezone().isoformat(),
-        }).execute()
-    except Exception as e:
-        print(f"Riwayat ujian belum tersimpan. Jalankan SQL migrasi Supabase: {e}")
     return ulang
 
 
@@ -1186,53 +1175,6 @@ def get_rekap_nilai_game(nama_game):
             if (r.get("jam") or "") > (current.get("jam") or ""):
                 current["jam"] = r.get("jam")
     return hasil
-
-
-def simpan_target_hafalan(nama, tanggal, target, capaian, satuan, catatan=""):
-    payload = {
-        "nama_siswa": nama, "tanggal": tanggal.isoformat(),
-        "target": int(target), "capaian": int(capaian), "satuan": satuan, "catatan": catatan,
-    }
-    return _db_client().table("qori_hafalan_targets").upsert(
-        payload, on_conflict="nama_siswa,tanggal"
-    ).execute()
-
-
-def get_target_hafalan(nama=None, tanggal_awal=None, tanggal_akhir=None):
-    query = _db_client().table("qori_hafalan_targets").select("*")
-    if nama:
-        query = query.eq("nama_siswa", nama)
-    if tanggal_awal:
-        query = query.gte("tanggal", tanggal_awal.isoformat())
-    if tanggal_akhir:
-        query = query.lte("tanggal", tanggal_akhir.isoformat())
-    return query.order("tanggal", desc=True).execute().data or []
-
-
-def simpan_log_murajaah(nama, tanggal, surah, ayat_awal, ayat_akhir, durasi, status, catatan=""):
-    return _db_client().table("qori_murajaah_logs").insert({
-        "nama_siswa": nama, "tanggal": tanggal.isoformat(), "surah": surah,
-        "ayat_awal": int(ayat_awal), "ayat_akhir": int(ayat_akhir),
-        "durasi_menit": int(durasi), "status": status, "catatan": catatan,
-    }).execute()
-
-
-def get_log_murajaah(nama=None, tanggal_awal=None, tanggal_akhir=None):
-    query = _db_client().table("qori_murajaah_logs").select("*")
-    if nama:
-        query = query.eq("nama_siswa", nama)
-    if tanggal_awal:
-        query = query.gte("tanggal", tanggal_awal.isoformat())
-    if tanggal_akhir:
-        query = query.lte("tanggal", tanggal_akhir.isoformat())
-    return query.order("tanggal", desc=True).execute().data or []
-
-
-def get_riwayat_ujian(nama=None):
-    query = _db_client().table("qori_exam_history").select("*")
-    if nama:
-        query = query.eq("nama_siswa", nama)
-    return query.order("tanggal_ujian", desc=True).execute().data or []
 
 
 def hapus_nilai_game_satu(nama):
@@ -2280,116 +2222,6 @@ else:
     nama_tim = NAMA_LENGKAP_TIM.get(st.session_state["login_nama"], st.session_state["login_nama"])
     teks_selamat = f"👤 Selamat datang, {nama_tim} | {jabatan_tim}"
 st.markdown(f"<div style='background-color: rgba(0,0,0,0.6); padding:10px; border-radius:10px; text-align:center; margin-top:10px;'><b style='color:white;'>{teks_selamat}</b></div>", unsafe_allow_html=True)
-
-
-# ===== TARGET HAFALAN, MURAJAAH, DAN ANALISIS PERKEMBANGAN =====
-st.markdown("## 📈 Progres Hafalan dan Murajaah")
-if st.session_state.get("login_role") == "siswa":
-    nama_progres = st.session_state.get("login_nama")
-    with st.expander("🎯 Target Hafalan Harian", expanded=False):
-        tgl_target = st.date_input("Tanggal target", value=datetime.date.today(), key="target_tanggal_siswa")
-        c_target, c_satuan = st.columns(2)
-        with c_target:
-            jumlah_target = st.number_input("Jumlah target", min_value=1, max_value=100, value=5, step=1, key="target_jumlah_siswa")
-        with c_satuan:
-            satuan_target = st.selectbox("Satuan", ["Ayat", "Baris", "Halaman", "Surah"], key="target_satuan_siswa")
-        capaian_target = st.number_input("Capaian hari ini", min_value=0, max_value=100, value=0, step=1, key="target_capaian_siswa")
-        catatan_target = st.text_input("Catatan target (opsional)", key="target_catatan_siswa")
-        if st.button("💾 Simpan Target", key="simpan_target_hafalan_siswa"):
-            try:
-                simpan_target_hafalan(nama_progres, tgl_target, jumlah_target, capaian_target, satuan_target, catatan_target)
-                st.success("Target hafalan berhasil disimpan.")
-            except Exception as e:
-                st.error(f"Target belum tersimpan. Pastikan SQL migrasi Supabase sudah dijalankan. Detail: {e}")
-        try:
-            target_rows = get_target_hafalan(nama_progres)
-            if target_rows:
-                st.dataframe([{"Tanggal": r.get("tanggal"), "Target": f'{r.get("target")} {r.get("satuan")}', "Capaian": f'{r.get("capaian", 0)} {r.get("satuan")}', "Progres (%)": round(100 * int(r.get("capaian") or 0) / max(1, int(r.get("target") or 1))), "Catatan": r.get("catatan") or "-"} for r in target_rows], use_container_width=True, hide_index=True)
-            else:
-                st.caption("Belum ada target hafalan yang dicatat.")
-        except Exception as e:
-            st.warning(f"Data target belum dapat dibaca: {e}")
-
-    with st.expander("🔁 Catat Kegiatan Murajaah", expanded=False):
-        tgl_murajaah = st.date_input("Tanggal murajaah", value=datetime.date.today(), key="murajaah_tanggal_siswa")
-        nama_surah = st.text_input("Nama surah", key="murajaah_surah_siswa", placeholder="Contoh: Al-Mulk")
-        c_awal, c_akhir = st.columns(2)
-        with c_awal:
-            ayat_awal = st.number_input("Ayat awal", min_value=1, value=1, step=1, key="murajaah_awal_siswa")
-        with c_akhir:
-            ayat_akhir = st.number_input("Ayat akhir", min_value=1, value=5, step=1, key="murajaah_akhir_siswa")
-        durasi_murajaah = st.number_input("Durasi (menit)", min_value=1, max_value=600, value=15, step=1, key="murajaah_durasi_siswa")
-        status_murajaah = st.selectbox("Hasil pengulangan", ["Lancar", "Perlu pengulangan", "Belum lancar"], key="murajaah_status_siswa")
-        catatan_murajaah = st.text_area("Catatan (opsional)", key="murajaah_catatan_siswa")
-        if st.button("💾 Simpan Murajaah", key="simpan_murajaah_siswa"):
-            if not nama_surah.strip():
-                st.warning("Nama surah harus diisi.")
-            elif ayat_akhir < ayat_awal:
-                st.warning("Ayat akhir tidak boleh lebih kecil dari ayat awal.")
-            else:
-                try:
-                    simpan_log_murajaah(nama_progres, tgl_murajaah, nama_surah.strip(), ayat_awal, ayat_akhir, durasi_murajaah, status_murajaah, catatan_murajaah)
-                    st.success("Catatan murajaah berhasil disimpan.")
-                except Exception as e:
-                    st.error(f"Catatan belum tersimpan. Pastikan SQL migrasi Supabase sudah dijalankan. Detail: {e}")
-        try:
-            murajaah_rows = get_log_murajaah(nama_progres)
-            if murajaah_rows:
-                st.dataframe([{"Tanggal": r.get("tanggal"), "Surah": r.get("surah"), "Rentang Ayat": f'{r.get("ayat_awal")}-{r.get("ayat_akhir")}', "Durasi": f'{r.get("durasi_menit")} menit', "Status": r.get("status")} for r in murajaah_rows], use_container_width=True, hide_index=True)
-                st.metric("Total sesi murajaah tercatat", len(murajaah_rows))
-            else:
-                st.caption("Belum ada aktivitas murajaah yang dicatat.")
-        except Exception as e:
-            st.warning(f"Riwayat murajaah belum dapat dibaca: {e}")
-
-    with st.expander("📊 Perkembangan Nilai dan Hasil Ujian", expanded=False):
-        try:
-            histori = get_riwayat_ujian(nama_progres)
-            if histori:
-                import pandas as pd
-                df_histori = pd.DataFrame([{"Tanggal": r.get("tanggal_ujian"), "Materi": r.get("materi") or "Ujian", "Percobaan": r.get("percobaan"), "Nilai": int(r.get("nilai") or 0)} for r in histori])
-                st.dataframe(df_histori, use_container_width=True, hide_index=True)
-                st.line_chart(df_histori.sort_values("Tanggal").set_index("Tanggal")["Nilai"])
-                nilai_terakhir = int(histori[0].get("nilai") or 0)
-                st.metric("Nilai ujian terakhir", f"{nilai_terakhir}/100", delta=f"{nilai_terakhir - int(histori[1].get('nilai') or 0):+d} poin dari ujian sebelumnya" if len(histori) > 1 else None)
-            else:
-                st.info("Riwayat historis ujian akan mulai tercatat setelah SQL migrasi dijalankan dan siswa mengikuti ujian berikutnya. Nilai lama pada tabel hasil tetap tersimpan.")
-        except Exception as e:
-            st.warning(f"Riwayat nilai belum dapat dibaca: {e}")
-
-elif st.session_state.get("login_role") == "tim":
-    with st.expander("📚 Pemantauan Target Hafalan dan Murajaah Seluruh Siswa", expanded=False):
-        try:
-            target_semua = get_target_hafalan()
-            murajaah_semua = get_log_murajaah()
-            c1, c2 = st.columns(2)
-            c1.metric("Target hafalan tercatat", len(target_semua))
-            c2.metric("Sesi murajaah tercatat", len(murajaah_semua))
-            if target_semua:
-                st.markdown("**Target hafalan siswa**")
-                st.dataframe([{"Nama": r.get("nama_siswa"), "Tanggal": r.get("tanggal"), "Target": f'{r.get("target")} {r.get("satuan")}', "Capaian": f'{r.get("capaian", 0)} {r.get("satuan")}', "Progres (%)": round(100 * int(r.get("capaian") or 0) / max(1, int(r.get("target") or 1))), "Catatan": r.get("catatan") or "-"} for r in target_semua], use_container_width=True, hide_index=True)
-            if murajaah_semua:
-                st.markdown("**Log murajaah siswa**")
-                st.dataframe([{"Nama": r.get("nama_siswa"), "Tanggal": r.get("tanggal"), "Surah": r.get("surah"), "Ayat": f'{r.get("ayat_awal")}-{r.get("ayat_akhir")}', "Durasi (menit)": r.get("durasi_menit"), "Status": r.get("status")} for r in murajaah_semua], use_container_width=True, hide_index=True)
-        except Exception as e:
-            st.error(f"Pemantauan belum tersedia. Jalankan SQL migrasi Supabase terlebih dahulu. Detail: {e}")
-    with st.expander("📉 Analisis Hasil Ujian dan Riwayat Nilai", expanded=False):
-        try:
-            histori_semua = get_riwayat_ujian()
-            if histori_semua:
-                import pandas as pd
-                df_semua = pd.DataFrame([{"Nama": r.get("nama_siswa"), "Tanggal": r.get("tanggal_ujian"), "Materi": r.get("materi") or "Ujian", "Nilai": int(r.get("nilai") or 0)} for r in histori_semua])
-                st.dataframe(df_semua, use_container_width=True, hide_index=True)
-                rekap = df_semua.groupby("Nama", as_index=False).agg(Rata_rata=("Nilai", "mean"), Nilai_tertinggi=("Nilai", "max"), Jumlah_ujian=("Nilai", "count"))
-                rekap["Rata-rata"] = rekap["Rata_rata"].round(1)
-                st.markdown("**Rekap perkembangan per siswa**")
-                st.dataframe(rekap[["Nama", "Rata-rata", "Nilai_tertinggi", "Jumlah_ujian"]], use_container_width=True, hide_index=True)
-                st.bar_chart(rekap.set_index("Nama")[["Rata_rata"]])
-                st.caption("KKM analisis: 75. Data historis mulai terisi untuk ujian yang dikerjakan setelah migrasi; nilai lama tetap tersedia pada rekap hasil terakhir.")
-            else:
-                st.info("Belum ada data riwayat ujian. Setelah migrasi, setiap ujian baru akan tersimpan sebagai satu riwayat.")
-        except Exception as e:
-            st.warning(f"Analisis ujian belum dapat ditampilkan: {e}")
 
 # ===== PEMBAHASAN EDUKATIF GAME =====
 def buat_pembahasan_game(game_key, prompt_soal, jawaban_benar):
