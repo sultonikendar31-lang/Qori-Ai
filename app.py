@@ -878,10 +878,16 @@ import re
 import sqlite3
 import pandas as pd
 from urllib.request import Request, urlopen
-from openai import OpenAI
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OpenAI = None
+    OPENAI_AVAILABLE = False
+
 try:
     from streamlit_autorefresh import st_autorefresh
-except:
+except ImportError:
     st_autorefresh = None
 
 st.set_page_config(page_title="QORI AI", page_icon="🕌", layout="wide")
@@ -1930,7 +1936,14 @@ st.session_state["lihat_setoran"] = False
 DURASI_UJIAN = 10*60
 KKM = 75
 prompt_awal = None
-SYSTEM_PROMPT_KUNCI = "Kamu adalah QORI AI, guru yang ramah dan pintar untuk anak Madrasah Aliyah Al-Barokah. Kamu BEBAS menjawab pertanyaan apa saja: Iqro, Tahsin, Tahfidz, pelajaran sekolah, agama, umum. Jawab Bahasa Indonesia mudah, sopan, islami. Kalau menyebut huruf hijaiyah, WAJIB format: 1. Alif (ا) - dibaca \"A\"."
+SYSTEM_PROMPT_KUNCI = """Kamu adalah QORI AI, asisten pembelajaran Al-Qur'an untuk peserta didik Madrasah Aliyah Al-Barokah.
+Fokus utama: Iqro', Tahsin, makharijul huruf, sifat huruf, tajwid, Tahfidz, dan murajaah.
+Jawab dengan Bahasa Indonesia yang mudah, sopan, dan edukatif. Susun jawaban dengan langkah atau contoh jika membantu.
+Utamakan ketepatan. Jangan mengarang ayat, hadis, nomor surah/ayat, hukum tajwid, atau sumber rujukan.
+Jika tidak yakin terhadap hukum bacaan atau rujukan, nyatakan bahwa jawaban perlu diverifikasi oleh guru Al-Qur'an.
+Jangan mengaku dapat mendengar atau menilai audio apabila pengguna hanya mengirim teks.
+Untuk penilaian bacaan dan hafalan, jelaskan bahwa keputusan akhir dilakukan guru/penguji.
+Jika menyebut huruf hijaiyah, gunakan format: Alif (ا) — dibaca 'a'."""
 
 # ===== CEK PASSWORD =====
 def cek_password(nama, password_input):
@@ -2210,6 +2223,36 @@ else:
     teks_selamat = f"👤 Selamat datang, {nama_tim} | {jabatan_tim}"
 st.markdown(f"<div style='background-color: rgba(0,0,0,0.6); padding:10px; border-radius:10px; text-align:center; margin-top:10px;'><b style='color:white;'>{teks_selamat}</b></div>", unsafe_allow_html=True)
 
+# ===== PEMBAHASAN EDUKATIF GAME =====
+def buat_pembahasan_game(game_key, prompt_soal, jawaban_benar):
+    """Memberi alasan singkat setelah jawaban; bukan pengganti bimbingan guru."""
+    if game_key == "iqro":
+        return (
+            f"Pembahasan: huruf yang ditampilkan adalah {jawaban_benar}. "
+            "Perhatikan bentuk huruf dan ulangi penyebutannya beberapa kali. "
+            "Beberapa huruf memiliki bentuk mirip, sehingga titik dan bentuknya perlu diperhatikan."
+        )
+    if game_key == "tahsin":
+        penjelasan = {
+            "Ikhfa": "Ikhfa terjadi ketika nun sukun atau tanwin bertemu salah satu huruf ikhfa. Bacaan dibaca samar disertai dengung sekitar dua harakat.",
+            "Iqlab": "Iqlab terjadi ketika nun sukun atau tanwin bertemu huruf ba (ب). Bunyi nun/tanwin diubah menjadi mim samar disertai dengung.",
+            "Izhar": "Izhar halqi terjadi ketika nun sukun atau tanwin bertemu ء، ه، ع، ح، غ، atau خ. Nun/tanwin dibaca jelas.",
+            "Idgham Bighunnah": "Idgham bighunnah terjadi ketika nun sukun atau tanwin bertemu ي، ن، م، atau و. Bunyi dilebur disertai dengung.",
+            "Idgham Bilaghunnah": "Idgham bilaghunnah terjadi ketika nun sukun atau tanwin bertemu ل atau ر. Bunyi dilebur tanpa dengung.",
+        }
+        return "Pembahasan: " + penjelasan.get(
+            jawaban_benar,
+            f"Jawaban yang benar adalah {jawaban_benar}. Periksa kembali materi tajwid terkait bersama guru."
+        )
+    if game_key == "tahfidz":
+        return (
+            f"Pembahasan: lanjutan yang benar adalah {jawaban_benar}. "
+            "Ulangi potongan ayat sebelumnya dan lanjutannya secara berurutan. "
+            "Perkuat hafalan dengan mengulang ayat sebelum dan sesudahnya (murajaah)."
+        )
+    return f"Pembahasan: jawaban yang benar adalah {jawaban_benar}."
+
+
 # ===== HALAMAN GAME QORI AI: 25 SOAL PER PERMAINAN =====
 if st.session_state.get("game"):
     game_key = st.session_state["game"]
@@ -2458,9 +2501,12 @@ if st.session_state.get("game"):
                     kelas_login = DATA_SISWA.get(nama_login, {}).get("kategori", "-")
                     if kelas_login == kategori_game.get(game_key):
                         simpan_skor_game(nama_login, kelas_login, judul_game_level, 10)
-                st.session_state["game_feedback"] = "✅ Benar! MasyaAllah, kamu mendapat 10 poin."
+                status_jawaban = "✅ Benar! MasyaAllah, kamu mendapat 10 poin."
             else:
-                st.session_state["game_feedback"] = f"❌ Belum tepat. Jawaban yang benar: {q['answer']}. Soal berikutnya akan ditampilkan."
+                status_jawaban = f"❌ Belum tepat. Jawaban yang benar: {q['answer']}."
+
+            pembahasan = buat_pembahasan_game(game_key, q["prompt"], q["answer"])
+            st.session_state["game_feedback"] = status_jawaban + "\n\n" + pembahasan
 
             # Setiap jawaban hanya boleh satu kali. Benar atau salah, langsung lanjut.
             st.session_state["game_index"] += 1
@@ -4276,7 +4322,10 @@ if kirim and prompt:
     catat_aktivitas(f"Tanya AI: {prompt[:40]}")
     with st.chat_message("user"): st.markdown(prompt)
     with st.chat_message("assistant"):
-        if not api_key: st.markdown("Maaf, API Key belum dipasang di Secrets.")
+        if not api_key:
+            st.warning("Chatbot AI belum aktif: OPENAI_API_KEY belum dipasang di Streamlit Secrets.")
+        elif not OPENAI_AVAILABLE:
+            st.error("Library openai belum terpasang. Tambahkan 'openai' pada requirements.txt lalu reboot aplikasi.")
         else:
             try:
                 client=OpenAI(api_key=api_key)
