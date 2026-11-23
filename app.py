@@ -1167,13 +1167,21 @@ def reset_semua_nilai_game():
 
 
 def get_saran():
-    rows = _db_client().table("saran").select("*").order("id", desc=True).execute().data or []
-    return [{
-        "id": r.get("id"), "pengirim": r.get("pengirim"), "label": r.get("label"),
-        "role": r.get("role"), "jenis": r.get("jenis"), "isi": r.get("isi"),
-        "jam": r.get("jam"), "balasan": r.get("balasan") or "",
-        "pembalas": r.get("pembalas") or ""
-    } for r in rows]
+    """Ambil kotak saran; kegagalan tabel/koneksi tidak menjatuhkan dashboard."""
+    try:
+        rows = (
+            _db_client().table("saran").select("*")
+            .order("id", desc=True).execute().data or []
+        )
+        return [{
+            "id": r.get("id"), "pengirim": r.get("pengirim"), "label": r.get("label"),
+            "role": r.get("role"), "jenis": r.get("jenis"), "isi": r.get("isi"),
+            "jam": r.get("jam"), "balasan": r.get("balasan") or "",
+            "pembalas": r.get("pembalas") or ""
+        } for r in rows]
+    except Exception as e:
+        print(f"Gagal mengambil tabel Supabase 'saran': {e}")
+        return []
 
 
 def tambah_saran(pengirim, label, role, jenis, isi, jam):
@@ -3788,7 +3796,19 @@ if (
     st.session_state["siswa_pilih"] is None
     and not (st.session_state.get("login_role") == "siswa" and kategori_saya == "Iqro")
 ):
-    jml_baru = len([s for s in get_saran() if not s["balasan"]]) if st.session_state["login_role"]=="tim" else len([s for s in get_saran() if s["pengirim"]==st.session_state["login_nama"] and s["balasan"]])
+    try:
+        semua_saran = get_saran() or []
+        if st.session_state.get("login_role") == "tim":
+            jml_baru = sum(1 for s in semua_saran if not s.get("balasan"))
+        else:
+            nama_login = st.session_state.get("login_nama", "")
+            jml_baru = sum(
+                1 for s in semua_saran
+                if s.get("pengirim") == nama_login and bool(s.get("balasan"))
+            )
+    except Exception as e:
+        print(f"Gagal menghitung notifikasi kotak saran: {e}")
+        jml_baru = 0
     label_saran = f"💬 Kotak Saran / Kritik / Keluhan ({jml_baru} Baru)" if jml_baru>0 else "💬 Kotak Saran / Kritik / Keluhan"
     if st.button(label_saran, use_container_width=True):
         st.session_state["lihat_saran"]=True; st.session_state["kategori_pilih"]=None; st.session_state["lihat_nilai"]=False; st.session_state["lihat_riwayat"]=False; st.session_state["lihat_setoran"]=False; st.session_state["lihat_baca"]=False; catat_aktivitas("Buka Kotak Saran"); st.rerun()
