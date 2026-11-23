@@ -231,7 +231,7 @@ def tampilkan_game_qori(supabase, nama_siswa):
         else:
             papan += f" {nomor} "
         if nomor % 6 == 0:
-            papan += "\n"
+            papan += "\\n"
 
     st.text(papan)
     st.caption("🧕 = Posisi siswa | ❓ = Kotak soal | 🧩 = Kotak tantangan")
