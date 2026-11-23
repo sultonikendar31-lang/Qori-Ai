@@ -1064,12 +1064,17 @@ def reset_semua_hasil():
 
 
 def get_aktivitas():
-    rows = _db_client().table("aktivitas").select("*").order("id", desc=True).execute().data or []
-    return [
-        {"id": r.get("id"), "nama": r.get("nama"), "kelas": r.get("kelas"),
-         "aktivitas": r.get("aktivitas"), "jam": r.get("jam"), "lama": r.get("lama")}
-        for r in rows
-    ]
+    """Ambil riwayat aktivitas; kegagalan log tidak boleh menghentikan aplikasi."""
+    try:
+        rows = _db_client().table("aktivitas").select("*").order("id", desc=True).execute().data or []
+        return [
+            {"id": r.get("id"), "nama": r.get("nama"), "kelas": r.get("kelas") or r.get("kategori"),
+             "aktivitas": r.get("aktivitas"), "jam": r.get("jam"), "lama": r.get("lama")}
+            for r in rows
+        ]
+    except Exception as e:
+        print(f"Gagal mengambil riwayat aktivitas (diabaikan): {e}")
+        return []
 
 
 def hapus_aktivitas_id(aktivitas_id):
@@ -1077,9 +1082,19 @@ def hapus_aktivitas_id(aktivitas_id):
 
 
 def tambah_aktivitas(nama, kelas, aktivitas, jam, lama):
-    _db_client().table("aktivitas").insert({
-        "nama": nama, "kelas": kelas, "aktivitas": aktivitas, "jam": jam, "lama": lama
-    }).execute()
+    """Simpan log aktivitas tanpa membuat fitur utama aplikasi ikut gagal."""
+    try:
+        _db_client().table("aktivitas").insert({
+            "nama": nama,
+            "kelas": kelas,
+            "aktivitas": aktivitas,
+            "jam": str(jam),
+            "lama": str(lama),
+        }).execute()
+        return True
+    except Exception as e:
+        print(f"Gagal catat aktivitas (diabaikan): {e}")
+        return False
 
 
 def hapus_riwayat_satu(nama):
@@ -1938,14 +1953,22 @@ def cek_password(nama, password_input):
     return False
 
 def catat_aktivitas(aktivitas):
-    if st.session_state.get("login_role") != "siswa": return
-    if not st.session_state.get("login_nama"): return
-    sekarang = time.time()
-    jam = time.strftime("%d/%m/%Y %H:%M:%S", time.localtime(sekarang))
-    lama_detik = int(sekarang - st.session_state["waktu_login"]) if st.session_state.get("waktu_login") else 0
-    lama = f"{lama_detik//60} mnt {lama_detik%60} dtk" if lama_detik//60>0 else f"{lama_detik} dtk"
-    info = DATA_SISWA.get(st.session_state["login_nama"], {})
-    tambah_aktivitas(st.session_state["login_nama"], info.get("kategori","-"), aktivitas, jam, lama)
+    """Catat aktivitas siswa secara best-effort; kegagalan Supabase diabaikan."""
+    try:
+        if st.session_state.get("login_role") != "siswa":
+            return
+        nama_login = st.session_state.get("login_nama")
+        if not nama_login:
+            return
+        sekarang = time.time()
+        jam = time.strftime("%d/%m/%Y %H:%M:%S", time.localtime(sekarang))
+        waktu_login = st.session_state.get("waktu_login")
+        lama_detik = int(sekarang - waktu_login) if waktu_login else 0
+        lama = f"{lama_detik//60} mnt {lama_detik%60} dtk" if lama_detik//60 > 0 else f"{lama_detik} dtk"
+        info = DATA_SISWA.get(nama_login, {})
+        tambah_aktivitas(nama_login, info.get("kategori", "-"), aktivitas, jam, lama)
+    except Exception as e:
+        print(f"Gagal mencatat aktivitas aplikasi (diabaikan): {e}")
 
 def get_base64(file):
     try:
