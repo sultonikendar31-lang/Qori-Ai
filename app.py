@@ -714,6 +714,138 @@ SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
+# ==========================================
+# SISTEM BUKA-TUTUP AKSES MENU SISWA QORI AI
+# Status tersimpan di Supabase agar berlaku untuk semua akun.
+# Perubahan hanya dapat ditulis melalui service-role key di server.
+# ==========================================
+DAFTAR_KUNCI_MENU = {
+    "penilaian_tahsin": ("Penilaian Tahsin Al-Qur'an", "📗"),
+    "penilaian_tahfidz": ("Penilaian Tahfidz Al-Qur'an", "🕌"),
+    "penilaian_iqro": ("Penilaian Iqro", "📘"),
+    "soal_game": ("Soal Game", "🎮"),
+    "soal_ujian": ("Soal Ujian", "📝"),
+}
+
+try:
+    _SUPABASE_SERVICE_ROLE_KEY = st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")
+except Exception:
+    _SUPABASE_SERVICE_ROLE_KEY = ""
+
+supabase_admin = (
+    create_client(SUPABASE_URL, _SUPABASE_SERVICE_ROLE_KEY)
+    if _SUPABASE_SERVICE_ROLE_KEY
+    else None
+)
+
+
+def ambil_status_kunci():
+    """Ambil status kunci bersama dari Supabase; gagal baca berarti terkunci."""
+    status = {key: True for key in DAFTAR_KUNCI_MENU}
+    try:
+        hasil = (
+            supabase.table("pengaturan_kunci_menu")
+            .select("menu_key,is_locked")
+            .execute()
+        )
+        for row in hasil.data or []:
+            key = row.get("menu_key")
+            if key in status:
+                status[key] = bool(row.get("is_locked", True))
+    except Exception:
+        # Fail-closed: bila database tidak dapat dibaca, menu siswa tetap terkunci.
+        pass
+    return status
+
+
+def menu_terbuka(menu_key):
+    return not ambil_status_kunci().get(menu_key, True)
+
+
+def ubah_status_kunci(menu_key, terkunci):
+    """Hanya gunakan client admin/service-role untuk menulis pengaturan."""
+    if menu_key not in DAFTAR_KUNCI_MENU:
+        return False, "Nama menu tidak dikenal."
+    if supabase_admin is None:
+        return False, (
+            "Kunci belum dapat diubah. Tambahkan SUPABASE_SERVICE_ROLE_KEY "
+            "pada Streamlit Cloud → Settings → Secrets."
+        )
+    try:
+        supabase_admin.table("pengaturan_kunci_menu").upsert(
+            {
+                "menu_key": menu_key,
+                "is_locked": bool(terkunci),
+                "updated_at": datetime.datetime.now(
+                    datetime.timezone.utc
+                ).isoformat(),
+            },
+            on_conflict="menu_key",
+        ).execute()
+        return True, "Status kunci berhasil disimpan."
+    except Exception as e:
+        return False, f"Gagal menyimpan status kunci: {e}"
+
+
+def tampilkan_kartu_kunci(menu_key, tampilkan_tombol=True, key_suffix="siswa"):
+    """Kotak abu-abu saat terkunci dan hijau saat terbuka."""
+    judul, icon = DAFTAR_KUNCI_MENU[menu_key]
+    terkunci = not menu_terbuka(menu_key)
+    if terkunci:
+        st.markdown(
+            f"""
+            <div style="background:#e5e7eb;border:1px solid #cbd5e1;
+                        border-radius:12px;padding:14px;text-align:center;
+                        margin:6px 0;">
+                <div style="font-size:28px;">🔒</div>
+                <div style="font-weight:700;color:#374151;">{icon} {judul}</div>
+                <div style="font-size:12px;color:#b91c1c;">
+                    Terkunci — menunggu Tim membuka akses
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if tampilkan_tombol:
+            st.button(
+                "🔒 Menu Terkunci",
+                key=f"kunci_disabled_{menu_key}_{key_suffix}",
+                disabled=True,
+                use_container_width=True,
+            )
+        return False
+
+    st.markdown(
+        f"""
+        <div style="background:#dcfce7;border:1px solid #86efac;
+                    border-radius:12px;padding:14px;text-align:center;
+                    margin:6px 0;">
+            <div style="font-size:28px;">🔓</div>
+            <div style="font-weight:700;color:#166534;">{icon} {judul}</div>
+            <div style="font-size:12px;color:#15803d;">
+                Terbuka — silakan mengakses
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    return True
+
+
+def tombol_menu_dengan_kunci(menu_key, label, key):
+    """Tombol menu yang otomatis nonaktif ketika dikunci."""
+    terbuka = menu_terbuka(menu_key)
+    if not terbuka:
+        tampilkan_kartu_kunci(menu_key, tampilkan_tombol=False, key_suffix=key)
+    return st.button(
+        label if terbuka else f"🔒 {label} (Terkunci)",
+        key=key,
+        disabled=not terbuka,
+        use_container_width=True,
+    )
+
+
+
 # === FUNGSI SIMPAN KE SUPABASE ===
 def simpan_siswa(nama, kelas, nis):
     return supabase.table("siswa").insert({"nama": nama, "kelas": kelas, "nis": nis}).execute()
@@ -1407,7 +1539,9 @@ def tampil_siswa_iqro(nama_siswa, kelas_siswa="Iqro"):
     # Empat tombol utama mengikuti susunan halaman Tahsin/Tahfidz.
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("🎮 Game Iqro", use_container_width=True, key="menu_game_iqro_siswa_full"):
+        if tombol_menu_dengan_kunci(
+            "soal_game", "🎮 Game Iqro", "menu_game_iqro_siswa_full"
+        ):
             st.session_state["game"] = "iqro"
             st.session_state["game_session_key"] = None
             st.session_state["game_index"] = 0
@@ -1425,7 +1559,11 @@ def tampil_siswa_iqro(nama_siswa, kelas_siswa="Iqro"):
 
     c3, c4 = st.columns(2)
     with c3:
-        st.button("📖 Iqro", use_container_width=True, type="primary", key="menu_iqro_aktif_siswa_full", disabled=True)
+        if not menu_terbuka("penilaian_iqro"):
+            tampilkan_kartu_kunci("penilaian_iqro", tampilkan_tombol=False, key_suffix="menu_iqro")
+        else:
+            st.button("🔓 📖 Iqro", use_container_width=True, type="primary",
+                      key="menu_iqro_aktif_siswa_full", disabled=True)
     with c4:
         if st.button("📄 Daftar Hasil Nilai Ujian", use_container_width=True, key="menu_nilai_ujian_iqro_siswa_full"):
             st.session_state["lihat_nilai"] = True
@@ -1435,6 +1573,10 @@ def tampil_siswa_iqro(nama_siswa, kelas_siswa="Iqro"):
             st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
+    if not menu_terbuka("penilaian_iqro"):
+        tampilkan_kartu_kunci("penilaian_iqro", tampilkan_tombol=False, key_suffix="halaman_iqro")
+        return
+
     st.markdown("""
     <div style='background:linear-gradient(rgba(0,0,0,.55),rgba(0,0,0,.55)),url("https://images.unsplash.com/photo-1542810634-71277d95dcbb?w=1200");background-size:cover;background-position:center;border-radius:10px;padding:22px 18px;'>
         <h2 style='color:white;margin:0;'>🎙️ Tes Membaca Iqro</h2>
@@ -1880,6 +2022,17 @@ if st.session_state.get("game"):
             st.warning("Akses ditolak. Game ini tidak sesuai dengan kategori akun siswa kamu.")
             st.stop()
 
+    # Kunci diperiksa lagi pada halaman game agar sesi yang sudah terbuka
+    # langsung tertutup bila Tim mengunci menu saat siswa sedang bermain.
+    if st.session_state.get("login_role") == "siswa" and not menu_terbuka("soal_game"):
+        st.session_state["game"] = None
+        st.session_state["game_question"] = None
+        st.session_state["game_questions"] = []
+        st.session_state["game_index"] = 0
+        st.session_state["game_feedback"] = ""
+        tampilkan_kartu_kunci("soal_game", tampilkan_tombol=False, key_suffix="game_aktif")
+        st.stop()
+
     # Enam tingkat kesulitan tersedia untuk setiap kategori game.
     LEVEL_GAME = {
         1: ("Pemula", "Paling mudah: pengenalan dasar dengan 3 pilihan."),
@@ -2174,6 +2327,57 @@ if st.session_state["siswa_pilih"] is None and st.session_state["login_role"] ==
     d4.metric("Belum Ujian", jumlah_belum_ujian)
     if jumlah_belum:
         st.info(f"{jumlah_belum} siswa memperoleh nilai di bawah KKM dan perlu tindak lanjut/remedial.")
+
+    # ===== PANEL BUKA-TUTUP AKSES SISWA KHUSUS TIM =====
+    with st.expander("🔑 Pengaturan Kunci Menu Siswa", expanded=True):
+        st.caption(
+            "Status kunci tersimpan di Supabase dan berlaku untuk semua siswa. "
+            "Menu baru dapat digunakan setelah Tim membukanya."
+        )
+        if supabase_admin is None:
+            st.warning(
+                "Agar Tim dapat mengubah kunci dengan aman, tambahkan "
+                "SUPABASE_SERVICE_ROLE_KEY di Streamlit Cloud → Settings → Secrets."
+            )
+
+        status_kunci_tim = ambil_status_kunci()
+        for menu_key, (nama_menu, icon_menu) in DAFTAR_KUNCI_MENU.items():
+            kolom_nama, kolom_aksi = st.columns([3, 1])
+            terkunci_tim = status_kunci_tim.get(menu_key, True)
+            with kolom_nama:
+                st.write(
+                    f"{'🔒' if terkunci_tim else '🔓'} **{icon_menu} {nama_menu}**"
+                )
+                st.caption("Terkunci" if terkunci_tim else "Terbuka")
+            with kolom_aksi:
+                if terkunci_tim:
+                    if st.button("Buka", key=f"tim_buka_{menu_key}", use_container_width=True):
+                        ok, pesan = ubah_status_kunci(menu_key, False)
+                        (st.success if ok else st.error)(pesan)
+                        if ok:
+                            st.rerun()
+                else:
+                    if st.button("Kunci", key=f"tim_kunci_{menu_key}", use_container_width=True):
+                        ok, pesan = ubah_status_kunci(menu_key, True)
+                        (st.success if ok else st.error)(pesan)
+                        if ok:
+                            st.rerun()
+
+        st.divider()
+        if st.button("🔒 KUNCI SEMUA MENU SISWA", key="tim_kunci_semua_menu", use_container_width=True):
+            if supabase_admin is None:
+                st.error("Service-role key belum dipasang. Semua status tidak diubah.")
+            else:
+                hasil_kunci_semua = [
+                    ubah_status_kunci(menu_key, True)
+                    for menu_key in DAFTAR_KUNCI_MENU
+                ]
+                gagal = [pesan for ok, pesan in hasil_kunci_semua if not ok]
+                if gagal:
+                    st.error("Sebagian menu gagal dikunci: " + " | ".join(gagal))
+                else:
+                    st.success("Semua menu siswa berhasil dikunci.")
+                    st.rerun()
 
 
 # ===== PENILAIAN SISWA: TIGA PROGRAM DITUMPUK KE BAWAH =====
@@ -2617,7 +2821,9 @@ elif role_login == "siswa" and not st.session_state.get("lihat_nilai_game", Fals
         st.caption(f"Akses siswa dibatasi: hanya **Game {kategori_saya}** yang ditampilkan untuk akun kamu.")
         tombol_game, tombol_nilai_game = st.columns(2)
         with tombol_game:
-            if st.button(label_game_siswa, use_container_width=True, key="tombol_game_siswa_kategori"):
+            if tombol_menu_dengan_kunci(
+                "soal_game", label_game_siswa, "tombol_game_siswa_kategori"
+            ):
                 st.session_state["game"] = game_key_siswa
                 st.session_state["game_session_key"] = None
                 st.session_state["game_index"] = 0
@@ -2973,6 +3179,9 @@ def tampilkan_daftar(kategori):
     role = st.session_state.get("login_role")
 
     if role == "siswa":
+        if not menu_terbuka("soal_ujian"):
+            tampilkan_kartu_kunci("soal_ujian", tampilkan_tombol=False, key_suffix="mulai_ujian")
+            return
         nama_siswa = st.session_state.get("login_nama", "")
         if DATA_SISWA.get(nama_siswa, {}).get("kategori") != kategori:
             st.warning("Akses dibatasi: kategori ujian tidak sesuai dengan akun siswa.")
@@ -3138,10 +3347,10 @@ if (st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nila
             label_menu_siswa, kategori_pilih_siswa = konfigurasi_menu[kategori_menu_siswa]
             s1, s2 = st.columns(2)
             with s1:
-                klik_kategori_siswa = st.button(
+                klik_kategori_siswa = tombol_menu_dengan_kunci(
+                    "soal_ujian",
                     label_menu_siswa,
-                    use_container_width=True,
-                    key="menu_utama_kategori_siswa",
+                    "menu_utama_kategori_siswa",
                 )
             with s2:
                 klik_nilai = st.button(
@@ -3176,14 +3385,22 @@ if (st.session_state["siswa_pilih"] is None and not st.session_state["lihat_nila
     # bukan daftar nama siswa.
     if st.session_state.get("kategori_pilih"):
         kategori_aktif = st.session_state["kategori_pilih"]
-        if role_menu == "siswa" and kategori_aktif != kategori_menu_siswa:
+        if role_menu == "siswa" and not menu_terbuka("soal_ujian"):
+            st.session_state["kategori_pilih"] = None
+            tampilkan_kartu_kunci("soal_ujian", tampilkan_tombol=False, key_suffix="kategori_aktif")
+        elif role_menu == "siswa" and kategori_aktif != kategori_menu_siswa:
             st.session_state["kategori_pilih"] = None
             st.warning("Akses dibatasi: kamu hanya dapat membuka kategori kelasmu sendiri.")
         else:
             tampilkan_daftar(kategori_aktif)
 
 # PROGRAM GATE: HALAMAN SETOR TAHFIDZ UNTUK SISWA TAHFIDZ
-if st.session_state.get("login_role") == "siswa" and program_saya == "Tahfidz" and st.session_state.get("siswa_pilih") is None:
+if (
+    st.session_state.get("login_role") == "siswa"
+    and program_saya == "Tahfidz"
+    and st.session_state.get("siswa_pilih") is None
+    and menu_terbuka("penilaian_tahfidz")
+):
     # ===== MENU TAHFIDZ: SETOR HAFALAN SISWA =====
     if st.session_state.get("login_role") == "siswa" and st.session_state.get("siswa_pilih") is None:
         st.divider()
@@ -3294,8 +3511,24 @@ if st.session_state.get("login_role") == "siswa" and program_saya == "Tahfidz" a
         except Exception as e:
             st.error(f"Gagal mengambil riwayat tahfidz: {e}")
 
+# Jika Penilaian Tahfidz dikunci, siswa melihat kotak kunci dan tidak dapat setor.
+if (
+    st.session_state.get("login_role") == "siswa"
+    and program_saya == "Tahfidz"
+    and st.session_state.get("siswa_pilih") is None
+    and not menu_terbuka("penilaian_tahfidz")
+):
+    st.divider()
+    tampilkan_kartu_kunci("penilaian_tahfidz", tampilkan_tombol=False, key_suffix="halaman_tahfidz")
+
+
 # PROGRAM GATE: HALAMAN TES BACA TAHSIN UNTUK SISWA TAHSIN
-if st.session_state.get("login_role") == "siswa" and program_saya == "Tahsin" and st.session_state.get("siswa_pilih") is None:
+if (
+    st.session_state.get("login_role") == "siswa"
+    and program_saya == "Tahsin"
+    and st.session_state.get("siswa_pilih") is None
+    and menu_terbuka("penilaian_tahsin")
+):
     # ===== TES BACA QUR'AN - SISWA =====
     if st.session_state.get("login_role") == "siswa" and st.session_state.get("siswa_pilih") is None:
         st.divider()
@@ -3364,6 +3597,17 @@ if st.session_state.get("login_role") == "siswa" and program_saya == "Tahsin" an
                         st.balloons()
                     except Exception as e:
                         st.error(f"Gagal kirim: {e}")
+
+# Jika Penilaian Tahsin dikunci, siswa tidak dapat membuka form setoran bacaan.
+if (
+    st.session_state.get("login_role") == "siswa"
+    and program_saya == "Tahsin"
+    and st.session_state.get("siswa_pilih") is None
+    and not menu_terbuka("penilaian_tahsin")
+):
+    st.divider()
+    tampilkan_kartu_kunci("penilaian_tahsin", tampilkan_tombol=False, key_suffix="halaman_tahsin")
+
 
 if st.session_state["login_role"]=="tim" and st.session_state["siswa_pilih"] is None:
     if st.button("📋 Riwayat / Story Siswa (Khusus Tim)", use_container_width=True):
@@ -3665,6 +3909,17 @@ if st.session_state["lihat_nilai"] and st.session_state["siswa_pilih"] is None:
     st.stop()
 
 # ===== UJIAN =====
+if (
+    st.session_state.get("login_role") == "siswa"
+    and st.session_state.get("siswa_pilih")
+    and not menu_terbuka("soal_ujian")
+):
+    st.session_state["siswa_pilih"] = None
+    st.session_state["kategori_pilih"] = None
+    st.session_state["preview_tim_ujian"] = False
+    st.warning("🔒 Ujian sedang dikunci oleh Tim. Hubungi guru untuk membuka akses kembali.")
+    st.stop()
+
 if st.session_state["siswa_pilih"]:
     nama = st.session_state["siswa_pilih"]
     preview_tim = bool(st.session_state.get("preview_tim_ujian")) and st.session_state.get("login_role") == "tim"
