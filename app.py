@@ -1004,41 +1004,18 @@ def _db_client():
 
 
 def _ambil_baris(tabel, kolom="*", **kwargs):
-    """Ambil data Supabase tanpa menjatuhkan seluruh aplikasi bila tabel gagal dibaca."""
-    try:
-        query = _db_client().table(tabel).select(kolom)
-        for k, v in kwargs.items():
-            query = query.eq(k, v)
-        return query.execute().data or []
-    except Exception as e:
-        # Detail error tetap tercatat di log Streamlit Cloud untuk diagnosis,
-        # sedangkan dashboard dapat tetap dirender.
-        print(f"Gagal mengambil tabel Supabase '{tabel}': {e}")
-        return []
+    query = _db_client().table(tabel).select(kolom)
+    for k, v in kwargs.items():
+        query = query.eq(k, v)
+    return query.execute().data or []
 
 
 def get_hasil():
-    try:
-        return {
-            r["nama"]: r.get("nilai")
-            for r in _ambil_baris("hasil", "nama,nilai")
-            if r.get("nama")
-        }
-    except Exception as e:
-        print(f"Gagal memproses data hasil ujian: {e}")
-        return {}
+    return {r["nama"]: r.get("nilai") for r in _ambil_baris("hasil", "nama,nilai")}
 
 
 def get_ulang():
-    try:
-        return {
-            r["nama"]: int(r.get("ulang") or 0)
-            for r in _ambil_baris("hasil", "nama,ulang")
-            if r.get("nama")
-        }
-    except Exception as e:
-        print(f"Gagal memproses data pengulangan ujian: {e}")
-        return {}
+    return {r["nama"]: int(r.get("ulang") or 0) for r in _ambil_baris("hasil", "nama,ulang")}
 
 
 def simpan_hasil(nama, nilai):
