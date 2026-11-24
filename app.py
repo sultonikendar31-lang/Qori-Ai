@@ -131,6 +131,77 @@ div[data-testid="stMetric"] label { color:#607492; }
 </style>
 """, unsafe_allow_html=True)
 
+# ---------- Login & role access ----------
+PENGELOLA = {
+    "kendar sultoni": "123",
+    "ade romli": "123",
+    "muhamad rais": "123",
+}
+DAFTAR_SISWA = [
+    "frischa bunga lestari",
+    "zalfatussyifa ramadanti",
+    "zain rahmanita",
+    "yusuf imam ma'ruf",
+    "raihan",
+    "febriansyah rachmat hidayat",
+    "angga fadillah",
+    "muhammad hafidz",
+    "andy ramadani abdullah",
+    "anggi ratu mahadewi",
+    "rizqi ramadhany",
+    "kawilujeungan rasyida raihanun",
+    "miftahul jannah",
+    "muhamad azham fatahila",
+    "rosmalati kholisha",
+    "m. arif zakariya",
+    "mochammad alkahfi mubarok",
+    "muhamad hartanto",
+    "imam mansyur ibnu hulkarim",
+    "daffan oktaffil hidayat",
+]
+
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+if "user_name" not in st.session_state:
+    st.session_state.user_name = ""
+if "user_role" not in st.session_state:
+    st.session_state.user_role = ""
+
+if not st.session_state.authenticated:
+    st.markdown("""
+    <div style="max-width:620px;margin:7vh auto 12px;text-align:center">
+      <div style="font-size:58px">📖☪️</div>
+      <h1 style="color:#102448;font-weight:800;margin-bottom:0">QORI AI</h1>
+      <p style="color:#61718d">Islamic Learning Management System</p>
+      <p style="color:#1459ae;font-weight:700;background:#e1edff;padding:12px;border-radius:12px">
+        Pengelola password 123, Siswa password 321
+      </p>
+    </div>
+    """, unsafe_allow_html=True)
+    with st.form("qori_login_form"):
+        st.subheader("Masuk ke QORI AI")
+        username_input = st.text_input("Username – Nama Lengkap", placeholder="contoh: frischa bunga lestari")
+        password_input = st.text_input("Password", type="password", placeholder="Masukkan password")
+        submitted = st.form_submit_button("Login", type="primary", use_container_width=True)
+    if submitted:
+        username = " ".join(username_input.strip().lower().split())
+        password = password_input.strip()
+        if username in PENGELOLA and password == PENGELOLA[username]:
+            st.session_state.authenticated = True
+            st.session_state.user_name = username.title()
+            st.session_state.user_role = "Pengelola"
+            st.session_state.menu = "Dashboard"
+            st.rerun()
+        elif username in DAFTAR_SISWA and password == "321":
+            st.session_state.authenticated = True
+            st.session_state.user_name = username
+            st.session_state.user_role = "Siswa"
+            st.session_state.menu = "Dashboard"
+            st.rerun()
+        else:
+            st.error("Username atau password salah. Periksa nama lengkap dan password Anda.")
+    st.stop()
+
 # ---------- Sidebar ----------
 with st.sidebar:
     st.markdown("""
@@ -140,6 +211,12 @@ with st.sidebar:
       <p>Islamic Learning<br>Management System</p>
     </div>
     """, unsafe_allow_html=True)
+
+    st.caption(f"Login: {st.session_state.user_name} ({st.session_state.user_role})")
+    if st.button("🚪 Keluar", key="logout", use_container_width=True):
+        for key in ["authenticated", "user_name", "user_role", "menu", "mode"]:
+            st.session_state.pop(key, None)
+        st.rerun()
 
     _client, _error = get_supabase_client()
     if _error:
@@ -177,16 +254,16 @@ with st.sidebar:
 # ---------- Header ----------
 left, right = st.columns([5, 1])
 with left:
-    st.markdown("""
+    st.markdown(f"""
     <div class="welcome">
       <div>
-        <h2>Selamat Datang, Kendar Sultoni 👋</h2>
+        <h2>Selamat Datang, {st.session_state.user_name} 👋</h2>
         <p>Di QORI AI – Media Pembelajaran Al-Qur'an Berbasis Artificial Intelligence</p>
       </div>
     </div>
     """, unsafe_allow_html=True)
 with right:
-    st.markdown('<div class="pill">👤 Siswa ▾</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="pill">👤 {st.session_state.user_role} ▾</div>', unsafe_allow_html=True)
 
 # ---------- Page content ----------
 if st.session_state.menu == "Dashboard":
