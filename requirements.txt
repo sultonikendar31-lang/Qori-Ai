@@ -5,3 +5,7 @@ openai
 pandas
 openpyxl
 streamlit-autorefresh
+streamlit>=1.36.0
+supabase>=2.5.0
+python-dotenv>=1.0.1
+pandas>=2.2.0
