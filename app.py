@@ -963,7 +963,8 @@ st.set_page_config(
     page_title="QORI AI | Dashboard",
     page_icon="📖",
     layout="wide",
-    initial_sidebar_state="expanded",
+    # "auto": sidebar terbuka di desktop, otomatis tertutup di HP/tablet kecil
+    initial_sidebar_state="auto",
 )
 
 # --- AUTOSAVE PENGATURAN: muat dari disk agar tetap setelah refresh ---
@@ -1322,22 +1323,40 @@ st.markdown("""
 .block-container { padding-top:2.2rem; padding-bottom:1.6rem;
   padding-left:1rem; padding-right:1rem; max-width:100%; }
 .stApp { background:#E9EDF2; }
-header[data-testid="stHeader"] { display:none !important; }
-[data-testid="stToolbar"] { display:none !important; }
+/* Header disembunyikan isinya, tapi tetap hidup agar tombol buka sidebar tampil */
+header[data-testid="stHeader"] { display:block !important; background:transparent !important;
+  height:auto !important; min-height:0 !important; pointer-events:none !important; }
+[data-testid="stToolbar"] { display:flex !important; background:transparent !important;
+  pointer-events:none !important; }
+[data-testid="stToolbarActions"] { display:none !important; }
 [data-testid="stDecoration"] { display:none !important; }
+/* Tombol buka menu saat sidebar tertutup (mobile & desktop) */
+[data-testid="stSidebarCollapsedControl"], button[data-testid="collapsedControl"],
+[data-testid="stExpandSidebarButton"] { display:flex !important;
+  position:fixed !important; top:12px !important; left:12px !important;
+  width:42px !important; height:42px !important; align-items:center !important;
+  justify-content:center !important; background:#0b2a5b !important; border:0 !important;
+  border-radius:12px !important; box-shadow:0 6px 18px #0b2a5b55 !important;
+  pointer-events:auto !important; visibility:visible !important; z-index:998000 !important; }
+[data-testid="stExpandSidebarButton"] span { color:#fff !important; }
+/* Saat sidebar tertutup, beri ruang di atas agar tombol tidak menutupi judul */
+body:has([data-testid="stSidebar"][data-collapsed="true"]) .block-container,
+body:has([data-testid="stSidebar"][data-collapsed="true"]) [data-testid="stMainBlockContainer"] {
+  padding-top:84px !important; }
 
 /* ---- Sidebar ---- */
-[data-testid="stSidebar"] { background:#0b2a5b !important; display:flex !important;
-  visibility:visible !important; width:278px !important; min-width:278px !important;
-  max-width:278px !important; flex:0 0 278px !important; transform:none !important;
-  left:0 !important; margin-left:0 !important; padding-top:14px !important; }
-[data-testid="stSidebar"][aria-expanded="false"] { width:278px !important;
-  min-width:278px !important; margin-left:0 !important; transform:translateX(0) !important; }
+[data-testid="stSidebar"] { background:#0b2a5b !important;
+  width:278px !important; min-width:278px !important;
+  max-width:278px !important; flex:0 0 278px !important;
+  padding-top:14px !important; }
 [data-testid="stSidebar"] > div:first-child { width:278px !important; min-width:278px !important;
   padding-top:0 !important; margin-top:0 !important; }
-[data-testid="stSidebarHeader"] { display:none !important; height:0 !important; }
+[data-testid="stSidebarHeader"] { display:flex !important; height:auto !important;
+  min-height:34px !important; padding:2px 8px !important;
+  justify-content:flex-end !important; }
 [data-testid="stSidebarCollapseButton"], [data-testid="stSidebarCollapsedControl"],
-button[data-testid="collapsedControl"] { display:none !important; }
+button[data-testid="collapsedControl"] { display:flex !important;
+  visibility:visible !important; }
 [data-testid="stSidebarContent"] { padding:14px 0 0 !important; }
 [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] { padding:0 16px 1rem; }
 .sb-brand { text-align:center; padding:0 4px 12px; }
@@ -3066,10 +3085,9 @@ st.markdown(
     "<style>"
     "[data-testid='stAppViewContainer']{background-color:#E9EDF2 !important;}"
     "[data-testid='stAppViewBlockContainer']{background-color:#E9EDF2 !important;}"
-    "[data-testid='stHeader']{background-color:#E9EDF2 !important;height:0 !important;"
-    "display:none !important;}"
-    "[data-testid='stToolbar']{display:none !important;}"
-    "header[data-testid='stHeader']{display:none !important;}"
+    "header[data-testid='stHeader']{background:transparent !important;height:auto !important;"
+    "pointer-events:none !important;}"
+    "[data-testid='stToolbar']{background:transparent !important;pointer-events:none !important;}"
     ".main{background-color:#E9EDF2 !important;}"
     ".block-container,[data-testid='stMainBlockContainer']{"
     "padding-top:14px !important;padding-bottom:0 !important;"
