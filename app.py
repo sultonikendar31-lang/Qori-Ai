@@ -3066,6 +3066,21 @@ st.markdown(
     ".chip-role .chev{font-size:11px;color:#5d7194;margin-left:6px;}"
     ".foto-menu-title{font-size:15px;font-weight:700;color:#0f2549;margin-bottom:4px;}"
     ".dash-greet{display:flex;align-items:center;gap:12px;}"
+    "/* Header di HP: lonceng & profil pindah ke atas, sapaan ke bawah (tidak numpuk) */"
+    "@media (max-width:768px){"
+    "[data-testid='stHorizontalBlock']:has(.st-key-topbar_kiri){flex-direction:column !important;"
+    "align-items:stretch !important;gap:4px !important;}"
+    "[data-testid='stHorizontalBlock']:has(.st-key-topbar_kiri) "
+    ">[data-testid='stColumn']{width:100% !important;flex:1 1 100% !important;"
+    "max-width:100% !important;}"
+    "[data-testid='stHorizontalBlock']:has(.st-key-topbar_kiri) "
+    ">[data-testid='stColumn']:has(.st-key-topbar_kanan){order:-1 !important;}"
+    ".st-key-topbar_kiri{height:auto !important;min-height:0 !important;}"
+    ".st-key-topbar_kiri .topbar{height:auto !important;min-height:0 !important;"
+    "justify-content:flex-start !important;margin:0 !important;}"
+    ".st-key-topbar_kanan{height:auto !important;min-height:0 !important;"
+    "flex-wrap:wrap !important;row-gap:6px !important;}"
+    "}"
     "</style>",
     unsafe_allow_html=True,
 )
