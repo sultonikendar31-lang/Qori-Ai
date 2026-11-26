@@ -2053,6 +2053,76 @@ def delete_student_supabase(student_id):
         return False, f"Gagal menghapus data siswa: {exc}"
 
 
+# Hasil game & ujian: lokal (nilai.json) tetap jadi sumber utama,
+# lalu disalin ke Supabase bila tersedia.
+KOLOM_HASIL_GAME = ("nama", "mode", "benar", "salah", "poin", "tanggal",
+                    "level", "jumlah_soal", "nilai")
+KOLOM_HASIL_UJIAN = ("nama_siswa", "kelas", "materi", "skor", "jawaban",
+                     "kategori", "nilai", "status_lulus", "tanggal")
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def kolom_hasil_supabase(tabel: str, kandidat: tuple) -> tuple:
+    """Kolom yang benar-benar ada di tabel, agar cocok dengan skema Supabase guru."""
+    client, error = get_supabase_client()
+    if error:
+        return ()
+    ada = []
+    for kolom in kandidat:
+        try:
+            client.table(tabel).select(kolom).limit(0).execute()
+            ada.append(kolom)
+        except Exception:
+            pass
+    return tuple(ada)
+
+
+def _kirim_hasil_supabase(tabel, isi, kandidat) -> bool:
+    client, error = get_supabase_client()
+    if error:
+        return False
+    kolom = kolom_hasil_supabase(tabel, kandidat)
+    if not kolom:
+        return False
+    data = {k: v for k, v in isi.items() if k in kolom}
+    try:
+        client.table(tabel).insert(data).execute()
+        return True
+    except Exception:
+        st.toast("Hasil tersimpan di aplikasi, tetapi gagal dikirim ke Supabase.",
+                 icon="⚠️")
+        return False
+
+
+def simpan_hasil_game(nama_siswa, mode, level, benar, total_soal, nilai):
+    return _kirim_hasil_supabase("hasil_game", {
+        "nama": nama_siswa,
+        "mode": mode,
+        "benar": int(benar),
+        "salah": max(0, int(total_soal) - int(benar)),
+        "poin": int(nilai),
+        "tanggal": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "level": int(level),
+        "jumlah_soal": int(total_soal),
+        "nilai": int(nilai),
+    }, KOLOM_HASIL_GAME)
+
+
+def simpan_hasil_ujian(nama_siswa, kategori, materi, jawaban, nilai, status,
+                       kelas=""):
+    return _kirim_hasil_supabase("hasil_ujian", {
+        "nama_siswa": nama_siswa,
+        "kelas": kelas,
+        "materi": materi,
+        "skor": int(nilai),
+        "jawaban": jawaban,
+        "kategori": kategori,
+        "nilai": int(nilai),
+        "status_lulus": status,
+        "tanggal": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }, KOLOM_HASIL_UJIAN)
+
+
 # ---------------------------------------------------------------------------
 # Login
 # ---------------------------------------------------------------------------
@@ -2462,6 +2532,7 @@ def simpan_hasil(tipe: str, mode: str, level: int, benar: int, total: int, xp_aw
     data.setdefault("papan", {})
     data["papan"][nama] = max(data["papan"].get(nama, 0), skor)
     save_all_data()
+    simpan_hasil_game(nama, mode, level, benar, total, skor)
     naik = level_dari_xp(progres["xp"])[0] > level_dari_xp(xp_awal)[0]
     return skor, naik
 
@@ -3639,6 +3710,7 @@ def simpan_game_cepat(mode: str, skor: int, benar: int = 0,
     data.setdefault("papan", {})
     data["papan"][nama] = max(data["papan"].get(nama, 0), persen)
     save_all_data()
+    simpan_hasil_game(nama, mode, int(level), benar, total, persen)
 
 
 def mini_reset(mode: str, game: str):
@@ -4447,8 +4519,10 @@ def _ujian_selesaikan(auto=False):
             "selesai": tanggal,
         })
         u["tanggal"] = tanggal
+        kelas_peserta = ""
         for s in data.get("siswa", []) or []:
             if rapikan_nama(str(s.get("nama") or "")).lower() == u["siswa"].lower():
+                kelas_peserta = str(s.get("kelas") or "")
                 if u["kategori"] == "Tahfidz":
                     s["nilai_tahfidz"] = skor
                 else:
@@ -4457,6 +4531,13 @@ def _ujian_selesaikan(auto=False):
         papan = data.setdefault("papan", {})
         papan[u["siswa"]] = max(int(papan.get(u["siswa"]) or 0), skor)
         save_all_data()
+        simpan_hasil_ujian(
+            u["siswa"], u["kategori"], u["materi"],
+            [{"soal": q.get("prompt", ""), "jawaban": p}
+             for q, p in zip(u["soal"], jawaban)],
+            skor, "Lulus" if skor >= BATAS_TUNTAS else "Belum lulus",
+            kelas_peserta,
+        )
         u["tersimpan"] = True
     st.rerun(scope="app")
 
