@@ -2107,12 +2107,20 @@ LOGIN_LOGO_SVG = (
 
 
 def render_login():
-    bg_login = asset_b64("login-bg.jpg")
+    login_bg_url = "https://raw.githubusercontent.com/sultonikendar31-lang/Qori-Ai/main/assets/login-bg.jpg"
     st.markdown(
         "<style>"
         "@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');"
-        f".stApp{{background-image:linear-gradient(rgba(0,0,0,.35),rgba(0,0,0,.35)),url('{bg_login}');"
-        "background-size:cover;background-position:center;background-repeat:no-repeat;background-attachment:fixed;}"
+        f"html,body,[data-testid='stApp'],.stApp,[data-testid='stAppViewContainer']{{"
+        f"background-image:linear-gradient(rgba(0,0,0,.35),rgba(0,0,0,.35)),url('{login_bg_url}') !important;"
+        "background-size:cover !important;background-position:center !important;"
+        "background-repeat:no-repeat !important;background-attachment:fixed !important;"
+        "background-color:transparent !important;}"
+        "[data-testid='stMain'],.main,[data-testid='stMainBlockContainer']{"
+        "background:transparent !important;}"
+        ".login-brand,.login-brand .tag,.login-brand p{"
+        "background:transparent !important;background-color:transparent !important;"
+        "border-radius:0 !important;box-shadow:none !important;}"
         "header[data-testid='stHeader'],[data-testid='stToolbar'],[data-testid='stDecoration'],"
         "[data-testid='stSidebar'],[data-testid='stSidebarCollapsedControl']{display:none !important}"
         ".block-container{max-width:1560px;padding:8vh 48px 5vh !important}"
@@ -2193,7 +2201,12 @@ def render_login():
         ".login-brand .sub{font-size:14px}.login-logo svg{width:150px}"
         ".st-key-login_card{padding:30px 28px 26px}.login-head h2{font-size:31px}}"
         f"@media(max-width:860px){{"
-        ".stAppViewContainer,[data-testid='stAppViewContainer'],.main{background:transparent !important;}"
+        "html,body,[data-testid='stApp'],.stApp,[data-testid='stAppViewContainer']{"
+        f"background-image:linear-gradient(rgba(0,0,0,.35),rgba(0,0,0,.35)),url('{login_bg_url}') !important;"
+        "background-size:cover !important;background-position:center !important;"
+        "background-repeat:no-repeat !important;background-attachment:scroll !important;"
+        "background-color:transparent !important;}"
+        "[data-testid='stMain'],.main,[data-testid='stMainBlockContainer']{background:transparent !important;}"
         ".block-container{padding:26px 16px !important}"
         ".login-brand{padding:6px 4px 0}.login-divider{display:none}"
         ".login-brand h1{font-size:46px;letter-spacing:1.5px}"
