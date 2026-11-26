@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import difflib
 import hashlib
+import gzip
 import html
 import json
 import os
@@ -68,6 +69,9 @@ CHAT_AI_FILE = DATA_DIR / "chat_ai.json"
 KURIKULUM_FILE = DATA_DIR / "materi_kurikulum.json"
 MATERI_ASSET_DIR = ASSETS / "materi"
 LEADERBOARD_FILE = DATA_DIR / "leaderboard.json"
+GLOBAL_SNAPSHOT_FILE = DATA_DIR / "qori_global_snapshot.json"
+GLOBAL_SETTINGS_USER_ID = "qori_ai:global"
+GLOBAL_SNAPSHOT_KEY = "qori_global_snapshot_v1"
 
 
 def asset_b64(nama: str) -> str:
@@ -2177,6 +2181,9 @@ def load_all_data():
 
 def save_all_data():
     _tulis_semua(st.session_state.data)
+    # Sinkronkan seluruh data aplikasi setelah perubahan data inti.
+    if "_qori_simpan_snapshot_global" in globals() and not st.session_state.get("_qori_memuat_snapshot"):
+        _qori_simpan_snapshot_global(alasan="perubahan_data")
 
 
 def _segarkan_materi():
@@ -2276,6 +2283,296 @@ def get_supabase_client():
     except Exception as exc:
         return None, f"Gagal membuat klien Supabase: {exc}"
 
+
+def _qori_json_aman(nilai):
+    """Ubah nilai aplikasi menjadi struktur JSON; objek widget sementara dilewati."""
+    if nilai is None or isinstance(nilai, (str, int, float, bool)):
+        return nilai
+    if isinstance(nilai, bytes):
+        return {"__qori_bytes__": base64.b64encode(nilai).decode("ascii")}
+    if isinstance(nilai, (datetime, timedelta)):
+        return {"__qori_datetime__": nilai.isoformat() if isinstance(nilai, datetime) else str(nilai)}
+    if isinstance(nilai, set):
+        return [_qori_json_aman(x) for x in sorted(nilai, key=str)]
+    if isinstance(nilai, (list, tuple)):
+        return [_qori_json_aman(x) for x in nilai]
+    if isinstance(nilai, dict):
+        hasil = {}
+        for k, v in nilai.items():
+            aman = _qori_json_aman(v)
+            if aman is not _QORI_SKIP:
+                hasil[str(k)] = aman
+        return hasil
+    # UploadedFile, client, fungsi, dan objek UI tidak boleh masuk ke JSONB.
+    if hasattr(nilai, "getvalue") or callable(nilai):
+        return _QORI_SKIP
+    if hasattr(nilai, "to_dict"):
+        try:
+            return _qori_json_aman(nilai.to_dict())
+        except Exception:
+            return _QORI_SKIP
+    return _QORI_SKIP
+
+
+_QORI_SKIP = object()
+
+
+def _qori_json_pulihkan(nilai):
+    if isinstance(nilai, list):
+        return [_qori_json_pulihkan(x) for x in nilai]
+    if isinstance(nilai, dict):
+        if set(nilai) == {"__qori_bytes__"}:
+            try:
+                return base64.b64decode(nilai["__qori_bytes__"])
+            except Exception:
+                return b""
+        if set(nilai) == {"__qori_datetime__"}:
+            try:
+                return datetime.fromisoformat(nilai["__qori_datetime__"])
+            except Exception:
+                return nilai["__qori_datetime__"]
+        return {k: _qori_json_pulihkan(v) for k, v in nilai.items()}
+    return nilai
+
+
+def _qori_kumpulkan_session():
+    """Ambil state aplikasi, tanpa kredensial login atau objek upload sementara."""
+    abaikan_tepat = {
+        "T", "user_name", "user_role", "password", "login_password",
+        "logged_in", "_global_snapshot_payload", "_global_snapshot_signature",
+        "_qori_memuat_snapshot", "_qori_snapshot_loaded", "_qori_snapshot_loading",
+    }
+    hasil = {}
+    for k in list(st.session_state.keys()):
+        nama = str(k)
+        nama_lc = nama.casefold()
+        if (nama in abaikan_tepat or nama.startswith("foto_upload_")
+                or nama.startswith("ai_mic")
+                or any(token in nama_lc for token in ("password", "pass", "secret", "api_key", "token"))):
+            continue
+        try:
+            aman = _qori_json_aman(st.session_state[k])
+        except Exception:
+            continue
+        if aman is not _QORI_SKIP:
+            hasil[nama] = aman
+    return hasil
+
+
+def _qori_file_snapshot():
+    """Ambil cadangan JSON dan berkas materi/foto yang sudah tersimpan lokal."""
+    files = {}
+    candidates = []
+    if DATA_DIR.exists():
+        # users.json memuat password pengelola; jangan pernah menyalinnya ke JSONB global.
+        candidates.extend(p for p in DATA_DIR.rglob("*")
+                          if p.is_file() and p != GLOBAL_SNAPSHOT_FILE and p != USERS_FILE)
+    if AUTOSAVE_FILE.exists():
+        candidates.append(AUTOSAVE_FILE)
+    for folder in (FOTO_DIR, MATERI_ASSET_DIR):
+        if folder.exists():
+            candidates.extend(p for p in folder.rglob("*") if p.is_file())
+    for path in dict.fromkeys(candidates):
+        try:
+            rel = str(path.relative_to(BASE_DIR)).replace("\\", "/")
+            raw = path.read_bytes()
+            files[rel] = base64.b64encode(raw).decode("ascii")
+        except Exception:
+            # File yang tidak dapat dibaca tidak menghentikan penyimpanan data lain.
+            continue
+    return files
+
+
+def _qori_buat_snapshot():
+    """Kumpulkan seluruh data inti, materi, chat, pengaturan, dan state menu."""
+    global_data = {}
+    for nama in ("MATERI", "BANKS"):
+        nilai = globals().get(nama)
+        aman = _qori_json_aman(nilai)
+        if aman is not _QORI_SKIP:
+            global_data[nama] = aman
+    return {
+        "versi": 1,
+        "data": _qori_json_aman(st.session_state.get("data", {})),
+        "session": _qori_kumpulkan_session(),
+        "globals": global_data,
+        "files": _qori_file_snapshot(),
+    }
+
+
+def _qori_signature_snapshot(snapshot=None):
+    if snapshot is None:
+        snapshot = _qori_buat_snapshot()
+    teks = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(teks.encode("utf-8")).hexdigest()
+
+
+def _qori_snapshot_encode(snapshot):
+    raw = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8")
+    packed = gzip.compress(raw, compresslevel=6, mtime=0)
+    return base64.b64encode(packed).decode("ascii")
+
+
+def _qori_snapshot_decode(encoded):
+    packed = base64.b64decode(encoded)
+    raw = gzip.decompress(packed)
+    result = json.loads(raw.decode("utf-8"))
+    return _qori_json_pulihkan(result)
+
+
+def _qori_simpan_snapshot_global(alasan="autosave", manual=False):
+    """Simpan snapshot global tanpa menghapus key lain pada app_settings.settings."""
+    try:
+        snapshot = _qori_buat_snapshot()
+        signature = _qori_signature_snapshot(snapshot)
+        if not manual and signature == st.session_state.get("_qori_global_signature"):
+            return True, st.session_state.get("_qori_global_last_saved", "")
+        saat = datetime.now(ZoneInfo("Asia/Jakarta"))
+        waktu = saat.strftime("%d/%m/%Y %H:%M")
+        snapshot["terakhir_disimpan"] = waktu
+        encoded = _qori_snapshot_encode(snapshot)
+        # Cadangan JSON lokal; Supabase tetap menjadi penyimpanan lintas perangkat.
+        GLOBAL_SNAPSHOT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        GLOBAL_SNAPSHOT_FILE.write_text(json.dumps({
+            "versi": 1, "encoding": "gzip+base64", "payload": encoded,
+            "terakhir_disimpan": waktu,
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
+        client, error = get_supabase_client()
+        if client is None:
+            st.session_state["_qori_global_save_error"] = error or "Supabase tidak tersedia."
+            return False, st.session_state["_qori_global_save_error"]
+        hasil = (client.table("app_settings").select("id,settings")
+                 .eq("user_id", GLOBAL_SETTINGS_USER_ID).limit(1).execute())
+        rows = getattr(hasil, "data", None) or []
+        patch = {GLOBAL_SNAPSHOT_KEY: {
+            "encoding": "gzip+base64", "payload": encoded,
+            "terakhir_disimpan": waktu, "alasan": alasan,
+        }}
+        if rows:
+            row = rows[0]
+            settings_lama = row.get("settings") if isinstance(row, dict) else {}
+            gabungan = dict(settings_lama) if isinstance(settings_lama, dict) else {}
+            gabungan.update(patch)
+            client.table("app_settings").update({
+                "settings": gabungan, "updated_at": saat.isoformat(),
+            }).eq("id", row["id"]).execute()
+        else:
+            client.table("app_settings").insert({
+                "user_id": GLOBAL_SETTINGS_USER_ID, "settings": patch,
+                "updated_at": saat.isoformat(),
+            }).execute()
+        st.session_state["_qori_global_signature"] = signature
+        st.session_state["_qori_global_last_saved"] = waktu
+        st.session_state["_qori_global_save_error"] = ""
+        st.session_state["_qori_global_dirty"] = False
+        return True, waktu
+    except Exception as exc:
+        st.session_state["_qori_global_dirty"] = True
+        st.session_state["_qori_global_save_error"] = str(exc)
+        return False, str(exc)
+
+
+def _qori_terapkan_snapshot(snapshot):
+    """Pulihkan berkas, data, materi, dan state sebelum halaman dirender."""
+    if not isinstance(snapshot, dict):
+        return False
+    st.session_state["_qori_memuat_snapshot"] = True
+    try:
+        for rel, encoded in (snapshot.get("files") or {}).items():
+            try:
+                path = (BASE_DIR / str(rel)).resolve()
+                if BASE_DIR.resolve() not in path.parents and path != BASE_DIR.resolve():
+                    continue
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(base64.b64decode(encoded))
+            except Exception:
+                continue
+        for nama, nilai in (snapshot.get("globals") or {}).items():
+            if nama in ("MATERI", "BANKS") and isinstance(nilai, dict):
+                target = globals().get(nama)
+                if isinstance(target, dict):
+                    target.clear()
+                    target.update(nilai)
+        data = snapshot.get("data")
+        if isinstance(data, dict) and data:
+            st.session_state["data"] = data
+        for k, v in (snapshot.get("session") or {}).items():
+            if k in ("user_name", "user_role", "password", "login_password", "logged_in"):
+                continue
+            try:
+                st.session_state[k] = v
+            except Exception:
+                continue
+        st.session_state["_qori_global_last_saved"] = snapshot.get("terakhir_disimpan", "")
+        return True
+    finally:
+        st.session_state.pop("_qori_memuat_snapshot", None)
+
+
+def _qori_muat_snapshot_global():
+    """Utamakan snapshot Supabase; JSON lokal menjadi fallback bila offline."""
+    if st.session_state.get("_qori_snapshot_loaded"):
+        return
+    snapshot = None
+    client, error = get_supabase_client()
+    if client is not None:
+        try:
+            hasil = (client.table("app_settings").select("settings")
+                     .eq("user_id", GLOBAL_SETTINGS_USER_ID).limit(1).execute())
+            rows = getattr(hasil, "data", None) or []
+            if rows:
+                settings = rows[0].get("settings") or {}
+                blob = settings.get(GLOBAL_SNAPSHOT_KEY) if isinstance(settings, dict) else None
+                if isinstance(blob, dict) and blob.get("payload"):
+                    snapshot = _qori_snapshot_decode(blob["payload"])
+        except Exception as exc:
+            st.session_state["_qori_global_load_error"] = str(exc)
+    if snapshot is None:
+        local = _baca_json(GLOBAL_SNAPSHOT_FILE, {})
+        if isinstance(local, dict) and local.get("payload"):
+            try:
+                snapshot = _qori_snapshot_decode(local["payload"])
+            except Exception:
+                snapshot = None
+    if snapshot:
+        _qori_terapkan_snapshot(snapshot)
+        # File data telah dipulihkan; muat ulang struktur inti dari berkas tersebut.
+        try:
+            st.session_state["data"] = load_all_data()
+            for nama, nilai in (snapshot.get("globals") or {}).items():
+                target = globals().get(nama)
+                if nama in ("MATERI", "BANKS") and isinstance(target, dict) and isinstance(nilai, dict):
+                    target.clear()
+                    target.update(nilai)
+            for k, v in (snapshot.get("session") or {}).items():
+                if k not in ("user_name", "user_role", "password", "login_password", "logged_in"):
+                    st.session_state[k] = v
+        except Exception as exc:
+            st.session_state["_qori_global_load_error"] = str(exc)
+        st.session_state["_qori_global_last_saved"] = snapshot.get("terakhir_disimpan", "")
+        st.session_state["_qori_global_signature"] = _qori_signature_snapshot(_qori_buat_snapshot())
+    st.session_state["_qori_snapshot_loaded"] = True
+
+
+def _qori_pantau_perubahan_global():
+    """Autosave otomatis saat snapshot isi aplikasi berubah, tanpa simpan ulang pada refresh."""
+    if st.session_state.get("_qori_memuat_snapshot"):
+        return
+    snapshot = _qori_buat_snapshot()
+    signature = _qori_signature_snapshot(snapshot)
+    sebelumnya = st.session_state.get("_qori_global_signature")
+    if sebelumnya is None:
+        st.session_state["_qori_global_signature"] = signature
+        return
+    if signature != sebelumnya:
+        st.session_state["_qori_global_dirty"] = True
+        ok, detail = _qori_simpan_snapshot_global(alasan="perubahan_otomatis")
+        if not ok:
+            st.session_state["_qori_global_save_error"] = str(detail)
+
+
+# Pulihkan snapshot global setelah konektor Supabase tersedia dan sebelum halaman dirender.
+_qori_muat_snapshot_global()
 
 @st.cache_resource(show_spinner=False)
 def get_openai_client():
@@ -3148,6 +3445,15 @@ with st.sidebar:
         st.session_state.pop("menu", None)
         st.session_state.pop("locked_mode", None)
         st.rerun()
+    if st.button("💾 Simpan Semua Data", key="qori_simpan_global_sidebar", use_container_width=True):
+        _qori_ok, _qori_detail = _qori_simpan_snapshot_global(alasan="simpan_manual", manual=True)
+        if _qori_ok:
+            st.success("✅ Semua data menu berhasil disimpan.")
+        else:
+            st.error("Gagal menyimpan data global: " + str(_qori_detail))
+    _terakhir_global = st.session_state.get("_qori_global_last_saved")
+    if _terakhir_global:
+        st.caption("🕒 Terakhir disimpan global: " + str(_terakhir_global) + " WIB")
     _terakhir_auto = (st.session_state.get("_pengaturan_last_saved")
                       or (st.session_state.get("data_tersimpan") or _DISK_CFG or {}).get("terakhir_disimpan")
                       or st.session_state.get("terakhir_simpan") or "-")
@@ -6896,7 +7202,8 @@ def page_quran():
     """, unsafe_allow_html=True)
     kata_ayat = T("ayat", "verses", "آية")
     opsi = [f"{no} · {nama} ({ayat} {kata_ayat})" for no, nama, ayat, _ in SURAH_JUZ30]
-    pilihan = st.selectbox(T("Pilih surah", "Choose surah", "اختر السورة"), opsi)
+    pilihan = st.selectbox(T("Pilih surah", "Choose surah", "اختر السورة"), opsi,
+                           key="quran_surah_terakhir")
     nomor = int(pilihan.split("·")[0].strip())
     nama, jumlah, arti = SURAH_INFO[nomor]
     st.markdown(f"""
@@ -9887,6 +10194,13 @@ elif menu == "Kelola Pengelola":
     page_kelola_pengelola()
 elif menu == "Pengaturan":
     page_pengaturan()
+
+# Autosave global untuk perubahan pada semua menu yang tercermin di state/berkas.
+_qori_pantau_perubahan_global()
+_qori_waktu_tampil = st.session_state.get("_qori_global_last_saved") or "Belum ada penyimpanan"
+st.caption("💾 Terakhir disimpan: " + str(_qori_waktu_tampil) + " WIB")
+if st.session_state.get("_qori_global_save_error"):
+    st.warning("⚠️ Sinkronisasi global belum berhasil: " + str(st.session_state.get("_qori_global_save_error")))
 
 # Perubahan yang terdeteksi di luar halaman Pengaturan tetap ditandai; fragment
 # akan menyimpannya setelah 2 detik tanpa perubahan, bukan menulis berulang kali.
