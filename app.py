@@ -1112,89 +1112,47 @@ def qori_terpilih() -> str:
     pilihan = (st.session_state.get("data_tersimpan") or _DISK_CFG or {}).get("qori")
     return pilihan if pilihan in QORI_LIST else QORI_LIST[0]
 
-_CSS_TEMA = ""
-if tema == "Gelap":
-    _CSS_TEMA = """<style>
-    html, body, .stApp, [data-testid="stApp"], [data-testid="stAppViewContainer"],
-    [data-testid="stAppViewBlockContainer"], [data-testid="stMain"],
-    [data-testid="stMainBlockContainer"], .main, .block-container {
-      background-color:#0E1117 !important; color:#FAFAFA !important;
-    }
-    html { color-scheme: dark; }
-    [data-testid="stSidebar"], [data-testid="stSidebar"] > div:first-child,
-    [data-testid="stSidebarContent"] { background-color:#1A1D29 !important; }
-    [data-testid="stSidebar"] * { color:#FAFAFA !important; }
-    .stButton>button { background-color:#262730 !important; color:#FAFAFA !important;
-      border-color:#3A4152 !important; }
-    .stButton>button p, .stButton>button span { color:#FAFAFA !important; }
-    .stSelectbox div[data-baseweb="select"]>div, .stTextInput input,
-    .stTextArea textarea, .stNumberInput input, .stTimeInput input,
-    .stChatInput textarea, [data-testid="stChatInput"] textarea {
-      background-color:#262730 !important; color:#FAFAFA !important;
-    }
-    [data-baseweb="popover"], [data-baseweb="popover"] div, [role="listbox"] {
-      background-color:#1A1D29 !important;
-    }
-    [role="option"] { background-color:#1A1D29 !important; color:#FAFAFA !important; }
-    [role="option"]:hover, [role="option"][aria-selected="true"] {
-      background-color:#2B3245 !important;
-    }
-    h1, h2, h3, h4, h5, h6, p, span, label, li, small, strong {
-      color:#FAFAFA !important;
-    }
-    .panel, .quiz-card, .meta-card, .materi-box, .stat, .stChatMessage,
-    .st-key-panel_board, .st-key-panel_fitur, div[data-testid="stMetric"],
-    [data-testid="stExpander"] details, [data-testid="stExpander"] summary,
-    [data-testid="stExpander"], .st-key-login_card {
-      background-color:#1A1D29 !important; border-color:#2D3343 !important;
-    }
-    .chip, .pill { background-color:#23304a !important; color:#c9dcff !important; }
-    .track { background-color:#2D3343 !important; }
-    .ayah, .rank, .activity, .feature { border-color:#2D3343 !important; }
-    .hero-chip { background-color:#ffffff1a !important; }
-    .hero, .hero-small, .result-hero { box-shadow:none !important; }
-    .quiz-arab, .ayah-arab, .mini-kata, .mini-glyph, .mini-label,
-    .quiz-prompt, .meta-card b, .stat strong { color:#FAFAFA !important; }
-    .ayah-terjemah, .ayah-latin, .materi-box, .small-muted, .quiz-note,
-    .activity, .rank-name, .rank-score { color:#E6EAF2 !important; }
-    .mini-glyph, .mini-kata, .mini-opsi {
-      background-color:#1A1D29 !important; border-color:#2D3343 !important;
-    }
-    .ayah-no { background-color:#23304a !important; color:#bfd7ff !important; }
-    .mode-btn, .icon-btn, .profile, .mini-kartu.buka {
-      background-color:#1A1D29 !important; border-color:#2D3343 !important;
-      color:#FAFAFA !important;
-    }
-    .st-key-mode_iqro [data-testid='stButton'] button,
-    .st-key-mode_tahsin [data-testid='stButton'] button,
-    .st-key-mode_tahfidz [data-testid='stButton'] button,
-    .st-key-fitur_btn_ai button {
-      background-color:#262730 !important; border-color:#3A4152 !important;
-      color:#FAFAFA !important;
-    }
-    .st-key-mode_iqro [data-testid='stButton'] button p,
-    .st-key-mode_tahsin [data-testid='stButton'] button p,
-    .st-key-mode_tahfidz [data-testid='stButton'] button p,
-    .st-key-fitur_btn_ai button p { color:#FAFAFA !important; }
-    [style*="background:#fff"], [style*="background:#ffffff"] {
-      background-color:#1A1D29 !important; border-color:#2D3343 !important;
-    }
-    [data-testid="stDataFrame"], [data-testid="stTable"] {
-      background-color:#1A1D29 !important;
-    }
-    [data-testid="stAlert"] { background-color:#262730 !important; }
-    div[data-testid="stTabs"] button { color:#C9D4E6 !important; }
-    div[data-testid="stTabs"] button[aria-selected="true"] { color:#FFFFFF !important; }
-    </style>"""
-if BAHASA_ARAB:
-    _CSS_TEMA += """<style>
-    html, body, .stApp, [data-testid="stSidebar"],
-    [data-testid="stMainBlockContainer"] { direction: rtl; }
-    [data-testid="stSidebar"] .stButton button { text-align: right; }
-    [data-testid="stSidebar"] .sb-brand { text-align: center; }
-    </style>"""
-if _CSS_TEMA:
-    st.markdown(_CSS_TEMA, unsafe_allow_html=True)
+# CSS GLOBAL: paksa Light Mode dan keterbacaan di desktop/HP.
+# Blok CSS ini ditempatkan setelah set_page_config agar sesuai aturan Streamlit.
+rtl = """html, body, .stApp, [data-testid="stSidebar"], [data-testid="stMainBlockContainer"] { direction: rtl !important; }
+[data-testid="stSidebar"] .stButton button { text-align: right !important; }
+[data-testid="stSidebar"] .sb-brand { text-align: center !important; }""" if BAHASA_ARAB else ""
+st.markdown(f"""
+<style>
+:root, html, body, .stApp, [data-testid="stApp"],
+[data-testid="stAppViewContainer"], [data-testid="stMain"],
+[data-testid="stMainBlockContainer"] {{ color-scheme:light !important; background:#fff !important; color:#111 !important; }}
+html body [data-testid="stApp"] div.stButton > button:not([kind="primary"]),
+html body [data-testid="stApp"] [data-testid="stDownloadButton"] button {{ background:#fff !important; background-color:#fff !important; color:#111 !important; border:1.5px solid #111 !important; font-weight:700 !important; opacity:1 !important; }}
+html body [data-testid="stApp"] div.stButton > button:not([kind="primary"]) *,
+html body [data-testid="stApp"] [data-testid="stDownloadButton"] button * {{ color:#111 !important; font-weight:700 !important; opacity:1 !important; }}
+html body [data-testid="stApp"] div.stButton > button[kind="primary"],
+html body [data-testid="stApp"] div.stButton > button[data-testid="stBaseButton-primary"] {{ background:#2563eb !important; background-color:#2563eb !important; color:#fff !important; border:1.5px solid #2563eb !important; font-weight:700 !important; }}
+html body [data-testid="stApp"] div.stButton > button[kind="primary"] *,
+html body [data-testid="stApp"] div.stButton > button[data-testid="stBaseButton-primary"] * {{ color:#fff !important; font-weight:700 !important; }}
+html body [data-testid="stApp"] [data-testid="stWidgetLabel"],
+html body [data-testid="stApp"] [data-testid="stWidgetLabel"] *,
+html body [data-testid="stApp"] .stRadio label,
+html body [data-testid="stApp"] .stRadio label * {{ color:#111 !important; font-weight:700 !important; opacity:1 !important; }}
+html body [data-testid="stApp"] .stRadio label {{ font-size:17px !important; }}
+html body [data-testid="stApp"] [data-testid="stMetricValue"],
+html body [data-testid="stApp"] [data-testid="stMetricValue"] * {{ color:#111 !important; font-weight:800 !important; opacity:1 !important; }}
+html body [data-testid="stApp"] input,
+html body [data-testid="stApp"] textarea,
+html body [data-testid="stApp"] [data-baseweb="select"] > div,
+html body [data-testid="stApp"] [data-baseweb="input"] > div,
+html body [data-testid="stApp"] [data-testid="stFileUploaderDropzone"],
+html body [data-testid="stApp"] [data-testid="stFileUploader"] section {{ background:#fff !important; background-color:#fff !important; color:#111 !important; border-color:#94a3b8 !important; opacity:1 !important; }}
+html body [data-testid="stApp"] input::placeholder,
+html body [data-testid="stApp"] textarea::placeholder {{ color:#64748b !important; opacity:1 !important; }}
+html body [data-testid="stApp"] [data-baseweb="select"] *,
+html body [data-testid="stApp"] [data-baseweb="input"] *,
+html body [data-testid="stApp"] [data-testid="stFileUploader"] * {{ color:#111 !important; }}
+html body [data-baseweb="popover"], html body [role="listbox"], html body [role="option"] {{ background:#fff !important; color:#111 !important; }}
+@media (prefers-color-scheme:dark) {{ html, body, .stApp, [data-testid="stApp"] {{ color-scheme:light !important; }} }}
+{rtl if BAHASA_ARAB else ''}
+</style>
+""", unsafe_allow_html=True)
 
 st.markdown("""
 <style>
@@ -3192,9 +3150,6 @@ st.markdown(
     "</style>",
     unsafe_allow_html=True,
 )
-# Ulangi tema setelah CSS paksa agar mode Gelap benar-benar menang.
-if _CSS_TEMA:
-    st.markdown(_CSS_TEMA, unsafe_allow_html=True)
 if notif_belum:
     lencana = str(notif_belum) if notif_belum < 10 else "9+"
     st.markdown(
