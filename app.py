@@ -1064,11 +1064,18 @@ st.session_state["T"] = T
 
 # --- AUTOSAVE PENGATURAN GLOBAL ---
 def _kumpulkan_pengaturan() -> dict:
+    """Kumpulkan pengaturan dengan satu nama key kanonis agar nilai kosong/tidak hilang."""
     mirror = st.session_state.get("_tampilan_aktif", {}) or {}
     sebelumnya = st.session_state.get("data_tersimpan") or _DISK_CFG or {}
-    qori = st.session_state.get("set_suara")
-    if qori not in QORI_LIST:
-        qori = sebelumnya.get("qori")
+
+    def nilai_widget(kunci, kunci_lama, default):
+        if kunci in st.session_state:
+            return st.session_state[kunci]
+        if kunci_lama in sebelumnya:
+            return sebelumnya[kunci_lama]
+        return default
+
+    qori = nilai_widget("set_suara", "qori", QORI_LIST[0])
     if qori not in QORI_LIST:
         qori = QORI_LIST[0]
     tema_aktif = next(
@@ -1079,25 +1086,26 @@ def _kumpulkan_pengaturan() -> dict:
         (v for v in (st.session_state.get("bahasa_aplikasi"), mirror.get("bahasa"),
                      sebelumnya.get("bahasa"), bahasa)
          if v in _BAHASA_OPSI), "Bahasa Indonesia")
-    jam = st.session_state.get("set_jam_input", sebelumnya.get("jam_pengingat", "19:00"))
+    jam = nilai_widget("set_jam_input", "jam_pengingat", "19:00")
     return {
-        "nama": st.session_state.get("set_nama") or sebelumnya.get("nama") or "Kendar Sultoni",
-        "sekolah": st.session_state.get("set_lembaga") or sebelumnya.get("sekolah") or "TPQ Nurul Ilmi",
-        "email": st.session_state.get("set_email") or sebelumnya.get("email", ""),
+        "nama": nilai_widget("set_nama", "nama", "Kendar Sultoni"),
+        # Key kanonis nama lembaga: selalu "sekolah"; jangan membuat key alternatif.
+        "sekolah": nilai_widget("set_lembaga", "sekolah", "TPQ Nurul Ilmi"),
+        # Nama field internal tetap "email" agar data lama tidak hilang; label UI menjadi Username.
+        "email": nilai_widget("set_email", "email", "kendar@gmail.com"),
         "qori": qori,
         "tema": tema_aktif,
         "bahasa": bahasa_aktif,
-        "level": st.session_state.get("set_mode") or sebelumnya.get("level") or "Tahsin",
-        "level_iqro": st.session_state.get("set_iqro") or sebelumnya.get("level_iqro") or "Iqro' 3",
-        "target": st.session_state.get("set_target", sebelumnya.get("target", 30)),
-        "notifikasi": bool(st.session_state.get("set_reminder", sebelumnya.get("notifikasi", True))),
-        "jam_pengingat": str(jam or "19:00"),
-        "huruf": st.session_state.get("set_huruf") or sebelumnya.get("huruf") or "Sedang",
-        "kecepatan": st.session_state.get("set_kecepatan") or sebelumnya.get("kecepatan") or "Normal (1x)",
-        "autoplay": bool(st.session_state.get("set_autoplay", sebelumnya.get("autoplay", True))),
-        "tajwid": bool(st.session_state.get("set_tajwid", sebelumnya.get("tajwid", True))),
-        "notif_leader": bool(st.session_state.get("set_notif_leader",
-                                                  sebelumnya.get("notif_leader", True))),
+        "level": nilai_widget("set_mode", "level", "Tahsin"),
+        "level_iqro": nilai_widget("set_iqro", "level_iqro", "Iqro' 3"),
+        "target": nilai_widget("set_target", "target", 30),
+        "notifikasi": bool(nilai_widget("set_reminder", "notifikasi", True)),
+        "jam_pengingat": str(jam if jam is not None else "19:00"),
+        "huruf": nilai_widget("set_huruf", "huruf", "Sedang"),
+        "kecepatan": nilai_widget("set_kecepatan", "kecepatan", "Normal (1x)"),
+        "autoplay": bool(nilai_widget("set_autoplay", "autoplay", True)),
+        "tajwid": bool(nilai_widget("set_tajwid", "tajwid", True)),
+        "notif_leader": bool(nilai_widget("set_notif_leader", "notif_leader", True)),
     }
 
 
@@ -2259,6 +2267,9 @@ def _qori_buat_snapshot():
     return {
         "versi": 1,
         "data": _qori_json_aman(st.session_state.get("data", {})),
+        # Simpan field pengaturan secara eksplisit selain snapshot Session State.
+        # Ini menjaga nama lembaga (key tunggal: sekolah) dan semua input pengaturan.
+        "pengaturan": _qori_json_aman(_kumpulkan_pengaturan()),
         "session": _qori_kumpulkan_session(),
         "globals": global_data,
         "files": _qori_file_snapshot(),
@@ -2363,6 +2374,23 @@ def _qori_terapkan_snapshot(snapshot):
         data = snapshot.get("data")
         if isinstance(data, dict) and data:
             st.session_state["data"] = data
+        pengaturan = snapshot.get("pengaturan")
+        if isinstance(pengaturan, dict):
+            # Pulihkan juga ke dua cache pengaturan lama agar widget lama tetap kompatibel.
+            st.session_state["data_tersimpan"] = dict(pengaturan)
+            st.session_state["pengaturan_tersimpan"] = dict(pengaturan)
+            pemetaan_pengaturan = {
+                "set_nama": "nama", "set_lembaga": "sekolah", "set_email": "email",
+                "set_suara": "qori", "set_mode": "level", "set_iqro": "level_iqro",
+                "set_target": "target", "set_reminder": "notifikasi",
+                "set_jam_input": "jam_pengingat", "set_huruf": "huruf",
+                "set_kecepatan": "kecepatan", "set_autoplay": "autoplay",
+                "set_tajwid": "tajwid", "set_notif_leader": "notif_leader",
+                "tema_aplikasi": "tema", "bahasa_aplikasi": "bahasa",
+            }
+            for kunci_widget, kunci_data in pemetaan_pengaturan.items():
+                if kunci_data in pengaturan:
+                    st.session_state[kunci_widget] = pengaturan[kunci_data]
         for k, v in (snapshot.get("session") or {}).items():
             if k in ("user_name", "user_role", "password", "login_password", "logged_in"):
                 continue
@@ -8559,7 +8587,7 @@ def page_pengaturan():
             st.text_input(T("Nama Lembaga / TPQ / Sekolah", "Institution / TPQ / School Name",
                             "اسم المؤسسة / دار القرآن / المدرسة"), key="set_lembaga",
                           on_change=autosave_pengaturan)
-            st.text_input(T("Email", "Email", "البريد الإلكتروني"), key="set_email",
+            st.text_input(T("Username", "Username", "اسم المستخدم"), key="set_email",
                           on_change=autosave_pengaturan)
             st.text_input(T("Ganti Password", "Change Password", "تغيير كلمة المرور"),
                           type="password",
@@ -8698,27 +8726,56 @@ def page_pengaturan():
         st.markdown(T("*Versi:* QORI AI v1.0 | *Dibuat oleh:* Kendar Sultoni",
                       "*Version:* QORI AI v1.0 | *Created by:* Kendar Sultoni",
                       "*الإصدار:* QORI AI v1.0 | *أنشأه:* Kendar Sultoni"))
-        if st.button("✅ Simpan Semua Pengaturan", key="qori_simpan_global_pengaturan",
-                     use_container_width=True, type="primary"):
-            _qori_ok, _qori_detail = _qori_simpan_snapshot_global(
-                alasan="simpan_manual_dari_pengaturan", manual=True)
-            if _qori_ok:
-                st.success("✅ Semua isi 14 menu QORI AI berhasil disimpan. "
-                           f"Terakhir disimpan: {_qori_detail} WIB")
-            else:
-                st.error("Gagal menyimpan seluruh data QORI AI: " + str(_qori_detail))
+        # Tiga kotak sejajar: satu-satunya tombol simpan, unduh JSON, dan reset.
+        st.markdown("""
+        <style>
+        .st-key-qori_simpan_global_pengaturan button,
+        .st-key-qori_download_global_json button,
+        .st-key-qori_reset_global_data button {
+            background: #ffffff !important;
+            color: #111111 !important;
+            border: 1px solid #222222 !important;
+            border-radius: 8px !important;
+            box-shadow: none !important;
+            font-weight: 600 !important;
+            min-height: 44px !important;
+        }
+        .st-key-qori_simpan_global_pengaturan button:hover,
+        .st-key-qori_download_global_json button:hover,
+        .st-key-qori_reset_global_data button:hover {
+            background: #f5f5f5 !important;
+            color: #111111 !important;
+            border-color: #111111 !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
         c1, c2, c3 = st.columns(3)
         with c1:
+            if st.button("✅ Simpan Semua Pengaturan", key="qori_simpan_global_pengaturan",
+                         use_container_width=True, type="secondary"):
+                _qori_ok, _qori_detail = _qori_simpan_snapshot_global(
+                    alasan="simpan_manual_dari_pengaturan", manual=True)
+                if _qori_ok:
+                    st.success("✅ Semua isi 14 menu QORI AI berhasil disimpan. "
+                               f"Terakhir disimpan: {_qori_detail} WIB")
+                else:
+                    st.error("Gagal menyimpan seluruh data QORI AI: " + str(_qori_detail))
+        with c2:
+            _qori_export_snapshot = _qori_buat_snapshot()
+            _qori_export_snapshot["terakhir_disimpan"] = (
+                st.session_state.get("_qori_global_last_saved") or "")
             st.download_button(
                 T("⬇️ Unduh Data (JSON)", "⬇️ Download Data (JSON)",
                   "⬇️ تنزيل البيانات (JSON)"),
-                data=json.dumps(st.session_state.get("data_tersimpan") or _DISK_CFG,
-                                ensure_ascii=False, indent=2).encode("utf-8"),
-                file_name="pengaturan_qori.json", mime="application/json",
+                data=json.dumps(_qori_export_snapshot, ensure_ascii=False, indent=2,
+                                default=str).encode("utf-8"),
+                file_name="qori_ai_backup_global.json", mime="application/json",
+                key="qori_download_global_json", use_container_width=True,
             )
-        with c2:
+        with c3:
             if st.button(T("🔄 Reset Semua Data", "🔄 Reset All Data",
-                           "🔄 إعادة تعيين كل البيانات")):
+                           "🔄 إعادة تعيين كل البيانات"),
+                         key="qori_reset_global_data", use_container_width=True):
                 st.session_state["confirm_reset"] = True
         if st.session_state.get("confirm_reset"):
             st.error(T("Yakin hapus semua data? Tindakan ini tidak bisa dibatalkan.",
