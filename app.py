@@ -1101,11 +1101,6 @@ def _kumpulkan_pengaturan() -> dict:
     }
 
 
-def _signature_pengaturan(data=None):
-    return json.dumps(data if data is not None else _kumpulkan_pengaturan(),
-                      sort_keys=True, ensure_ascii=False, default=str)
-
-
 def autosave_pengaturan():
     """Callback widget: tandai perubahan; penyimpanan dilakukan setelah debounce."""
     st.session_state["_pengaturan_dirty"] = True
@@ -1114,182 +1109,57 @@ def autosave_pengaturan():
     return _kumpulkan_pengaturan()
 
 
-def _waktu_simpan_wib():
-    """Waktu aktual saat aksi simpan dijalankan, menggunakan zona Asia/Jakarta."""
-    return datetime.now(ZoneInfo("Asia/Jakarta"))
-
-
-def _simpan_pengaturan_sekarang():
-    """Simpan snapshot pengaturan dan waktu aksi simpan ke Session State, JSON, dan Supabase."""
-    data = _kumpulkan_pengaturan()
-    signature = _signature_pengaturan(data)
-
-    # Waktu dibuat saat fungsi simpan dipanggil (klik manual atau autosave),
-    # bukan saat aplikasi dibuka, refresh, atau berpindah menu.
-    saat_simpan = _waktu_simpan_wib()
-    waktu = saat_simpan.strftime("%d/%m/%Y %H:%M")
-    data["terakhir_disimpan"] = waktu
-    # Session State dan file JSON tetap diperbarui meskipun koneksi Supabase gagal.
+def _muat_pengaturan_supabase():
+    """Gunakan pengaturan snapshot global; baca baris personal lama hanya sebagai fallback migrasi."""
+    global tema, bahasa, BAHASA_ARAB
+    if st.session_state.get("_pengaturan_global_hydrated"):
+        return
+    st.session_state["_pengaturan_global_hydrated"] = True
+    data = st.session_state.get("data_tersimpan") or st.session_state.get("pengaturan_tersimpan") or {}
+    if not (isinstance(data, dict) and data):
+        nama_user = str(st.session_state.get("user_name") or "anonim").strip().casefold()
+        role_user = str(st.session_state.get("user_role") or "pengguna").strip().casefold()
+        user_id = f"{role_user}:{nama_user}"
+        client, _error = get_supabase_client()
+        if client is not None:
+            try:
+                hasil = (client.table("app_settings").select("settings")
+                         .eq("user_id", user_id).limit(1).execute())
+                rows = getattr(hasil, "data", None) or []
+                if rows and isinstance(rows[0].get("settings"), dict):
+                    data = rows[0]["settings"]
+            except Exception as exc:
+                st.session_state["_pengaturan_load_error"] = str(exc)
+    if not isinstance(data, dict) or not data:
+        return
     st.session_state["data_tersimpan"] = data.copy()
     st.session_state["pengaturan_tersimpan"] = data.copy()
-    try:
-        AUTOSAVE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2, default=str),
-                                 encoding="utf-8")
-        json_ok = True
-    except Exception as exc:
-        json_ok = False
-        json_error = str(exc)
-
-    client, sb_error = get_supabase_client()
-    sb_ok = False
-    if client is not None:
-        try:
-            nama_user = str(st.session_state.get("user_name") or "anonim").strip().casefold()
-            role_user = str(st.session_state.get("user_role") or "pengguna").strip().casefold()
-            user_id = f"{role_user}:{nama_user}"
-            hasil = (client.table("app_settings").select("id,settings")
-                     .eq("user_id", user_id).limit(1).execute())
-            rows = getattr(hasil, "data", None) or []
-            if rows:
-                row = rows[0]
-                settings_lama = row.get("settings") if isinstance(row, dict) else {}
-                gabungan = dict(settings_lama) if isinstance(settings_lama, dict) else {}
-                gabungan.update(data)
-                client.table("app_settings").update({
-                    "settings": gabungan,
-                    "updated_at": saat_simpan.isoformat(),
-                }).eq("id", row["id"]).execute()
-            else:
-                client.table("app_settings").insert({
-                    "user_id": user_id,
-                    "settings": data,
-                    "updated_at": saat_simpan.isoformat(),
-                }).execute()
-            sb_ok = True
-        except Exception as exc:
-            sb_error = f"Gagal menyimpan app_settings: {exc}"
-    if json_ok and sb_ok:
-        st.session_state["_pengaturan_saved_signature"] = signature
-        st.session_state["_sig_autosave"] = signature
-        st.session_state["_pengaturan_dirty"] = False
-        st.session_state["_pengaturan_status"] = "saved"
-        st.session_state["_pengaturan_last_saved"] = waktu
-        return True, waktu
-
-    st.session_state["_pengaturan_dirty"] = True
-    st.session_state["_pengaturan_status"] = "error"
-    alasan = []
-    if not json_ok:
-        alasan.append(f"JSON: {json_error}")
-    if not sb_ok:
-        alasan.append(sb_error or "Supabase belum berhasil menyimpan.")
-    return False, " | ".join(alasan)
-
-
-def _muat_pengaturan_supabase():
-    """Muat pengaturan akun dari Supabase sekali per sesi agar lintas perangkat."""
-    global tema, bahasa, BAHASA_ARAB
-    nama_user = str(st.session_state.get("user_name") or "anonim").strip().casefold()
-    role_user = str(st.session_state.get("user_role") or "pengguna").strip().casefold()
-    user_id = f"{role_user}:{nama_user}"
-    if st.session_state.get("_pengaturan_loaded_for") == user_id:
-        return
-    st.session_state["_pengaturan_loaded_for"] = user_id
-    client, error = get_supabase_client()
-    if client is None:
-        return
-    try:
-        hasil = (client.table("app_settings").select("settings")
-                 .eq("user_id", user_id).limit(1).execute())
-        rows = getattr(hasil, "data", None) or []
-        if not rows or not isinstance(rows[0].get("settings"), dict):
-            return
-        data = rows[0]["settings"]
-        st.session_state["data_tersimpan"] = data.copy()
-        st.session_state["pengaturan_tersimpan"] = data.copy()
-        pemetaan = {
-            "set_nama": "nama", "set_lembaga": "sekolah", "set_email": "email",
-            "set_suara": "qori", "set_mode": "level", "set_iqro": "level_iqro",
-            "set_target": "target", "set_reminder": "notifikasi",
-            "set_jam_input": "jam_pengingat", "set_huruf": "huruf",
-            "set_kecepatan": "kecepatan", "set_autoplay": "autoplay",
-            "set_tajwid": "tajwid", "set_notif_leader": "notif_leader",
-            "tema_aplikasi": "tema", "bahasa_aplikasi": "bahasa",
-        }
-        for key, field in pemetaan.items():
-            if field not in data:
-                continue
-            value = data[field]
-            if key == "set_jam_input" and isinstance(value, str):
-                try:
-                    from datetime import time as _time_value
-                    value = datetime.strptime(value, "%H:%M").time()
-                except Exception:
-                    value = None
-            # Fungsi ini berjalan sebelum widget Pengaturan dirender, sehingga
-            # nilai Supabase menjadi sumber utama lintas perangkat.
-            st.session_state[key] = value
-        st.session_state["_tampilan_aktif"] = {
-            "tema": data.get("tema", "Terang"),
-            "bahasa": data.get("bahasa", "Bahasa Indonesia"),
-        }
-        tema = data.get("tema", tema)
-        bahasa = data.get("bahasa", bahasa)
-        BAHASA_ARAB = "Arab" in bahasa or "العربية" in bahasa
-        st.session_state["_pengaturan_saved_signature"] = _signature_pengaturan()
-        st.session_state["_pengaturan_last_saved"] = data.get("terakhir_disimpan", "-")
-    except Exception as exc:
-        st.session_state["_pengaturan_load_error"] = str(exc)
-
-
-@st.fragment(run_every="1s")
-def _pemantau_autosave_pengaturan():
-    """Pemeriksa ringan; menyimpan 2 detik setelah perubahan terakhir."""
-    if st.session_state.get("_pengaturan_dirty"):
-        sejak = float(st.session_state.get("_pengaturan_dirty_at", time.time()))
-        signature = _signature_pengaturan()
-        if time.time() - sejak >= 2 and signature != st.session_state.get("_pengaturan_last_attempt_signature"):
-            st.session_state["_pengaturan_last_attempt_signature"] = signature
-            ok, detail = _simpan_pengaturan_sekarang()
-            if ok:
-                st.success("✅ Tersimpan Otomatis - " + str(detail))
-            else:
-                st.warning("⚠️ Ada perubahan belum tersimpan. " + str(detail))
-                if st.button("💾 Simpan Sekarang", key="pengaturan_simpan_sekarang_fragment"):
-                    ok, detail = _simpan_pengaturan_sekarang()
-                    if ok:
-                        st.success("✅ Semua pengaturan sudah tersimpan!")
-                    else:
-                        st.error("Gagal menyimpan: " + str(detail))
-        elif time.time() - sejak < 2:
-            st.warning("⚠️ Ada perubahan belum tersimpan")
-            st.caption("Menyimpan... perubahan akan disimpan otomatis setelah 2 detik.")
-            if st.button("💾 Simpan Sekarang", key="pengaturan_simpan_sekarang_fragment"):
-                ok, detail = _simpan_pengaturan_sekarang()
-                if ok:
-                    st.success("✅ Semua pengaturan sudah tersimpan!")
-                else:
-                    st.error("Gagal menyimpan: " + str(detail))
-        else:
-            st.warning("⚠️ Ada perubahan belum tersimpan. Autosave menunggu koneksi berhasil.")
-            if st.button("💾 Coba Simpan Lagi", key="pengaturan_coba_simpan_lagi"):
-                ok, detail = _simpan_pengaturan_sekarang()
-                if ok:
-                    st.success("✅ Semua pengaturan sudah tersimpan!")
-                else:
-                    st.error("Gagal menyimpan: " + str(detail))
-    elif st.session_state.get("_pengaturan_status") == "error":
-        st.warning("⚠️ Ada perubahan belum tersimpan. Periksa koneksi Supabase lalu tekan Simpan Sekarang.")
-        if st.button("💾 Simpan Sekarang", key="pengaturan_simpan_sekarang_error"):
-            ok, detail = _simpan_pengaturan_sekarang()
-            if ok:
-                st.success("✅ Semua pengaturan sudah tersimpan!")
-            else:
-                st.error("Gagal menyimpan: " + str(detail))
-    else:
-        waktu = st.session_state.get("_pengaturan_last_saved")
-        if waktu:
-            st.caption("✅ Tersimpan Otomatis - " + str(waktu))
+    pemetaan = {
+        "set_nama": "nama", "set_lembaga": "sekolah", "set_email": "email",
+        "set_suara": "qori", "set_mode": "level", "set_iqro": "level_iqro",
+        "set_target": "target", "set_reminder": "notifikasi",
+        "set_jam_input": "jam_pengingat", "set_huruf": "huruf",
+        "set_kecepatan": "kecepatan", "set_autoplay": "autoplay",
+        "set_tajwid": "tajwid", "set_notif_leader": "notif_leader",
+        "tema_aplikasi": "tema", "bahasa_aplikasi": "bahasa",
+    }
+    for key, field in pemetaan.items():
+        if field not in data:
+            continue
+        value = data[field]
+        if key == "set_jam_input" and isinstance(value, str):
+            try:
+                value = datetime.strptime(value, "%H:%M").time()
+            except Exception:
+                value = None
+        st.session_state[key] = value
+    tema = data.get("tema", tema)
+    bahasa = data.get("bahasa", bahasa)
+    BAHASA_ARAB = "Arab" in str(bahasa) or "العربية" in str(bahasa)
+    st.session_state["_tampilan_aktif"] = {"tema": tema, "bahasa": bahasa}
+    # Hidrasi data lama/global bukan perubahan pengguna: jangan mengubah jam simpan.
+    if "_qori_buat_snapshot" in globals():
+        st.session_state["_qori_global_signature"] = _qori_signature_snapshot(_qori_buat_snapshot())
 
 
 def qori_terpilih() -> str:
@@ -1954,75 +1824,65 @@ def _user_settings_id() -> str:
 
 
 def _app_settings_merge(user_id: str, perubahan: dict) -> tuple[bool, str | None]:
-    """Merge key foto ke JSONB app_settings tanpa menghapus pengaturan lain."""
-    client, error = get_supabase_client()
-    if client is None:
-        return False, error or "Supabase tidak tersedia."
-    try:
-        hasil = (client.table("app_settings").select("id,settings")
-                 .eq("user_id", user_id).limit(1).execute())
-        rows = getattr(hasil, "data", None) or []
-        if rows:
-            row = rows[0]
-            lama = row.get("settings") if isinstance(row, dict) else {}
-            gabungan = dict(lama) if isinstance(lama, dict) else {}
-            gabungan.update(perubahan)
-            client.table("app_settings").update({
-                "settings": gabungan, "updated_at": datetime.now().isoformat(),
-            }).eq("id", row["id"]).execute()
+    """Tandai perubahan foto di state; snapshot global menyimpannya pada akhir rerun."""
+    backup = st.session_state.setdefault("foto_profil_backup", {})
+    for key, value in (perubahan or {}).items():
+        if not str(key).startswith("foto_profil_"):
+            continue
+        if value:
+            backup[str(key)] = value
         else:
-            client.table("app_settings").insert({
-                "user_id": user_id, "settings": dict(perubahan),
-                "updated_at": datetime.now().isoformat(),
-            }).execute()
-        return True, None
-    except Exception as exc:
-        return False, str(exc)
-
+            backup.pop(str(key), None)
+    return True, None
 
 def _muat_foto_profil_supabase():
-    """Muat foto akun dan foto siswa dari Supabase; JSON menjadi fallback."""
-    if st.session_state.get("_foto_supabase_loaded_for") == _user_settings_id():
+    """Tampilkan foto dari snapshot global; fallback baca foto lama untuk migrasi tanpa mengubah jam."""
+    marker = _user_settings_id()
+    if st.session_state.get("_foto_supabase_loaded_for") == marker:
         return
-    st.session_state["_foto_supabase_loaded_for"] = _user_settings_id()
-    client, error = get_supabase_client()
-    if client is None:
-        return
-    user_ids = [_user_settings_id(), "pengelola:kendar sultoni"]
-    gabungan = {}
-    try:
-        for uid in dict.fromkeys(user_ids):
-            hasil = (client.table("app_settings").select("settings")
-                     .eq("user_id", uid).limit(1).execute())
-            rows = getattr(hasil, "data", None) or []
-            if rows and isinstance(rows[0].get("settings"), dict):
-                gabungan.update(rows[0]["settings"])
-    except Exception as exc:
-        st.session_state["_foto_supabase_load_error"] = str(exc)
-    backup = st.session_state.get("foto_profil_backup", {}) or {}
-    for k, v in backup.items():
-        gabungan.setdefault(k, v)
-    for k, v in gabungan.items():
-        if not str(k).startswith("foto_profil_") or not isinstance(v, str) or not v.startswith("data:image/"):
+    st.session_state["_foto_supabase_loaded_for"] = marker
+    backup = st.session_state.setdefault("foto_profil_backup", {})
+    # Snapshot global biasanya sudah memulihkan backup foto ke Session State.
+    if not backup:
+        client, _error = get_supabase_client()
+        if client is not None:
+            user_ids = [marker, "pengelola:kendar sultoni"]
+            try:
+                for uid in dict.fromkeys(user_ids):
+                    hasil = (client.table("app_settings").select("settings")
+                             .eq("user_id", uid).limit(1).execute())
+                    rows = getattr(hasil, "data", None) or []
+                    if rows and isinstance(rows[0].get("settings"), dict):
+                        for key, value in rows[0]["settings"].items():
+                            if str(key).startswith("foto_profil_") and isinstance(value, str) and value.startswith("data:image/"):
+                                backup.setdefault(key, value)
+            except Exception as exc:
+                st.session_state["_foto_supabase_load_error"] = str(exc)
+    for key, value in backup.items():
+        if not isinstance(value, str) or not value.startswith("data:image/"):
             continue
-        if k == "foto_profil_pengelola" and st.session_state.get("user_role") == "Pengelola":
+        try:
+            raw = base64.b64decode(value.split(",", 1)[1])
+        except Exception:
+            continue
+        if key == "foto_profil_pengelola" and st.session_state.get("user_role") == "Pengelola":
             nama = st.session_state.get("user_name") or "Kendar Sultoni"
-            st.session_state.setdefault("foto_profil", {})[nama] = {
-                "data": base64.b64decode(v.split(",", 1)[1]), "mime": "image/jpeg"}
-        elif k.startswith("foto_profil_siswa_"):
-            sid = k[len("foto_profil_siswa_"):]
+            st.session_state.setdefault("foto_profil", {})[nama] = {"data": raw, "mime": "image/jpeg"}
+        elif key.startswith("foto_profil_siswa_"):
+            sid = key[len("foto_profil_siswa_"):]
             for siswa_rec in st.session_state.data.get("siswa", []):
                 if _foto_id_siswa(siswa_rec) == sid:
-                    siswa_rec["foto"] = v
+                    siswa_rec["foto"] = value
                     break
             if st.session_state.get("user_role") == "Siswa":
                 nama_login = rapikan_nama(str(st.session_state.get("user_name") or "")).casefold()
                 rec = next((x for x in st.session_state.data.get("siswa", [])
                             if rapikan_nama(str(x.get("nama") or "")).casefold() == nama_login), None)
                 if rec and _foto_id_siswa(rec) == sid:
-                    st.session_state.setdefault("foto_profil", {})[st.session_state.user_name] = {
-                        "data": base64.b64decode(v.split(",", 1)[1]), "mime": "image/jpeg"}
-
+                    st.session_state.setdefault("foto_profil", {})[st.session_state.user_name] = {"data": raw, "mime": "image/jpeg"}
+    # Hydrasi foto dari baris lama bukan perubahan pengguna; jangan ubah timestamp.
+    if "_qori_buat_snapshot" in globals():
+        st.session_state["_qori_global_signature"] = _qori_signature_snapshot(_qori_buat_snapshot())
 
 def _pastikan_berkas_data():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -2336,11 +2196,17 @@ def _qori_json_pulihkan(nilai):
 
 
 def _qori_kumpulkan_session():
-    """Ambil state aplikasi, tanpa kredensial login atau objek upload sementara."""
+    """Ambil state seluruh menu, tanpa kredensial dan metadata sementara penyimpanan/UI."""
     abaikan_tepat = {
-        "T", "user_name", "user_role", "password", "login_password",
-        "logged_in", "_global_snapshot_payload", "_global_snapshot_signature",
-        "_qori_memuat_snapshot", "_qori_snapshot_loaded", "_qori_snapshot_loading",
+        "T", "user_name", "user_role", "password", "login_password", "logged_in", "menu",
+        "_global_snapshot_payload", "_global_snapshot_signature", "_qori_memuat_snapshot",
+        "_qori_snapshot_loaded", "_qori_snapshot_loading", "_qori_global_signature",
+        "_qori_global_last_saved", "_qori_global_dirty", "_qori_global_save_error",
+        "_qori_global_load_error", "_pengaturan_dirty", "_pengaturan_dirty_at",
+        "_pengaturan_status", "_pengaturan_last_saved", "_pengaturan_saved_signature",
+        "_pengaturan_last_attempt_signature", "_pengaturan_global_hydrated",
+        "_sig_autosave", "_foto_supabase_loaded_for", "_foto_supabase_load_error",
+        "_foto_json_error",
     }
     hasil = {}
     for k in list(st.session_state.keys()):
@@ -2357,7 +2223,6 @@ def _qori_kumpulkan_session():
         if aman is not _QORI_SKIP:
             hasil[nama] = aman
     return hasil
-
 
 def _qori_file_snapshot():
     """Ambil cadangan JSON dan berkas materi/foto yang sudah tersimpan lokal."""
@@ -2384,7 +2249,7 @@ def _qori_file_snapshot():
 
 
 def _qori_buat_snapshot():
-    """Kumpulkan seluruh data inti, materi, chat, pengaturan, dan state menu."""
+    """Kumpulkan data inti, materi, chat, pengaturan, state semua menu, dan berkas terkait."""
     global_data = {}
     for nama in ("MATERI", "BANKS"):
         nilai = globals().get(nama)
@@ -2421,7 +2286,7 @@ def _qori_snapshot_decode(encoded):
 
 
 def _qori_simpan_snapshot_global(alasan="autosave", manual=False):
-    """Simpan snapshot global tanpa menghapus key lain pada app_settings.settings."""
+    """Simpan seluruh state/data/berkas serializable semua menu tanpa menghapus key lama."""
     try:
         snapshot = _qori_buat_snapshot()
         signature = _qori_signature_snapshot(snapshot)
@@ -2465,6 +2330,8 @@ def _qori_simpan_snapshot_global(alasan="autosave", manual=False):
         st.session_state["_qori_global_last_saved"] = waktu
         st.session_state["_qori_global_save_error"] = ""
         st.session_state["_qori_global_dirty"] = False
+        st.session_state["_pengaturan_dirty"] = False
+        st.session_state["_pengaturan_status"] = "saved"
         return True, waktu
     except Exception as exc:
         st.session_state["_qori_global_dirty"] = True
@@ -2567,7 +2434,9 @@ def _qori_pantau_perubahan_global():
     if signature != sebelumnya:
         st.session_state["_qori_global_dirty"] = True
         ok, detail = _qori_simpan_snapshot_global(alasan="perubahan_otomatis")
-        if not ok:
+        if ok:
+            st.session_state["_qori_global_refresh_after_autosave"] = True
+        else:
             st.session_state["_qori_global_save_error"] = str(detail)
 
 
@@ -3445,26 +3314,8 @@ with st.sidebar:
         st.session_state.pop("menu", None)
         st.session_state.pop("locked_mode", None)
         st.rerun()
-    if st.button("💾 Simpan Semua Data", key="qori_simpan_global_sidebar", use_container_width=True):
-        _qori_ok, _qori_detail = _qori_simpan_snapshot_global(alasan="simpan_manual", manual=True)
-        if _qori_ok:
-            st.success("✅ Semua data menu berhasil disimpan.")
-        else:
-            st.error("Gagal menyimpan data global: " + str(_qori_detail))
-    _terakhir_global = st.session_state.get("_qori_global_last_saved")
-    if _terakhir_global:
-        st.caption("🕒 Terakhir disimpan global: " + str(_terakhir_global) + " WIB")
-    _terakhir_auto = (st.session_state.get("_pengaturan_last_saved")
-                      or (st.session_state.get("data_tersimpan") or _DISK_CFG or {}).get("terakhir_disimpan")
-                      or st.session_state.get("terakhir_simpan") or "-")
-    st.markdown(
-        '<div class="sb-save">'
-        + T("💾 Autosave Otomatis - Terakhir disimpan: ",
-            "💾 Autosave Enabled - Last saved: ",
-            "💾 حفظ تلقائي - آخر حفظ: ")
-        + f'{opsi_aman(_terakhir_auto)}</div>',
-        unsafe_allow_html=True,
-    )
+    _terakhir_global = st.session_state.get("_qori_global_last_saved") or "Belum ada penyimpanan"
+    st.caption("🕒 Terakhir disimpan: " + str(_terakhir_global) + " WIB")
     st.markdown('<div class="sb-mosque">' + MOSQUE_SVG + '</div>', unsafe_allow_html=True)
 
 HERO_IMG = asset_b64("hero.jpg")
@@ -7416,31 +7267,16 @@ def _foto_id_siswa(record=None, nama=None) -> str:
 
 
 def _app_settings_merge(user_id: str, perubahan: dict) -> tuple[bool, str | None]:
-    """Merge key foto ke JSONB app_settings tanpa menghapus pengaturan lain."""
-    client, error = get_supabase_client()
-    if client is None:
-        return False, error or "Supabase tidak tersedia."
-    try:
-        hasil = (client.table("app_settings").select("id,settings")
-                 .eq("user_id", user_id).limit(1).execute())
-        rows = getattr(hasil, "data", None) or []
-        if rows:
-            row = rows[0]
-            lama = row.get("settings") if isinstance(row, dict) else {}
-            gabungan = dict(lama) if isinstance(lama, dict) else {}
-            gabungan.update(perubahan)
-            client.table("app_settings").update({
-                "settings": gabungan, "updated_at": datetime.now().isoformat(),
-            }).eq("id", row["id"]).execute()
+    """Tandai perubahan foto di state; snapshot global menyimpannya pada akhir rerun."""
+    backup = st.session_state.setdefault("foto_profil_backup", {})
+    for key, value in (perubahan or {}).items():
+        if not str(key).startswith("foto_profil_"):
+            continue
+        if value:
+            backup[str(key)] = value
         else:
-            client.table("app_settings").insert({
-                "user_id": user_id, "settings": dict(perubahan),
-                "updated_at": datetime.now().isoformat(),
-            }).execute()
-        return True, None
-    except Exception as exc:
-        return False, str(exc)
-
+            backup.pop(str(key), None)
+    return True, None
 
 def _user_settings_id() -> str:
     role = str(st.session_state.get("user_role") or "pengguna").strip().casefold()
@@ -7449,87 +7285,63 @@ def _user_settings_id() -> str:
 
 
 def _simpan_foto_profil_permanen(kunci: str, foto: dict, *, untuk_siswa: bool = False) -> tuple[bool, str | None]:
-    """Simpan foto di Session State, JSON backup, dan Supabase JSONB."""
+    """Simpan foto terkompresi ke state; autosave global menulisnya ke Supabase saat rerun."""
     if not foto or not foto.get("data"):
         return False, "Data foto kosong."
     data_uri = foto.get("data_uri") or (
         "data:" + str(foto.get("mime") or "image/jpeg") + ";base64," +
         base64.b64encode(foto["data"]).decode("ascii"))
-    foto_backup = st.session_state.setdefault("foto_profil_backup", {})
-    foto_backup[kunci] = data_uri
-    # Backup JSON yang persisten di penyimpanan lokal aplikasi.
-    try:
-        _tulis_json(SETTINGS_FILE, {
-            **(_baca_json(SETTINGS_FILE, {}) or {}),
-            "foto_profil": foto_backup,
-            "terakhir_disimpan": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-        })
-    except Exception as exc:
-        st.session_state["_foto_json_error"] = str(exc)
-    tujuan = {_user_settings_id(): {kunci: data_uri}}
-    if untuk_siswa:
-        # Baris pusat pengelola menyimpan foto tiap siswa agar daftar siswa ikut sinkron.
-        tujuan["pengelola:kendar sultoni"] = {kunci: data_uri}
-    errors = []
-    for user_id, perubahan in tujuan.items():
-        ok, err = _app_settings_merge(user_id, perubahan)
-        if not ok:
-            errors.append(f"{user_id}: {err}")
-    if errors:
-        return False, " | ".join(errors)
+    st.session_state.setdefault("foto_profil_backup", {})[kunci] = data_uri
     return True, None
 
-
 def _muat_foto_profil_supabase():
-    """Muat foto akun dan foto siswa dari Supabase; JSON menjadi fallback."""
-    if st.session_state.get("_foto_supabase_loaded_for") == _user_settings_id():
+    """Tampilkan foto dari snapshot global; fallback baca foto lama untuk migrasi tanpa mengubah jam."""
+    marker = _user_settings_id()
+    if st.session_state.get("_foto_supabase_loaded_for") == marker:
         return
-    st.session_state["_foto_supabase_loaded_for"] = _user_settings_id()
-    client, error = get_supabase_client()
-    if client is None:
-        return
-    user_ids = [_user_settings_id()]
-    if st.session_state.get("user_role") == "Pengelola":
-        user_ids.append("pengelola:kendar sultoni")
-    elif st.session_state.get("user_role") == "Siswa":
-        user_ids.append("pengelola:kendar sultoni")
-    gabungan = {}
-    try:
-        for uid in dict.fromkeys(user_ids):
-            hasil = (client.table("app_settings").select("settings")
-                     .eq("user_id", uid).limit(1).execute())
-            rows = getattr(hasil, "data", None) or []
-            if rows and isinstance(rows[0].get("settings"), dict):
-                gabungan.update(rows[0]["settings"])
-    except Exception as exc:
-        st.session_state["_foto_supabase_load_error"] = str(exc)
-    backup = st.session_state.get("foto_profil_backup", {}) or {}
-    for k, v in backup.items():
-        gabungan.setdefault(k, v)
-    for k, v in gabungan.items():
-        if not str(k).startswith("foto_profil_") or not isinstance(v, str):
+    st.session_state["_foto_supabase_loaded_for"] = marker
+    backup = st.session_state.setdefault("foto_profil_backup", {})
+    # Snapshot global biasanya sudah memulihkan backup foto ke Session State.
+    if not backup:
+        client, _error = get_supabase_client()
+        if client is not None:
+            user_ids = [marker, "pengelola:kendar sultoni"]
+            try:
+                for uid in dict.fromkeys(user_ids):
+                    hasil = (client.table("app_settings").select("settings")
+                             .eq("user_id", uid).limit(1).execute())
+                    rows = getattr(hasil, "data", None) or []
+                    if rows and isinstance(rows[0].get("settings"), dict):
+                        for key, value in rows[0]["settings"].items():
+                            if str(key).startswith("foto_profil_") and isinstance(value, str) and value.startswith("data:image/"):
+                                backup.setdefault(key, value)
+            except Exception as exc:
+                st.session_state["_foto_supabase_load_error"] = str(exc)
+    for key, value in backup.items():
+        if not isinstance(value, str) or not value.startswith("data:image/"):
             continue
-        if not v.startswith("data:image/"):
+        try:
+            raw = base64.b64decode(value.split(",", 1)[1])
+        except Exception:
             continue
-        if k == "foto_profil_pengelola":
+        if key == "foto_profil_pengelola" and st.session_state.get("user_role") == "Pengelola":
             nama = st.session_state.get("user_name") or "Kendar Sultoni"
-            if st.session_state.get("user_role") == "Pengelola":
-                st.session_state.setdefault("foto_profil", {})[nama] = {
-                    "data": base64.b64decode(v.split(",", 1)[1]), "mime": "image/jpeg"}
-        elif k.startswith("foto_profil_siswa_"):
-            sid = k[len("foto_profil_siswa_"):]
+            st.session_state.setdefault("foto_profil", {})[nama] = {"data": raw, "mime": "image/jpeg"}
+        elif key.startswith("foto_profil_siswa_"):
+            sid = key[len("foto_profil_siswa_"):]
             for siswa_rec in st.session_state.data.get("siswa", []):
                 if _foto_id_siswa(siswa_rec) == sid:
-                    siswa_rec["foto"] = v
+                    siswa_rec["foto"] = value
                     break
             if st.session_state.get("user_role") == "Siswa":
                 nama_login = rapikan_nama(str(st.session_state.get("user_name") or "")).casefold()
                 rec = next((x for x in st.session_state.data.get("siswa", [])
                             if rapikan_nama(str(x.get("nama") or "")).casefold() == nama_login), None)
                 if rec and _foto_id_siswa(rec) == sid:
-                    st.session_state.setdefault("foto_profil", {})[st.session_state.user_name] = {
-                        "data": base64.b64decode(v.split(",", 1)[1]), "mime": "image/jpeg"}
-
+                    st.session_state.setdefault("foto_profil", {})[st.session_state.user_name] = {"data": raw, "mime": "image/jpeg"}
+    # Hydrasi foto dari baris lama bukan perubahan pengguna; jangan ubah timestamp.
+    if "_qori_buat_snapshot" in globals():
+        st.session_state["_qori_global_signature"] = _qori_signature_snapshot(_qori_buat_snapshot())
 
 def _hapus_foto_siswa(rel):
     rel = str(rel or "").strip()
@@ -8655,7 +8467,6 @@ def page_pengaturan():
     st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
 
     simpan_cfg = st.session_state.setdefault("pengaturan_tersimpan", {})
-    _pemantau_autosave_pengaturan()
     defaults = {
         "set_nama": "Kendar Sultoni", "set_lembaga": "TPQ Nurul Ilmi", "set_email": "kendar@gmail.com",
         "set_mode": "Tahsin", "set_iqro": "Iqro' 3", "set_target": 30,
@@ -8737,10 +8548,8 @@ def page_pengaturan():
                 _hapus_berkas_foto(nama_tampil)
                 kunci_foto = ("foto_profil_pengelola" if peran_tampil == "Pengelola"
                               else f"foto_profil_siswa_{_foto_id_siswa(nama=nama_tampil)}")
-                _app_settings_merge(_user_settings_id(), {kunci_foto: ""})
-                if peran_tampil == "Siswa":
-                    _app_settings_merge("pengelola:kendar sultoni", {kunci_foto: ""})
                 st.session_state.get("foto_profil_backup", {}).pop(kunci_foto, None)
+                _app_settings_merge(GLOBAL_SETTINGS_USER_ID, {kunci_foto: ""})
                 st.session_state["foto_profil_path"] = None
                 save_all_data()
                 st.rerun()
@@ -8870,27 +8679,34 @@ def page_pengaturan():
 
     with st.expander(T("💾 F. Data & Aplikasi", "💾 F. Data & Application",
                        "💾 و. البيانات والتطبيق")):
-        terakhir_auto = (st.session_state.get("_pengaturan_last_saved")
-                         or (st.session_state.get("data_tersimpan") or _DISK_CFG or {}).get("terakhir_disimpan")
-                         or "-")
-        if st.session_state.get("_pengaturan_dirty"):
-            st.warning("⚠️ Ada perubahan belum tersimpan")
+        terakhir_global = st.session_state.get("_qori_global_last_saved") or "Belum ada penyimpanan"
+        if st.session_state.get("_qori_global_save_error"):
+            st.warning("⚠️ Ada perubahan belum tersimpan: " + str(st.session_state.get("_qori_global_save_error")))
         else:
             st.success(T("✅ Tersimpan Otomatis - Terakhir disimpan: ",
                          "✅ Autosaved - Last saved: ",
-                         "✅ محفوظ تلقائيًا - آخر حفظ: ") + f"{terakhir_auto}")
-        st.caption(T("Tidak perlu pencet Simpan lagi. Setiap kamu ganti Tema / Bahasa / "
-                     "Qori / Nama / Level, langsung tersimpan otomatis.",
-                     "No need to press Save anymore. Every time you change Theme / Language / "
-                     "Qori / Name / Level, it is saved automatically.",
-                     "لا حاجة للضغط على حفظ بعد الآن. كل تغيير في المظهر / اللغة / "
-                     "القارئ / الاسم / المستوى يُحفظ تلقائيًا."))
+                         "✅ محفوظ تلقائيًا - آخر حفظ: ") + f"{terakhir_global} WIB")
+        st.caption(T("Autosave tetap aktif. Tombol di bawah menyimpan seluruh isi 14 menu "
+                     "QORI AI sekaligus, bukan hanya pengaturan halaman ini.",
+                     "Autosave remains active. The button below saves all contents of all 14 "
+                     "QORI AI menus, not only this settings page.",
+                     "يظل الحفظ التلقائي فعالاً. الزر أدناه يحفظ جميع محتويات القوائم الـ14 "
+                     "في QORI AI، وليس إعدادات هذه الصفحة فقط."))
         st.markdown(T("*Lokasi Penyimpanan:* Supabase + Session + File JSON (Aman)",
                       "*Storage Location:* Supabase + Session + JSON File (Secure)",
                       "*موقع التخزين:* Supabase + الجلسة + ملف JSON (آمن)"))
         st.markdown(T("*Versi:* QORI AI v1.0 | *Dibuat oleh:* Kendar Sultoni",
                       "*Version:* QORI AI v1.0 | *Created by:* Kendar Sultoni",
                       "*الإصدار:* QORI AI v1.0 | *أنشأه:* Kendar Sultoni"))
+        if st.button("✅ Simpan Semua Pengaturan", key="qori_simpan_global_pengaturan",
+                     use_container_width=True, type="primary"):
+            _qori_ok, _qori_detail = _qori_simpan_snapshot_global(
+                alasan="simpan_manual_dari_pengaturan", manual=True)
+            if _qori_ok:
+                st.success("✅ Semua isi 14 menu QORI AI berhasil disimpan. "
+                           f"Terakhir disimpan: {_qori_detail} WIB")
+            else:
+                st.error("Gagal menyimpan seluruh data QORI AI: " + str(_qori_detail))
         c1, c2, c3 = st.columns(3)
         with c1:
             st.download_button(
@@ -8904,17 +8720,6 @@ def page_pengaturan():
             if st.button(T("🔄 Reset Semua Data", "🔄 Reset All Data",
                            "🔄 إعادة تعيين كل البيانات")):
                 st.session_state["confirm_reset"] = True
-        with c3:
-            if st.button(T("✅ Simpan Semua Pengaturan", "✅ Save All Settings",
-                           "✅ حفظ كل الإعدادات"), key="simpan_semua_pengaturan"):
-                _ok_simpan, _detail_simpan = _simpan_pengaturan_sekarang()
-                if _ok_simpan:
-                    pesan_waktu = f"✅ Disimpan pada {_detail_simpan} WIB"
-                    st.toast(pesan_waktu)
-                    st.success(pesan_waktu)
-                else:
-                    st.error(T("Gagal menyimpan pengaturan: ", "Could not save settings: ",
-                               "تعذر حفظ الإعدادات: ") + str(_detail_simpan))
         if st.session_state.get("confirm_reset"):
             st.error(T("Yakin hapus semua data? Tindakan ini tidak bisa dibatalkan.",
                        "Delete all data? This action cannot be undone.",
@@ -10197,20 +10002,12 @@ elif menu == "Pengaturan":
 
 # Autosave global untuk perubahan pada semua menu yang tercermin di state/berkas.
 _qori_pantau_perubahan_global()
+if st.session_state.pop("_qori_global_refresh_after_autosave", False):
+    st.rerun()
 _qori_waktu_tampil = st.session_state.get("_qori_global_last_saved") or "Belum ada penyimpanan"
-st.caption("💾 Terakhir disimpan: " + str(_qori_waktu_tampil) + " WIB")
+st.caption("🕒 Terakhir disimpan: " + str(_qori_waktu_tampil) + " WIB")
 if st.session_state.get("_qori_global_save_error"):
     st.warning("⚠️ Sinkronisasi global belum berhasil: " + str(st.session_state.get("_qori_global_save_error")))
-
-# Perubahan yang terdeteksi di luar halaman Pengaturan tetap ditandai; fragment
-# akan menyimpannya setelah 2 detik tanpa perubahan, bukan menulis berulang kali.
-_sig_sekarang = _signature_pengaturan()
-if (st.session_state.get("_pengaturan_saved_signature") is not None
-        and st.session_state.get("_pengaturan_saved_signature") != _sig_sekarang
-        and not st.session_state.get("_pengaturan_dirty")):
-    st.session_state["_pengaturan_dirty"] = True
-    st.session_state["_pengaturan_dirty_at"] = time.time()
-    st.session_state["_pengaturan_status"] = "dirty"
 
 st.markdown("""
 <div style="text-align:center;color:#8291aa;font-size:11px;padding:24px 0 5px">
