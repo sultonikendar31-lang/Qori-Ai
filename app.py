@@ -2532,7 +2532,11 @@ def simpan_hasil(tipe: str, mode: str, level: int, benar: int, total: int, xp_aw
     data.setdefault("papan", {})
     data["papan"][nama] = max(data["papan"].get(nama, 0), skor)
     save_all_data()
-    simpan_hasil_game(nama, mode, level, benar, total, skor)
+    if tipe == "ujian":
+        simpan_hasil_ujian(nama, mode, str(level), [], skor,
+                           "Lulus" if skor >= BATAS_TUNTAS else "Belum lulus")
+    else:
+        simpan_hasil_game(nama, mode, level, benar, total, skor)
     naik = level_dari_xp(progres["xp"])[0] > level_dari_xp(xp_awal)[0]
     return skor, naik
 
