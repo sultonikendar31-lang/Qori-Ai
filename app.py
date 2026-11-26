@@ -12,6 +12,7 @@ import random
 import re
 import time
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -1109,16 +1110,20 @@ def autosave_pengaturan():
     return _kumpulkan_pengaturan()
 
 
+def _waktu_simpan_wib():
+    """Waktu aktual saat aksi simpan dijalankan, menggunakan zona Asia/Jakarta."""
+    return datetime.now(ZoneInfo("Asia/Jakarta"))
+
+
 def _simpan_pengaturan_sekarang():
-    """Simpan satu snapshot pengaturan ke Session State, JSON, dan Supabase."""
+    """Simpan snapshot pengaturan dan waktu aksi simpan ke Session State, JSON, dan Supabase."""
     data = _kumpulkan_pengaturan()
     signature = _signature_pengaturan(data)
-    if signature == st.session_state.get("_pengaturan_saved_signature"):
-        st.session_state["_pengaturan_dirty"] = False
-        st.session_state["_pengaturan_status"] = "saved"
-        return True, "Pengaturan tidak berubah; tidak perlu menyimpan ulang."
 
-    waktu = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    # Waktu dibuat saat fungsi simpan dipanggil (klik manual atau autosave),
+    # bukan saat aplikasi dibuka, refresh, atau berpindah menu.
+    saat_simpan = _waktu_simpan_wib()
+    waktu = saat_simpan.strftime("%d/%m/%Y %H:%M")
     data["terakhir_disimpan"] = waktu
     # Session State dan file JSON tetap diperbarui meskipun koneksi Supabase gagal.
     st.session_state["data_tersimpan"] = data.copy()
@@ -1148,13 +1153,13 @@ def _simpan_pengaturan_sekarang():
                 gabungan.update(data)
                 client.table("app_settings").update({
                     "settings": gabungan,
-                    "updated_at": datetime.now().isoformat(),
+                    "updated_at": saat_simpan.isoformat(),
                 }).eq("id", row["id"]).execute()
             else:
                 client.table("app_settings").insert({
                     "user_id": user_id,
                     "settings": data,
-                    "updated_at": datetime.now().isoformat(),
+                    "updated_at": saat_simpan.isoformat(),
                 }).execute()
             sb_ok = True
         except Exception as exc:
@@ -1901,6 +1906,120 @@ def _hapus_berkas_foto(nama: str, kecuali: str | None = None):
             pass
 
 
+def _foto_data_uri_dari_nilai(nilai) -> str:
+    """Normalisasi foto lama/data URI/bytes menjadi data URI."""
+    if isinstance(nilai, dict):
+        data = nilai.get("data")
+        mime = nilai.get("mime") or "image/jpeg"
+        if isinstance(data, str) and data.startswith("data:"):
+            return data
+        if isinstance(data, str):
+            return f"data:{mime};base64,{data}"
+        if isinstance(data, (bytes, bytearray)):
+            return f"data:{mime};base64," + base64.b64encode(bytes(data)).decode("ascii")
+        return ""
+    rel = str(nilai or "").strip()
+    if rel.startswith("data:image/"):
+        return rel
+    if rel:
+        path = ASSETS / rel
+        try:
+            if path.exists():
+                mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+                return f"data:{mime};base64," + base64.b64encode(path.read_bytes()).decode("ascii")
+        except Exception:
+            pass
+    return ""
+
+
+def _foto_id_siswa(record=None, nama=None) -> str:
+    record = record or {}
+    if not record and nama:
+        target = rapikan_nama(str(nama)).casefold()
+        record = next((x for x in st.session_state.data.get("siswa", [])
+                       if rapikan_nama(str(x.get("nama") or "")).casefold() == target), {})
+    identitas = (record.get("id") or record.get("nis") or record.get("nisn")
+                 or record.get("nama") or nama or "siswa")
+    return re.sub(r"[^A-Za-z0-9_-]+", "_", str(identitas).strip())
+
+
+def _user_settings_id() -> str:
+    role = str(st.session_state.get("user_role") or "pengguna").strip().casefold()
+    nama = str(st.session_state.get("user_name") or "anonim").strip().casefold()
+    return f"{role}:{nama}"
+
+
+def _app_settings_merge(user_id: str, perubahan: dict) -> tuple[bool, str | None]:
+    """Merge key foto ke JSONB app_settings tanpa menghapus pengaturan lain."""
+    client, error = get_supabase_client()
+    if client is None:
+        return False, error or "Supabase tidak tersedia."
+    try:
+        hasil = (client.table("app_settings").select("id,settings")
+                 .eq("user_id", user_id).limit(1).execute())
+        rows = getattr(hasil, "data", None) or []
+        if rows:
+            row = rows[0]
+            lama = row.get("settings") if isinstance(row, dict) else {}
+            gabungan = dict(lama) if isinstance(lama, dict) else {}
+            gabungan.update(perubahan)
+            client.table("app_settings").update({
+                "settings": gabungan, "updated_at": datetime.now().isoformat(),
+            }).eq("id", row["id"]).execute()
+        else:
+            client.table("app_settings").insert({
+                "user_id": user_id, "settings": dict(perubahan),
+                "updated_at": datetime.now().isoformat(),
+            }).execute()
+        return True, None
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _muat_foto_profil_supabase():
+    """Muat foto akun dan foto siswa dari Supabase; JSON menjadi fallback."""
+    if st.session_state.get("_foto_supabase_loaded_for") == _user_settings_id():
+        return
+    st.session_state["_foto_supabase_loaded_for"] = _user_settings_id()
+    client, error = get_supabase_client()
+    if client is None:
+        return
+    user_ids = [_user_settings_id(), "pengelola:kendar sultoni"]
+    gabungan = {}
+    try:
+        for uid in dict.fromkeys(user_ids):
+            hasil = (client.table("app_settings").select("settings")
+                     .eq("user_id", uid).limit(1).execute())
+            rows = getattr(hasil, "data", None) or []
+            if rows and isinstance(rows[0].get("settings"), dict):
+                gabungan.update(rows[0]["settings"])
+    except Exception as exc:
+        st.session_state["_foto_supabase_load_error"] = str(exc)
+    backup = st.session_state.get("foto_profil_backup", {}) or {}
+    for k, v in backup.items():
+        gabungan.setdefault(k, v)
+    for k, v in gabungan.items():
+        if not str(k).startswith("foto_profil_") or not isinstance(v, str) or not v.startswith("data:image/"):
+            continue
+        if k == "foto_profil_pengelola" and st.session_state.get("user_role") == "Pengelola":
+            nama = st.session_state.get("user_name") or "Kendar Sultoni"
+            st.session_state.setdefault("foto_profil", {})[nama] = {
+                "data": base64.b64decode(v.split(",", 1)[1]), "mime": "image/jpeg"}
+        elif k.startswith("foto_profil_siswa_"):
+            sid = k[len("foto_profil_siswa_"):]
+            for siswa_rec in st.session_state.data.get("siswa", []):
+                if _foto_id_siswa(siswa_rec) == sid:
+                    siswa_rec["foto"] = v
+                    break
+            if st.session_state.get("user_role") == "Siswa":
+                nama_login = rapikan_nama(str(st.session_state.get("user_name") or "")).casefold()
+                rec = next((x for x in st.session_state.data.get("siswa", [])
+                            if rapikan_nama(str(x.get("nama") or "")).casefold() == nama_login), None)
+                if rec and _foto_id_siswa(rec) == sid:
+                    st.session_state.setdefault("foto_profil", {})[st.session_state.user_name] = {
+                        "data": base64.b64decode(v.split(",", 1)[1]), "mime": "image/jpeg"}
+
+
 def _pastikan_berkas_data():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     FOTO_DIR.mkdir(parents=True, exist_ok=True)
@@ -1930,6 +2049,16 @@ def _tulis_semua(data):
         berkas = f"{_slug_nama(nama)}.{ext}"
         (FOTO_DIR / berkas).write_bytes(f["data"])
         foto_map[nama] = f"profile_pics/{berkas}"
+    foto_base64_backup = dict(st.session_state.get("foto_profil_backup", {}) or {})
+    for nama, foto_item in st.session_state.get("foto_profil", {}).items():
+        uri = _foto_data_uri_dari_nilai(foto_item)
+        if uri:
+            foto_base64_backup[f"foto_profil_pengelola:{_slug_nama(nama)}"] = uri
+    for siswa_item in data.get("siswa", []):
+        sid = _foto_id_siswa(siswa_item)
+        uri = _foto_data_uri_dari_nilai(siswa_item.get("foto"))
+        if uri:
+            foto_base64_backup[f"foto_profil_siswa_{sid}"] = uri
     _tulis_json(USERS_FILE, {
         "versi": 1,
         "akun": data.get("profil", {}),
@@ -1937,6 +2066,7 @@ def _tulis_semua(data):
         "siswa": data.get("siswa", []),
         "papan": data.get("papan", {}),
         "foto": foto_map,
+        "foto_base64": foto_base64_backup,
         "login_pertama": sorted(st.session_state.get("login_pertama", set())),
         "nilai_mode": st.session_state.get("nilai_mode", "contoh"),
         "pengelola": dict(PENGELOLA),
@@ -2031,6 +2161,13 @@ def load_all_data():
             mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
             foto[nama] = {"data": path.read_bytes(), "mime": mime, "path": str(path)}
     st.session_state.foto_profil = foto
+    foto_backup = users.get("foto_base64") or _baca_json(SETTINGS_FILE, {}).get("foto_profil", {})
+    st.session_state["foto_profil_backup"] = foto_backup if isinstance(foto_backup, dict) else {}
+    for siswa_item in data.get("siswa", []):
+        sid = _foto_id_siswa(siswa_item)
+        uri = st.session_state["foto_profil_backup"].get(f"foto_profil_siswa_{sid}")
+        if uri and not siswa_item.get("foto"):
+            siswa_item["foto"] = uri
 
     if (not users.get("versi") or not nilai.get("versi")
             or not materi.get("materi") or not soal.get("banks")):
@@ -2495,6 +2632,7 @@ if not st.session_state.user_name:
     st.stop()
 
 _muat_pengaturan_supabase()
+_muat_foto_profil_supabase()
 st.session_state["permintaan_izin"] = _muat_permintaan_izin()
 if st.session_state.get("user_role") == "Pengelola":
     st.session_state["pengelola_level"] = level_pengelola()
@@ -3010,8 +3148,8 @@ with st.sidebar:
         st.session_state.pop("menu", None)
         st.session_state.pop("locked_mode", None)
         st.rerun()
-    _terakhir_auto = ((st.session_state.get("data_tersimpan") or _DISK_CFG or {})
-                      .get("terakhir_disimpan")
+    _terakhir_auto = (st.session_state.get("_pengaturan_last_saved")
+                      or (st.session_state.get("data_tersimpan") or _DISK_CFG or {}).get("terakhir_disimpan")
                       or st.session_state.get("terakhir_simpan") or "-")
     st.markdown(
         '<div class="sb-save">'
@@ -3393,13 +3531,19 @@ if menu == "Dashboard":
                 b1, b2 = st.columns(2)
                 if b1.button("💾 Ganti Foto", type="primary", use_container_width=True,
                              disabled=unggah is None, key=f"foto_simpan_{nama_tampil}"):
+                    foto_baru = _kompres_foto_upload(unggah)
                     foto_per_user[nama_tampil] = {
-                        "data": unggah.getvalue(),
-                        "mime": unggah.type or "image/png",
+                        "data": foto_baru["data"], "mime": foto_baru["mime"],
                     }
-                    ext = "png" if "png" in str(unggah.type or "png") else "jpg"
-                    _hapus_berkas_foto(nama_tampil, kecuali=ext)
+                    kunci_header_foto = (
+                        "foto_profil_pengelola" if peran_tampil == "Pengelola"
+                        else f"foto_profil_siswa_{_foto_id_siswa(nama=nama_tampil)}")
+                    foto_ok, foto_err = _simpan_foto_profil_permanen(
+                        kunci_header_foto, foto_baru,
+                        untuk_siswa=(peran_tampil == "Siswa"))
                     save_all_data()
+                    if not foto_ok:
+                        st.session_state["_foto_save_warning"] = foto_err
                     st.rerun()
                 if b2.button("🗑️ Hapus Foto", use_container_width=True,
                              disabled=foto_aktif is None, key=f"foto_hapus_{nama_tampil}"):
@@ -6885,45 +7029,199 @@ def _lengkapi_siswa():
     return siswa
 
 
-def _foto_siswa_uri(rel) -> str:
-    rel = str(rel or "").strip()
-    if not rel:
+def _foto_data_uri_dari_nilai(nilai) -> str:
+    """Normalisasi foto dari data URI, bytes, atau path lama menjadi data URI."""
+    if isinstance(nilai, dict):
+        data = nilai.get("data")
+        mime = nilai.get("mime") or "image/jpeg"
+        if isinstance(data, str) and data.startswith("data:"):
+            return data
+        if isinstance(data, str):
+            try:
+                base64.b64decode(data, validate=False)
+                return f"data:{mime};base64,{data}"
+            except Exception:
+                return ""
+        if isinstance(data, (bytes, bytearray)):
+            return f"data:{mime};base64," + base64.b64encode(bytes(data)).decode("ascii")
         return ""
-    path = ASSETS / rel
-    try:
-        if path.exists():
-            mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
-            return "data:" + mime + ";base64," + base64.b64encode(path.read_bytes()).decode()
-    except Exception:
-        pass
+    rel = str(nilai or "").strip()
+    if rel.startswith("data:image/"):
+        return rel
+    if rel:
+        path = ASSETS / rel
+        try:
+            if path.exists():
+                mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+                return f"data:{mime};base64," + base64.b64encode(path.read_bytes()).decode("ascii")
+        except Exception:
+            pass
     return ""
 
 
+def _foto_siswa_uri(rel) -> str:
+    return _foto_data_uri_dari_nilai(rel)
+
+
+def _kompres_foto_upload(berkas, batas_byte: int = 300 * 1024) -> dict:
+    """Resize maksimal 300x300 dan kompres JPEG sampai ukuran <= 300 KB."""
+    if berkas is None:
+        return {}
+    import io as _io
+    try:
+        from PIL import Image, ImageOps
+        gambar = Image.open(_io.BytesIO(berkas.getvalue()))
+        gambar = ImageOps.exif_transpose(gambar).convert("RGB")
+        gambar.thumbnail((300, 300), getattr(Image, "Resampling", Image).LANCZOS)
+        kualitas = 88
+        hasil = _io.BytesIO()
+        gambar.save(hasil, format="JPEG", quality=kualitas, optimize=True)
+        while hasil.tell() > batas_byte and kualitas > 35:
+            kualitas -= 7
+            hasil = _io.BytesIO()
+            gambar.save(hasil, format="JPEG", quality=kualitas, optimize=True)
+        if hasil.tell() > batas_byte:
+            raise ValueError("Foto tidak dapat dikompres hingga maksimal 300 KB.")
+        data = hasil.getvalue()
+        return {"data": data, "mime": "image/jpeg",
+                "data_uri": "data:image/jpeg;base64," + base64.b64encode(data).decode("ascii")}
+    except ImportError as exc:
+        raise RuntimeError("Paket Pillow diperlukan untuk kompresi foto profil.") from exc
+
+
 def _simpan_foto_siswa(nama: str, berkas) -> str:
+    """Simpan foto siswa sebagai data URI agar ikut tersimpan di JSON dan Supabase."""
     if berkas is None:
         return ""
-    ekstensi = "png" if "png" in str(getattr(berkas, "type", "") or "").lower() else "jpg"
-    FOTO_DIR.mkdir(parents=True, exist_ok=True)
-    slug = _slug_nama(nama)
-    for lain in ("png", "jpg", "jpeg"):
-        if lain != ekstensi:
-            try:
-                (FOTO_DIR / f"siswa_{slug}.{lain}").unlink(missing_ok=True)
-            except Exception:
-                pass
-    tujuan = FOTO_DIR / f"siswa_{slug}.{ekstensi}"
+    hasil = _kompres_foto_upload(berkas)
+    return hasil["data_uri"]
+
+
+def _foto_id_siswa(record=None, nama=None) -> str:
+    record = record or {}
+    if not record and nama:
+        target = rapikan_nama(str(nama)).casefold()
+        record = next((x for x in st.session_state.data.get("siswa", [])
+                       if rapikan_nama(str(x.get("nama") or "")).casefold() == target), {})
+    identitas = (record.get("id") or record.get("nis") or record.get("nisn")
+                 or record.get("nama") or nama or "siswa")
+    return re.sub(r"[^A-Za-z0-9_-]+", "_", str(identitas).strip())
+
+
+def _app_settings_merge(user_id: str, perubahan: dict) -> tuple[bool, str | None]:
+    """Merge key foto ke JSONB app_settings tanpa menghapus pengaturan lain."""
+    client, error = get_supabase_client()
+    if client is None:
+        return False, error or "Supabase tidak tersedia."
     try:
-        from PIL import Image
-        import io as _io
-        gambar = Image.open(_io.BytesIO(berkas.getvalue()))
-        gambar.thumbnail((400, 400))
-        if ekstensi == "jpg":
-            gambar.convert("RGB").save(tujuan, format="JPEG", quality=88)
+        hasil = (client.table("app_settings").select("id,settings")
+                 .eq("user_id", user_id).limit(1).execute())
+        rows = getattr(hasil, "data", None) or []
+        if rows:
+            row = rows[0]
+            lama = row.get("settings") if isinstance(row, dict) else {}
+            gabungan = dict(lama) if isinstance(lama, dict) else {}
+            gabungan.update(perubahan)
+            client.table("app_settings").update({
+                "settings": gabungan, "updated_at": datetime.now().isoformat(),
+            }).eq("id", row["id"]).execute()
         else:
-            gambar.save(tujuan, format="PNG")
-    except Exception:
-        tujuan.write_bytes(berkas.getvalue())
-    return f"profile_pics/{tujuan.name}"
+            client.table("app_settings").insert({
+                "user_id": user_id, "settings": dict(perubahan),
+                "updated_at": datetime.now().isoformat(),
+            }).execute()
+        return True, None
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _user_settings_id() -> str:
+    role = str(st.session_state.get("user_role") or "pengguna").strip().casefold()
+    nama = str(st.session_state.get("user_name") or "anonim").strip().casefold()
+    return f"{role}:{nama}"
+
+
+def _simpan_foto_profil_permanen(kunci: str, foto: dict, *, untuk_siswa: bool = False) -> tuple[bool, str | None]:
+    """Simpan foto di Session State, JSON backup, dan Supabase JSONB."""
+    if not foto or not foto.get("data"):
+        return False, "Data foto kosong."
+    data_uri = foto.get("data_uri") or (
+        "data:" + str(foto.get("mime") or "image/jpeg") + ";base64," +
+        base64.b64encode(foto["data"]).decode("ascii"))
+    foto_backup = st.session_state.setdefault("foto_profil_backup", {})
+    foto_backup[kunci] = data_uri
+    # Backup JSON yang persisten di penyimpanan lokal aplikasi.
+    try:
+        _tulis_json(SETTINGS_FILE, {
+            **(_baca_json(SETTINGS_FILE, {}) or {}),
+            "foto_profil": foto_backup,
+            "terakhir_disimpan": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        })
+    except Exception as exc:
+        st.session_state["_foto_json_error"] = str(exc)
+    tujuan = {_user_settings_id(): {kunci: data_uri}}
+    if untuk_siswa:
+        # Baris pusat pengelola menyimpan foto tiap siswa agar daftar siswa ikut sinkron.
+        tujuan["pengelola:kendar sultoni"] = {kunci: data_uri}
+    errors = []
+    for user_id, perubahan in tujuan.items():
+        ok, err = _app_settings_merge(user_id, perubahan)
+        if not ok:
+            errors.append(f"{user_id}: {err}")
+    if errors:
+        return False, " | ".join(errors)
+    return True, None
+
+
+def _muat_foto_profil_supabase():
+    """Muat foto akun dan foto siswa dari Supabase; JSON menjadi fallback."""
+    if st.session_state.get("_foto_supabase_loaded_for") == _user_settings_id():
+        return
+    st.session_state["_foto_supabase_loaded_for"] = _user_settings_id()
+    client, error = get_supabase_client()
+    if client is None:
+        return
+    user_ids = [_user_settings_id()]
+    if st.session_state.get("user_role") == "Pengelola":
+        user_ids.append("pengelola:kendar sultoni")
+    elif st.session_state.get("user_role") == "Siswa":
+        user_ids.append("pengelola:kendar sultoni")
+    gabungan = {}
+    try:
+        for uid in dict.fromkeys(user_ids):
+            hasil = (client.table("app_settings").select("settings")
+                     .eq("user_id", uid).limit(1).execute())
+            rows = getattr(hasil, "data", None) or []
+            if rows and isinstance(rows[0].get("settings"), dict):
+                gabungan.update(rows[0]["settings"])
+    except Exception as exc:
+        st.session_state["_foto_supabase_load_error"] = str(exc)
+    backup = st.session_state.get("foto_profil_backup", {}) or {}
+    for k, v in backup.items():
+        gabungan.setdefault(k, v)
+    for k, v in gabungan.items():
+        if not str(k).startswith("foto_profil_") or not isinstance(v, str):
+            continue
+        if not v.startswith("data:image/"):
+            continue
+        if k == "foto_profil_pengelola":
+            nama = st.session_state.get("user_name") or "Kendar Sultoni"
+            if st.session_state.get("user_role") == "Pengelola":
+                st.session_state.setdefault("foto_profil", {})[nama] = {
+                    "data": base64.b64decode(v.split(",", 1)[1]), "mime": "image/jpeg"}
+        elif k.startswith("foto_profil_siswa_"):
+            sid = k[len("foto_profil_siswa_"):]
+            for siswa_rec in st.session_state.data.get("siswa", []):
+                if _foto_id_siswa(siswa_rec) == sid:
+                    siswa_rec["foto"] = v
+                    break
+            if st.session_state.get("user_role") == "Siswa":
+                nama_login = rapikan_nama(str(st.session_state.get("user_name") or "")).casefold()
+                rec = next((x for x in st.session_state.data.get("siswa", [])
+                            if rapikan_nama(str(x.get("nama") or "")).casefold() == nama_login), None)
+                if rec and _foto_id_siswa(rec) == sid:
+                    st.session_state.setdefault("foto_profil", {})[st.session_state.user_name] = {
+                        "data": base64.b64decode(v.split(",", 1)[1]), "mime": "image/jpeg"}
 
 
 def _hapus_foto_siswa(rel):
@@ -7634,6 +7932,15 @@ def page_siswa():
                     berkas = baru.pop("_foto_baru", None)
                     foto_rel = _simpan_foto_siswa(baru.get("nama"), berkas)
                     rekam = _rekam_dari_isian(baru, foto=foto_rel)
+                    if rekam.get("foto"):
+                        sid_foto = _foto_id_siswa(rekam)
+                        foto_bytes = base64.b64decode(rekam["foto"].split(",", 1)[1])
+                        foto_ok, foto_err = _simpan_foto_profil_permanen(
+                            f"foto_profil_siswa_{sid_foto}",
+                            {"data": foto_bytes, "mime": "image/jpeg", "data_uri": rekam["foto"]},
+                            untuk_siswa=True)
+                        if not foto_ok:
+                            st.session_state["_siswa_warn"] = "Foto tersimpan lokal, tetapi gagal ke Supabase: " + str(foto_err)
                     ok = True
                     if sb_error is None:
                         ok, err = save_student_supabase({
@@ -7719,6 +8026,15 @@ def page_siswa():
                                 if foto_lama and foto_lama != foto_rel:
                                     _hapus_foto_siswa(foto_lama)
                             rekam = _rekam_dari_isian(isian_edit, foto=foto_rel)
+                            if berkas is not None and rekam.get("foto"):
+                                sid_foto = _foto_id_siswa(rekam)
+                                foto_bytes = base64.b64decode(rekam["foto"].split(",", 1)[1])
+                                foto_ok, foto_err = _simpan_foto_profil_permanen(
+                                    f"foto_profil_siswa_{sid_foto}",
+                                    {"data": foto_bytes, "mime": "image/jpeg", "data_uri": rekam["foto"]},
+                                    untuk_siswa=True)
+                                if not foto_ok:
+                                    st.session_state["_siswa_warn"] = "Foto tersimpan lokal, tetapi gagal ke Supabase: " + str(foto_err)
                             if sb_error is None:
                                 sid = next(
                                     (r.get("id") for r in supa_rows
@@ -8079,16 +8395,28 @@ def page_pengaturan():
                     st.error(T("Ukuran foto maksimal 200MB.",
                                "Photo size must be at most 200MB.",
                                "الحجم الأقصى للصورة 200 ميجابايت."))
-                elif foto_baru.getvalue() != (foto_saya or {}).get("data"):
-                    mime_foto = foto_baru.type or "image/png"
-                    foto_map[nama_tampil] = {"data": foto_baru.getvalue(), "mime": mime_foto}
-                    ekstensi = "png" if "png" in mime_foto else "jpg"
-                    _hapus_berkas_foto(nama_tampil, kecuali=ekstensi)
-                    st.session_state["foto_profil_path"] = str(
-                        FOTO_DIR / f"{_slug_nama(nama_tampil)}.{ekstensi}")
-                    st.session_state["_foto_ok"] = True
-                    save_all_data()
-                    st.rerun()
+                elif hashlib.sha256(foto_baru.getvalue()).hexdigest() != st.session_state.get(
+                        f"_foto_upload_hash_{_slug_nama(nama_tampil)}"):
+                    try:
+                        foto_kompres = _kompres_foto_upload(foto_baru)
+                        foto_map[nama_tampil] = {
+                            "data": foto_kompres["data"], "mime": foto_kompres["mime"]}
+                        st.session_state[f"_foto_upload_hash_{_slug_nama(nama_tampil)}"] = hashlib.sha256(
+                            foto_baru.getvalue()).hexdigest()
+                        foto_ok, foto_err = _simpan_foto_profil_permanen(
+                            "foto_profil_pengelola" if peran_tampil == "Pengelola"
+                            else f"foto_profil_siswa_{_foto_id_siswa(nama=nama_tampil)}",
+                            foto_kompres,
+                            untuk_siswa=(peran_tampil == "Siswa"))
+                        st.session_state["_foto_ok"] = bool(foto_ok)
+                        if not foto_ok:
+                            st.session_state["_foto_save_warning"] = foto_err
+                        save_all_data()
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Gagal memproses foto: {exc}")
+            if st.session_state.get("_foto_save_warning"):
+                st.warning("Foto tersimpan di sesi/JSON, tetapi Supabase belum berhasil: " + str(st.session_state.pop("_foto_save_warning")))
             if st.session_state.pop("_foto_ok", False):
                 st.success(T("✅ Foto berhasil disimpan! Tidak akan hilang lagi walau pindah halaman.",
                              "✅ Photo saved! It will stay even when you switch pages.",
@@ -8098,7 +8426,14 @@ def page_pengaturan():
                       "🗑️ حذف صورة الملف"),
                     key="hapus_foto_pengaturan", use_container_width=True):
                 foto_map.pop(nama_tampil, None)
+                st.session_state.pop(f"_foto_upload_hash_{_slug_nama(nama_tampil)}", None)
                 _hapus_berkas_foto(nama_tampil)
+                kunci_foto = ("foto_profil_pengelola" if peran_tampil == "Pengelola"
+                              else f"foto_profil_siswa_{_foto_id_siswa(nama=nama_tampil)}")
+                _app_settings_merge(_user_settings_id(), {kunci_foto: ""})
+                if peran_tampil == "Siswa":
+                    _app_settings_merge("pengelola:kendar sultoni", {kunci_foto: ""})
+                st.session_state.get("foto_profil_backup", {}).pop(kunci_foto, None)
                 st.session_state["foto_profil_path"] = None
                 save_all_data()
                 st.rerun()
@@ -8267,12 +8602,9 @@ def page_pengaturan():
                            "✅ حفظ كل الإعدادات"), key="simpan_semua_pengaturan"):
                 _ok_simpan, _detail_simpan = _simpan_pengaturan_sekarang()
                 if _ok_simpan:
-                    st.toast(T("✅ Semua pengaturan sudah tersimpan!",
-                               "✅ All settings have been saved!",
-                               "✅ تم حفظ كل الإعدادات!"))
-                    st.success(T("✅ Semua pengaturan sudah tersimpan!",
-                                 "✅ All settings have been saved!",
-                                 "✅ تم حفظ كل الإعدادات!"))
+                    pesan_waktu = f"✅ Disimpan pada {_detail_simpan} WIB"
+                    st.toast(pesan_waktu)
+                    st.success(pesan_waktu)
                 else:
                     st.error(T("Gagal menyimpan pengaturan: ", "Could not save settings: ",
                                "تعذر حفظ الإعدادات: ") + str(_detail_simpan))
