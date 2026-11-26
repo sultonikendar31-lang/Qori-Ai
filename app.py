@@ -986,6 +986,8 @@ if _DISK_CFG:
     for _kunci, _field in (
         ("set_nama", "nama"),
         ("set_lembaga", "sekolah"),
+        ("set_email", "email"),
+        ("set_jam_input", "jam_pengingat"),
         ("set_suara", "qori"),
         ("set_mode", "level"),
         ("set_iqro", "level_iqro"),
@@ -1072,9 +1074,11 @@ def _kumpulkan_pengaturan() -> dict:
         (v for v in (st.session_state.get("bahasa_aplikasi"), mirror.get("bahasa"),
                      sebelumnya.get("bahasa"), bahasa)
          if v in _BAHASA_OPSI), "Bahasa Indonesia")
+    jam = st.session_state.get("set_jam_input", sebelumnya.get("jam_pengingat", "19:00"))
     return {
         "nama": st.session_state.get("set_nama") or sebelumnya.get("nama") or "Kendar Sultoni",
         "sekolah": st.session_state.get("set_lembaga") or sebelumnya.get("sekolah") or "TPQ Nurul Ilmi",
+        "email": st.session_state.get("set_email") or sebelumnya.get("email", ""),
         "qori": qori,
         "tema": tema_aktif,
         "bahasa": bahasa_aktif,
@@ -1082,6 +1086,7 @@ def _kumpulkan_pengaturan() -> dict:
         "level_iqro": st.session_state.get("set_iqro") or sebelumnya.get("level_iqro") or "Iqro' 3",
         "target": st.session_state.get("set_target", sebelumnya.get("target", 30)),
         "notifikasi": bool(st.session_state.get("set_reminder", sebelumnya.get("notifikasi", True))),
+        "jam_pengingat": str(jam or "19:00"),
         "huruf": st.session_state.get("set_huruf") or sebelumnya.get("huruf") or "Sedang",
         "kecepatan": st.session_state.get("set_kecepatan") or sebelumnya.get("kecepatan") or "Normal (1x)",
         "autoplay": bool(st.session_state.get("set_autoplay", sebelumnya.get("autoplay", True))),
@@ -1091,18 +1096,191 @@ def _kumpulkan_pengaturan() -> dict:
     }
 
 
+def _signature_pengaturan(data=None):
+    return json.dumps(data if data is not None else _kumpulkan_pengaturan(),
+                      sort_keys=True, ensure_ascii=False, default=str)
+
+
 def autosave_pengaturan():
+    """Callback widget: tandai perubahan; penyimpanan dilakukan setelah debounce."""
+    st.session_state["_pengaturan_dirty"] = True
+    st.session_state["_pengaturan_dirty_at"] = time.time()
+    st.session_state["_pengaturan_status"] = "dirty"
+    return _kumpulkan_pengaturan()
+
+
+def _simpan_pengaturan_sekarang():
+    """Simpan satu snapshot pengaturan ke Session State, JSON, dan Supabase."""
     data = _kumpulkan_pengaturan()
-    data["terakhir_disimpan"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    st.session_state["data_tersimpan"] = data
+    signature = _signature_pengaturan(data)
+    if signature == st.session_state.get("_pengaturan_saved_signature"):
+        st.session_state["_pengaturan_dirty"] = False
+        st.session_state["_pengaturan_status"] = "saved"
+        return True, "Pengaturan tidak berubah; tidak perlu menyimpan ulang."
+
+    waktu = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    data["terakhir_disimpan"] = waktu
+    # Session State dan file JSON tetap diperbarui meskipun koneksi Supabase gagal.
+    st.session_state["data_tersimpan"] = data.copy()
+    st.session_state["pengaturan_tersimpan"] = data.copy()
     try:
-        AUTOSAVE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2),
+        AUTOSAVE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2, default=str),
                                  encoding="utf-8")
-    except Exception:
-        pass
-    st.session_state["_sig_autosave"] = json.dumps(
-        _kumpulkan_pengaturan(), sort_keys=True, default=str)
-    return data
+        json_ok = True
+    except Exception as exc:
+        json_ok = False
+        json_error = str(exc)
+
+    client, sb_error = get_supabase_client()
+    sb_ok = False
+    if client is not None:
+        try:
+            nama_user = str(st.session_state.get("user_name") or "anonim").strip().casefold()
+            role_user = str(st.session_state.get("user_role") or "pengguna").strip().casefold()
+            user_id = f"{role_user}:{nama_user}"
+            hasil = (client.table("app_settings").select("id,settings")
+                     .eq("user_id", user_id).limit(1).execute())
+            rows = getattr(hasil, "data", None) or []
+            if rows:
+                row = rows[0]
+                settings_lama = row.get("settings") if isinstance(row, dict) else {}
+                gabungan = dict(settings_lama) if isinstance(settings_lama, dict) else {}
+                gabungan.update(data)
+                client.table("app_settings").update({
+                    "settings": gabungan,
+                    "updated_at": datetime.now().isoformat(),
+                }).eq("id", row["id"]).execute()
+            else:
+                client.table("app_settings").insert({
+                    "user_id": user_id,
+                    "settings": data,
+                    "updated_at": datetime.now().isoformat(),
+                }).execute()
+            sb_ok = True
+        except Exception as exc:
+            sb_error = f"Gagal menyimpan app_settings: {exc}"
+    if json_ok and sb_ok:
+        st.session_state["_pengaturan_saved_signature"] = signature
+        st.session_state["_sig_autosave"] = signature
+        st.session_state["_pengaturan_dirty"] = False
+        st.session_state["_pengaturan_status"] = "saved"
+        st.session_state["_pengaturan_last_saved"] = waktu
+        return True, waktu
+
+    st.session_state["_pengaturan_dirty"] = True
+    st.session_state["_pengaturan_status"] = "error"
+    alasan = []
+    if not json_ok:
+        alasan.append(f"JSON: {json_error}")
+    if not sb_ok:
+        alasan.append(sb_error or "Supabase belum berhasil menyimpan.")
+    return False, " | ".join(alasan)
+
+
+def _muat_pengaturan_supabase():
+    """Muat pengaturan akun dari Supabase sekali per sesi agar lintas perangkat."""
+    global tema, bahasa, BAHASA_ARAB
+    nama_user = str(st.session_state.get("user_name") or "anonim").strip().casefold()
+    role_user = str(st.session_state.get("user_role") or "pengguna").strip().casefold()
+    user_id = f"{role_user}:{nama_user}"
+    if st.session_state.get("_pengaturan_loaded_for") == user_id:
+        return
+    st.session_state["_pengaturan_loaded_for"] = user_id
+    client, error = get_supabase_client()
+    if client is None:
+        return
+    try:
+        hasil = (client.table("app_settings").select("settings")
+                 .eq("user_id", user_id).limit(1).execute())
+        rows = getattr(hasil, "data", None) or []
+        if not rows or not isinstance(rows[0].get("settings"), dict):
+            return
+        data = rows[0]["settings"]
+        st.session_state["data_tersimpan"] = data.copy()
+        st.session_state["pengaturan_tersimpan"] = data.copy()
+        pemetaan = {
+            "set_nama": "nama", "set_lembaga": "sekolah", "set_email": "email",
+            "set_suara": "qori", "set_mode": "level", "set_iqro": "level_iqro",
+            "set_target": "target", "set_reminder": "notifikasi",
+            "set_jam_input": "jam_pengingat", "set_huruf": "huruf",
+            "set_kecepatan": "kecepatan", "set_autoplay": "autoplay",
+            "set_tajwid": "tajwid", "set_notif_leader": "notif_leader",
+            "tema_aplikasi": "tema", "bahasa_aplikasi": "bahasa",
+        }
+        for key, field in pemetaan.items():
+            if field not in data:
+                continue
+            value = data[field]
+            if key == "set_jam_input" and isinstance(value, str):
+                try:
+                    from datetime import time as _time_value
+                    value = datetime.strptime(value, "%H:%M").time()
+                except Exception:
+                    value = None
+            # Fungsi ini berjalan sebelum widget Pengaturan dirender, sehingga
+            # nilai Supabase menjadi sumber utama lintas perangkat.
+            st.session_state[key] = value
+        st.session_state["_tampilan_aktif"] = {
+            "tema": data.get("tema", "Terang"),
+            "bahasa": data.get("bahasa", "Bahasa Indonesia"),
+        }
+        tema = data.get("tema", tema)
+        bahasa = data.get("bahasa", bahasa)
+        BAHASA_ARAB = "Arab" in bahasa or "العربية" in bahasa
+        st.session_state["_pengaturan_saved_signature"] = _signature_pengaturan()
+        st.session_state["_pengaturan_last_saved"] = data.get("terakhir_disimpan", "-")
+    except Exception as exc:
+        st.session_state["_pengaturan_load_error"] = str(exc)
+
+
+@st.fragment(run_every="1s")
+def _pemantau_autosave_pengaturan():
+    """Pemeriksa ringan; menyimpan 2 detik setelah perubahan terakhir."""
+    if st.session_state.get("_pengaturan_dirty"):
+        sejak = float(st.session_state.get("_pengaturan_dirty_at", time.time()))
+        signature = _signature_pengaturan()
+        if time.time() - sejak >= 2 and signature != st.session_state.get("_pengaturan_last_attempt_signature"):
+            st.session_state["_pengaturan_last_attempt_signature"] = signature
+            ok, detail = _simpan_pengaturan_sekarang()
+            if ok:
+                st.success("✅ Tersimpan Otomatis - " + str(detail))
+            else:
+                st.warning("⚠️ Ada perubahan belum tersimpan. " + str(detail))
+                if st.button("💾 Simpan Sekarang", key="pengaturan_simpan_sekarang_fragment"):
+                    ok, detail = _simpan_pengaturan_sekarang()
+                    if ok:
+                        st.success("✅ Semua pengaturan sudah tersimpan!")
+                    else:
+                        st.error("Gagal menyimpan: " + str(detail))
+        elif time.time() - sejak < 2:
+            st.warning("⚠️ Ada perubahan belum tersimpan")
+            st.caption("Menyimpan... perubahan akan disimpan otomatis setelah 2 detik.")
+            if st.button("💾 Simpan Sekarang", key="pengaturan_simpan_sekarang_fragment"):
+                ok, detail = _simpan_pengaturan_sekarang()
+                if ok:
+                    st.success("✅ Semua pengaturan sudah tersimpan!")
+                else:
+                    st.error("Gagal menyimpan: " + str(detail))
+        else:
+            st.warning("⚠️ Ada perubahan belum tersimpan. Autosave menunggu koneksi berhasil.")
+            if st.button("💾 Coba Simpan Lagi", key="pengaturan_coba_simpan_lagi"):
+                ok, detail = _simpan_pengaturan_sekarang()
+                if ok:
+                    st.success("✅ Semua pengaturan sudah tersimpan!")
+                else:
+                    st.error("Gagal menyimpan: " + str(detail))
+    elif st.session_state.get("_pengaturan_status") == "error":
+        st.warning("⚠️ Ada perubahan belum tersimpan. Periksa koneksi Supabase lalu tekan Simpan Sekarang.")
+        if st.button("💾 Simpan Sekarang", key="pengaturan_simpan_sekarang_error"):
+            ok, detail = _simpan_pengaturan_sekarang()
+            if ok:
+                st.success("✅ Semua pengaturan sudah tersimpan!")
+            else:
+                st.error("Gagal menyimpan: " + str(detail))
+    else:
+        waktu = st.session_state.get("_pengaturan_last_saved")
+        if waktu:
+            st.caption("✅ Tersimpan Otomatis - " + str(waktu))
 
 
 def qori_terpilih() -> str:
@@ -2316,6 +2494,7 @@ if not st.session_state.user_name:
     render_login()
     st.stop()
 
+_muat_pengaturan_supabase()
 st.session_state["permintaan_izin"] = _muat_permintaan_izin()
 if st.session_state.get("user_role") == "Pengelola":
     st.session_state["pengelola_level"] = level_pengelola()
@@ -7853,6 +8032,7 @@ def page_pengaturan():
     st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
 
     simpan_cfg = st.session_state.setdefault("pengaturan_tersimpan", {})
+    _pemantau_autosave_pengaturan()
     defaults = {
         "set_nama": "Kendar Sultoni", "set_lembaga": "TPQ Nurul Ilmi", "set_email": "kendar@gmail.com",
         "set_mode": "Tahsin", "set_iqro": "Iqro' 3", "set_target": 30,
@@ -8048,11 +8228,15 @@ def page_pengaturan():
 
     with st.expander(T("💾 F. Data & Aplikasi", "💾 F. Data & Application",
                        "💾 و. البيانات والتطبيق")):
-        terakhir_auto = (st.session_state.get("data_tersimpan")
-                         or _DISK_CFG or {}).get("terakhir_disimpan") or "-"
-        st.success(T("✅ Tersimpan Otomatis - Terakhir disimpan: ",
-                     "✅ Autosaved - Last saved: ",
-                     "✅ محفوظ تلقائيًا - آخر حفظ: ") + f"{terakhir_auto}")
+        terakhir_auto = (st.session_state.get("_pengaturan_last_saved")
+                         or (st.session_state.get("data_tersimpan") or _DISK_CFG or {}).get("terakhir_disimpan")
+                         or "-")
+        if st.session_state.get("_pengaturan_dirty"):
+            st.warning("⚠️ Ada perubahan belum tersimpan")
+        else:
+            st.success(T("✅ Tersimpan Otomatis - Terakhir disimpan: ",
+                         "✅ Autosaved - Last saved: ",
+                         "✅ محفوظ تلقائيًا - آخر حفظ: ") + f"{terakhir_auto}")
         st.caption(T("Tidak perlu pencet Simpan lagi. Setiap kamu ganti Tema / Bahasa / "
                      "Qori / Nama / Level, langsung tersimpan otomatis.",
                      "No need to press Save anymore. Every time you change Theme / Language / "
@@ -8080,14 +8264,18 @@ def page_pengaturan():
                 st.session_state["confirm_reset"] = True
         with c3:
             if st.button(T("✅ Simpan Semua Pengaturan", "✅ Save All Settings",
-                           "✅ حفظ كل الإعدادات")):
-                autosave_pengaturan()
-                st.toast(T("✅ Semua pengaturan sudah tersimpan otomatis!",
-                           "✅ All settings have been autosaved!",
-                           "✅ تم حفظ كل الإعدادات تلقائيًا!"))
-                st.success(T("✅ Semua pengaturan sudah tersimpan!",
-                             "✅ All settings have been saved!",
-                             "✅ تم حفظ كل الإعدادات!"))
+                           "✅ حفظ كل الإعدادات"), key="simpan_semua_pengaturan"):
+                _ok_simpan, _detail_simpan = _simpan_pengaturan_sekarang()
+                if _ok_simpan:
+                    st.toast(T("✅ Semua pengaturan sudah tersimpan!",
+                               "✅ All settings have been saved!",
+                               "✅ تم حفظ كل الإعدادات!"))
+                    st.success(T("✅ Semua pengaturan sudah tersimpan!",
+                                 "✅ All settings have been saved!",
+                                 "✅ تم حفظ كل الإعدادات!"))
+                else:
+                    st.error(T("Gagal menyimpan pengaturan: ", "Could not save settings: ",
+                               "تعذر حفظ الإعدادات: ") + str(_detail_simpan))
         if st.session_state.get("confirm_reset"):
             st.error(T("Yakin hapus semua data? Tindakan ini tidak bisa dibatalkan.",
                        "Delete all data? This action cannot be undone.",
@@ -9368,10 +9556,15 @@ elif menu == "Kelola Pengelola":
 elif menu == "Pengaturan":
     page_pengaturan()
 
-# Autosave berlaku di semua halaman: begitu ada perubahan pengaturan, langsung tulis ke disk.
-_sig_sekarang = json.dumps(_kumpulkan_pengaturan(), sort_keys=True, default=str)
-if st.session_state.get("_sig_autosave") != _sig_sekarang:
-    autosave_pengaturan()
+# Perubahan yang terdeteksi di luar halaman Pengaturan tetap ditandai; fragment
+# akan menyimpannya setelah 2 detik tanpa perubahan, bukan menulis berulang kali.
+_sig_sekarang = _signature_pengaturan()
+if (st.session_state.get("_pengaturan_saved_signature") is not None
+        and st.session_state.get("_pengaturan_saved_signature") != _sig_sekarang
+        and not st.session_state.get("_pengaturan_dirty")):
+    st.session_state["_pengaturan_dirty"] = True
+    st.session_state["_pengaturan_dirty_at"] = time.time()
+    st.session_state["_pengaturan_status"] = "dirty"
 
 st.markdown("""
 <div style="text-align:center;color:#8291aa;font-size:11px;padding:24px 0 5px">
