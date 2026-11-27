@@ -2345,7 +2345,8 @@ def _qori_kumpulkan_session():
         "_global_snapshot_payload", "_global_snapshot_signature", "_qori_memuat_snapshot",
         "_qori_snapshot_loaded", "_qori_snapshot_loading", "_qori_global_signature",
         "_qori_global_last_saved", "_qori_global_dirty", "_qori_global_save_error",
-        "_qori_global_load_error", "_pengaturan_dirty", "_pengaturan_dirty_at",
+        "_qori_global_refresh_after_autosave", "_qori_global_load_error",
+        "_pengaturan_dirty", "_pengaturan_dirty_at",
         "_pengaturan_status", "_pengaturan_last_saved", "_pengaturan_saved_signature",
         "_pengaturan_last_attempt_signature", "_pengaturan_global_hydrated",
         "_sig_autosave", "_foto_supabase_loaded_for", "_foto_supabase_load_error",
@@ -2654,6 +2655,12 @@ def _qori_muat_snapshot_global():
                 _qori_pulihkan_widget_values()
         except Exception as exc:
             st.session_state["_qori_global_load_error"] = str(exc)
+        st.session_state["login_pertama"] = set(st.session_state.get("login_pertama") or [])
+        notif_dilihat = st.session_state.get("notif_dilihat")
+        if isinstance(notif_dilihat, dict):
+            st.session_state["notif_dilihat"] = {
+                str(nama): set(nilai or []) for nama, nilai in notif_dilihat.items()
+            }
         st.session_state["_qori_global_last_saved"] = snapshot.get("terakhir_disimpan", "")
         st.session_state["_qori_global_signature"] = _qori_signature_snapshot(_qori_buat_snapshot())
     st.session_state["_qori_snapshot_loaded"] = True
