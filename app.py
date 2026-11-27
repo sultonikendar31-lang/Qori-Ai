@@ -2999,7 +2999,6 @@ def render_login():
                 masuk = st.form_submit_button(
                     T("Masuk", "Log in", "دخول"), type="primary", use_container_width=True,
                     icon=":material/arrow_forward:",
-                    key="login_submit_btn",
                 )
             with st.popover("Lihat Daftar 20 Siswa"):
                 daftar_nama = sorted(SISWA_LOGIN.values())
