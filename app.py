@@ -7108,13 +7108,10 @@ def _nis_bentrok(nis, kecuali_nama=None, siswa_remote=None) -> bool:
     return False
 
 
-def _validasi_siswa(record, kecuali_nama=None, nis_wajib=True, siswa_remote=None):
+def _validasi_siswa(record, kecuali_nama=None, siswa_remote=None):
     if not str(record.get("nama") or "").strip():
         return T("Nama lengkap wajib diisi.", "Full name is required.",
                  "الاسم الكامل مطلوب.")
-    if nis_wajib and not str(record.get("nis") or "").strip():
-        return T("NIS / NISN wajib diisi.", "NIS / NISN is required.",
-                 "الرقم الوطني مطلوب.")
     if _nis_bentrok(record.get("nis"), kecuali_nama, siswa_remote):
         return T("NIS / NISN sudah dipakai siswa lain.",
                  "This NIS / NISN is already used by another student.",
@@ -7309,12 +7306,15 @@ def _render_isian_siswa(prefix: str, rec: dict, nis_dapat_diubah=True) -> dict:
     c1, c2, c3 = st.columns(3)
     nama = c1.text_input(T("Nama lengkap *", "Full name *", "الاسم الكامل *"),
                          value=str(rec.get("nama") or ""), key=f"{prefix}_nama")
-    nis = c2.text_input(T("NIS / NISN *", "NIS / NISN *", "الرقم الوطني *"),
+    nis = c2.text_input(T("NIS / NISN", "NIS / NISN", "الرقم الوطني"),
                         value=str(rec.get("nis") or ""), key=f"{prefix}_nis",
                         disabled=not nis_dapat_diubah,
-                        help=T("Wajib diisi dan unik. Hanya Pengelola 1 yang dapat mengubah NIS.",
-                               "Required and unique. Only Manager 1 can change the NIS.",
-                               "مطلوب وفريد. يمكن للمدير 1 فقط تغيير الرقم الوطني."))
+                        help=T("Boleh kosong untuk sementara. Jika diisi, NIS harus unik. "
+                               "Hanya Pengelola 1 yang dapat mengubah NIS.",
+                               "May be left blank for now. If provided, the NIS must be unique. "
+                               "Only Manager 1 can change the NIS.",
+                               "يمكن تركه فارغًا مؤقتًا. إذا تم إدخاله، يجب أن يكون فريدًا. "
+                               "يمكن للمدير 1 فقط تغيير الرقم الوطني."))
     kelas = c3.text_input(T("Kelas", "Class", "الفصل"),
                           value=str(rec.get("kelas") or ""), key=f"{prefix}_kelas")
     jk_opsi = ["Laki-laki", "Perempuan"]
@@ -7514,12 +7514,12 @@ def page_siswa():
     nis_kosong = [s for s in siswa if not str(s.get("nis") or "").strip()]
     if nis_kosong:
         st.warning(T(
-            f"NIS belum diisi pada {len(nis_kosong)} siswa. Pengelola 1 harus mengisinya "
-            "melalui Edit Siswa sebelum migrasi No. 2 dry-run.",
-            f"NIS is missing for {len(nis_kosong)} students. Manager 1 must fill it through "
-            "Edit Student before the No. 2 dry-run migration.",
-            f"الرقم الوطني غير موجود لدى {len(nis_kosong)} طالبًا. يجب على المدير 1 "
-            "إدخاله عبر تعديل الطالب قبل تشغيل migrasi No. 2 dry-run."))
+            f"NIS belum diisi pada {len(nis_kosong)} siswa. NIS boleh dikosongkan sementara "
+            "dan dapat diisi belakangan oleh Pengelola 1 melalui Edit Siswa.",
+            f"NIS is missing for {len(nis_kosong)} students. It may be left blank for now "
+            "and filled later by Manager 1 through Edit Student.",
+            f"الرقم الوطني غير موجود لدى {len(nis_kosong)} طالبًا. يمكن تركه فارغًا مؤقتًا "
+            "وإدخاله لاحقًا بواسطة المدير 1 عبر تعديل الطالب."))
 
     H = {
         "no": T("No", "No", "رقم"),
@@ -7859,7 +7859,7 @@ def page_siswa():
                         nama_lama = str(rec_edit.get("nama") or "")
                         pesan = _validasi_siswa(
                             isian_edit, kecuali_nama=nama_lama,
-                            nis_wajib=boleh_ubah_nis, siswa_remote=supa_rows)
+                            siswa_remote=supa_rows)
                         if pesan:
                             st.error(pesan)
                         else:
