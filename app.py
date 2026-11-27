@@ -2340,7 +2340,8 @@ def _qori_key_tombol_sementara(nama: str) -> bool:
 def _qori_kumpulkan_session():
     """Ambil state seluruh menu, tanpa kredensial dan metadata sementara penyimpanan/UI."""
     abaikan_tepat = {
-        "T", "user_name", "user_role", "password", "login_password", "logged_in", "menu",
+        "T", "user_name", "user_role", "password", "login_password", "login_username",
+        "login_submit_btn", "logged_in", "menu",
         "_global_snapshot_payload", "_global_snapshot_signature", "_qori_memuat_snapshot",
         "_qori_snapshot_loaded", "_qori_snapshot_loading", "_qori_global_signature",
         "_qori_global_last_saved", "_qori_global_dirty", "_qori_global_save_error",
@@ -2354,7 +2355,8 @@ def _qori_kumpulkan_session():
     for k in list(st.session_state.keys()):
         nama = str(k)
         nama_lc = nama.casefold()
-        if (nama in abaikan_tepat or _qori_key_tombol_sementara(nama)
+        if (nama in abaikan_tepat or nama.startswith("FormSubmitter:")
+                or _qori_key_tombol_sementara(nama)
                 or nama.startswith("foto_upload_") or nama.startswith("ai_mic")
                 or any(token in nama_lc for token in ("password", "pass", "secret", "api_key", "token"))):
             continue
@@ -2370,7 +2372,8 @@ def _qori_kumpulkan_widget_values():
     """Simpan nilai widget lintas-menu agar state tidak hilang saat widget tidak dirender."""
     hasil = dict(st.session_state.get("_qori_widget_values") or {})
     abaikan = {
-        "T", "user_name", "user_role", "password", "login_password", "logged_in",
+        "T", "user_name", "user_role", "password", "login_password", "login_username",
+        "login_submit_btn", "logged_in",
         "menu", "data", "foto_profil", "foto_profil_backup", "pengumuman", "notif",
         "notif_dilihat", "notif_seq", "login_pertama", "login_baru", "quiz", "mini",
         "terakhir_simpan", "foto_profil_path", "confirm_reset",
@@ -2379,6 +2382,7 @@ def _qori_kumpulkan_widget_values():
         nama = str(k)
         nama_lc = nama.casefold()
         if (not nama or nama.startswith(("_", "$$")) or nama in abaikan
+                or nama.startswith("FormSubmitter:")
                 or _qori_key_tombol_sementara(nama)
                 or nama.startswith(("ai_mic", "foto_upload_"))
                 or any(token in nama_lc for token in
@@ -2400,8 +2404,9 @@ def _qori_pulihkan_widget_values():
         return
     for nama, nilai in values.items():
         nama = str(nama)
-        if (not nama or nama.startswith(("_", "$$")) or
-                any(token in nama.casefold() for token in
+        if (not nama or nama.startswith(("_", "$$")) or nama.startswith("FormSubmitter:")
+                or nama in {"login_username", "login_password", "login_submit_btn"}
+                or any(token in nama.casefold() for token in
                     ("password", "pass", "secret", "api_key", "token"))):
             continue
         if nama not in st.session_state:
@@ -2585,7 +2590,9 @@ def _qori_terapkan_snapshot(snapshot):
                 if kunci_data in pengaturan:
                     st.session_state[kunci_widget] = pengaturan[kunci_data]
         for k, v in (snapshot.get("session") or {}).items():
-            if k in ("user_name", "user_role", "password", "login_password", "logged_in"):
+            if (k in ("user_name", "user_role", "password", "login_password",
+                      "login_username", "login_submit_btn", "logged_in")
+                    or str(k).startswith("FormSubmitter:")):
                 continue
             try:
                 st.session_state[k] = v
@@ -2637,7 +2644,9 @@ def _qori_muat_snapshot_global():
                     target.clear()
                     target.update(nilai)
             for k, v in (snapshot.get("session") or {}).items():
-                if k not in ("user_name", "user_role", "password", "login_password", "logged_in"):
+                if (k not in ("user_name", "user_role", "password", "login_password",
+                              "login_username", "login_submit_btn", "logged_in")
+                        and not str(k).startswith("FormSubmitter:")):
                     st.session_state[k] = v
             widget_values = snapshot.get("widget_values") or {}
             if isinstance(widget_values, dict):
@@ -2979,15 +2988,18 @@ def render_login():
                     placeholder=T("Ketik nama lengkap (huruf kecil)",
                                   "Enter full name (lowercase)",
                                   "اكتب الاسم الكامل (بحروف صغيرة)"),
+                    key="login_username",
                 )
                 password_input = st.text_input(
                     T(":material/lock: Password", ":material/lock: Password",
                       ":material/lock: كلمة المرور"), type="password",
                     placeholder=T("Masukkan password", "Enter password", "أدخل كلمة المرور"),
+                    key="login_password",
                 )
                 masuk = st.form_submit_button(
                     T("Masuk", "Log in", "دخول"), type="primary", use_container_width=True,
                     icon=":material/arrow_forward:",
+                    key="login_submit_btn",
                 )
             with st.popover("Lihat Daftar 20 Siswa"):
                 daftar_nama = sorted(SISWA_LOGIN.values())
