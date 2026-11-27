@@ -12,7 +12,7 @@ import os
 import random
 import re
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, time as datetime_time, timedelta
 from zoneinfo import ZoneInfo
 from pathlib import Path
 from urllib.parse import quote
@@ -1110,11 +1110,32 @@ def _kumpulkan_pengaturan() -> dict:
 
 
 def autosave_pengaturan():
-    """Callback widget: tandai perubahan; penyimpanan dilakukan setelah debounce."""
+    """Simpan perubahan kotak pengaturan segera saat callback widget berjalan."""
     st.session_state["_pengaturan_dirty"] = True
     st.session_state["_pengaturan_dirty_at"] = time.time()
-    st.session_state["_pengaturan_status"] = "dirty"
-    return _kumpulkan_pengaturan()
+    st.session_state["_pengaturan_status"] = "saving"
+    cfg = _kumpulkan_pengaturan()
+    # Mirror permanen mencegah nilai widget hilang ketika halaman Pengaturan
+    # tidak dirender dan Streamlit membersihkan state widget yang tidak aktif.
+    st.session_state["data_tersimpan"] = dict(cfg)
+    st.session_state["pengaturan_tersimpan"] = dict(cfg)
+    try:
+        _tulis_json(AUTOSAVE_FILE, cfg)
+    except Exception as exc:
+        st.session_state["_pengaturan_save_error"] = str(exc)
+    # Callback dipanggil sebelum halaman dirender; snapshot langsung membaca
+    # nilai widget terbaru dan mengirimkannya ke Supabase + JSON global.
+    simpan_global = globals().get("_qori_simpan_snapshot_global")
+    if callable(simpan_global):
+        ok, detail = simpan_global(alasan="perubahan_kotak_pengaturan", manual=False)
+        if ok:
+            st.session_state["_pengaturan_status"] = "saved"
+            st.session_state["_pengaturan_save_error"] = ""
+            st.session_state["_qori_global_refresh_after_autosave"] = True
+        else:
+            st.session_state["_pengaturan_status"] = "error"
+            st.session_state["_pengaturan_save_error"] = str(detail)
+    return cfg
 
 
 def _muat_pengaturan_supabase():
@@ -2048,10 +2069,93 @@ def load_all_data():
 
 
 def save_all_data():
+    # Deteksi perubahan data yang dikelola Pengelola agar aktivitas CRUD ikut masuk notifikasi.
+    if (st.session_state.get("user_role") == "Pengelola"
+            and not st.session_state.get("_qori_memuat_snapshot")):
+        objek_dilacak = {
+            "siswa": st.session_state.get("data", {}).get("siswa", []),
+            "materi": globals().get("MATERI", {}),
+            "bank_soal": globals().get("BANKS", {}),
+        }
+        for nama_objek, nilai_objek in objek_dilacak.items():
+            try:
+                tanda = hashlib.sha256(json.dumps(
+                    nilai_objek, ensure_ascii=False, sort_keys=True, default=str
+                ).encode("utf-8")).hexdigest()
+            except Exception:
+                tanda = ""
+            kunci_tanda = f"_qori_admin_sig_{nama_objek}"
+            sebelumnya = st.session_state.get(kunci_tanda)
+            if sebelumnya and tanda and tanda != sebelumnya:
+                deskripsi = {
+                    "siswa": "Data Siswa ditambah, diubah, atau dihapus oleh Pengelola.",
+                    "materi": "Materi pembelajaran ditambah, diubah, atau dihapus oleh Pengelola.",
+                    "bank_soal": "Bank soal diperbarui oleh Pengelola.",
+                }.get(nama_objek, "Data aplikasi diperbarui oleh Pengelola.")
+                menu_tujuan = {
+                    "siswa": "Data Siswa", "materi": "Materi",
+                    "bank_soal": "Ujian",
+                }.get(nama_objek, "Dashboard")
+                if "_qori_tambah_notif_admin" in globals():
+                    _qori_tambah_notif_admin(
+                        deskripsi, menu_tujuan,
+                        event_key=f"admin:{nama_objek}:{tanda}",
+                    )
+            if tanda:
+                st.session_state[kunci_tanda] = tanda
+
     _tulis_semua(st.session_state.data)
     # Sinkronkan seluruh data aplikasi setelah perubahan data inti.
     if "_qori_simpan_snapshot_global" in globals() and not st.session_state.get("_qori_memuat_snapshot"):
         _qori_simpan_snapshot_global(alasan="perubahan_data")
+
+
+def _qori_tambah_notif_admin(teks: str, menu: str = "Dashboard",
+                             event_key: str | None = None, mode: str = ""):
+    """Tambahkan aktivitas ke kotak notifikasi seluruh akun Pengelola."""
+    notif_map = st.session_state.setdefault("notif", {})
+    seq = int(st.session_state.get("notif_seq", 0) or 0)
+    sekarang = datetime.now(ZoneInfo("Asia/Jakarta"))
+    waktu = sekarang.strftime("%d/%m/%Y %H:%M:%S WIB")
+    dibuat = False
+    for nama_admin in PENGELOLA:
+        kunci_admin = str(nama_admin).title()
+        daftar = notif_map.setdefault(kunci_admin, [])
+        if event_key and any(n.get("event_key") == event_key for n in daftar):
+            continue
+        seq += 1
+        daftar.insert(0, {
+            "id": f"evt{seq}_{sekarang.strftime('%Y%m%d%H%M%S%f')}",
+            "event_key": event_key or "",
+            "teks": teks,
+            "waktu": waktu,
+            "dibaca": False,
+            "menu": menu,
+            "mode": mode,
+        })
+        del daftar[300:]
+        dibuat = True
+    if dibuat:
+        st.session_state["notif_seq"] = seq
+    return dibuat
+
+
+def _qori_catat_aktivitas_siswa(teks: str, menu: str = "Dashboard",
+                                 event_key: str | None = None, mode: str = "",
+                                 persist: bool = True):
+    """Catat aktivitas siswa untuk seluruh Pengelola dan simpan secara permanen."""
+    if st.session_state.get("user_role") != "Siswa":
+        return False
+    nama = str(st.session_state.get("user_name")
+               or st.session_state.get("data", {}).get("profil", {}).get("nama")
+               or "Siswa")
+    pesan = f"🧑‍🎓 <b>{html.escape(nama)}</b> — {teks}"
+    dibuat = _qori_tambah_notif_admin(
+        pesan, menu=menu, event_key=event_key, mode=mode
+    )
+    if dibuat and persist:
+        save_all_data()
+    return dibuat
 
 
 def _segarkan_materi():
@@ -2158,8 +2262,14 @@ def _qori_json_aman(nilai):
         return nilai
     if isinstance(nilai, bytes):
         return {"__qori_bytes__": base64.b64encode(nilai).decode("ascii")}
-    if isinstance(nilai, (datetime, timedelta)):
-        return {"__qori_datetime__": nilai.isoformat() if isinstance(nilai, datetime) else str(nilai)}
+    if isinstance(nilai, datetime):
+        return {"__qori_datetime__": nilai.isoformat()}
+    if isinstance(nilai, date):
+        return {"__qori_date__": nilai.isoformat()}
+    if isinstance(nilai, datetime_time):
+        return {"__qori_time__": nilai.isoformat()}
+    if isinstance(nilai, timedelta):
+        return {"__qori_timedelta__": str(nilai)}
     if isinstance(nilai, set):
         return [_qori_json_aman(x) for x in sorted(nilai, key=str)]
     if isinstance(nilai, (list, tuple)):
@@ -2199,8 +2309,32 @@ def _qori_json_pulihkan(nilai):
                 return datetime.fromisoformat(nilai["__qori_datetime__"])
             except Exception:
                 return nilai["__qori_datetime__"]
+        if set(nilai) == {"__qori_date__"}:
+            try:
+                return date.fromisoformat(nilai["__qori_date__"])
+            except Exception:
+                return nilai["__qori_date__"]
+        if set(nilai) == {"__qori_time__"}:
+            try:
+                return datetime_time.fromisoformat(nilai["__qori_time__"])
+            except Exception:
+                return nilai["__qori_time__"]
+        if set(nilai) == {"__qori_timedelta__"}:
+            return nilai["__qori_timedelta__"]
         return {k: _qori_json_pulihkan(v) for k, v in nilai.items()}
     return nilai
+
+
+def _qori_key_tombol_sementara(nama: str) -> bool:
+    """Tombol/aksi sekali klik tidak dipulihkan sebagai nilai input permanen."""
+    nama = str(nama or "")
+    return (
+        nama in {"logout", "qori_simpan_global_pengaturan", "qori_download_global_json",
+                 "qori_reset_global_data"}
+        or nama.startswith(("nav_", "setujui_izin_", "tolak_izin_"))
+        or nama.endswith(("_btn", "_button"))
+        or "_submit_" in nama
+    )
 
 
 def _qori_kumpulkan_session():
@@ -2214,14 +2348,14 @@ def _qori_kumpulkan_session():
         "_pengaturan_status", "_pengaturan_last_saved", "_pengaturan_saved_signature",
         "_pengaturan_last_attempt_signature", "_pengaturan_global_hydrated",
         "_sig_autosave", "_foto_supabase_loaded_for", "_foto_supabase_load_error",
-        "_foto_json_error",
+        "_foto_json_error", "_qori_widget_values",
     }
     hasil = {}
     for k in list(st.session_state.keys()):
         nama = str(k)
         nama_lc = nama.casefold()
-        if (nama in abaikan_tepat or nama.startswith("foto_upload_")
-                or nama.startswith("ai_mic")
+        if (nama in abaikan_tepat or _qori_key_tombol_sementara(nama)
+                or nama.startswith("foto_upload_") or nama.startswith("ai_mic")
                 or any(token in nama_lc for token in ("password", "pass", "secret", "api_key", "token"))):
             continue
         try:
@@ -2231,6 +2365,51 @@ def _qori_kumpulkan_session():
         if aman is not _QORI_SKIP:
             hasil[nama] = aman
     return hasil
+
+def _qori_kumpulkan_widget_values():
+    """Simpan nilai widget lintas-menu agar state tidak hilang saat widget tidak dirender."""
+    hasil = dict(st.session_state.get("_qori_widget_values") or {})
+    abaikan = {
+        "T", "user_name", "user_role", "password", "login_password", "logged_in",
+        "menu", "data", "foto_profil", "foto_profil_backup", "pengumuman", "notif",
+        "notif_dilihat", "notif_seq", "login_pertama", "login_baru", "quiz", "mini",
+        "terakhir_simpan", "foto_profil_path", "confirm_reset",
+    }
+    for k in list(st.session_state.keys()):
+        nama = str(k)
+        nama_lc = nama.casefold()
+        if (not nama or nama.startswith(("_", "$$")) or nama in abaikan
+                or _qori_key_tombol_sementara(nama)
+                or nama.startswith(("ai_mic", "foto_upload_"))
+                or any(token in nama_lc for token in
+                       ("password", "pass", "secret", "api_key", "token"))):
+            continue
+        try:
+            aman = _qori_json_aman(st.session_state[k])
+        except Exception:
+            continue
+        if aman is not _QORI_SKIP:
+            hasil[nama] = aman
+    return hasil
+
+
+def _qori_pulihkan_widget_values():
+    """Pulihkan nilai widget yang dibersihkan Streamlit ketika berpindah menu."""
+    values = st.session_state.get("_qori_widget_values") or {}
+    if not isinstance(values, dict):
+        return
+    for nama, nilai in values.items():
+        nama = str(nama)
+        if (not nama or nama.startswith(("_", "$$")) or
+                any(token in nama.casefold() for token in
+                    ("password", "pass", "secret", "api_key", "token"))):
+            continue
+        if nama not in st.session_state:
+            try:
+                st.session_state[nama] = _qori_json_pulihkan(nilai)
+            except Exception:
+                continue
+
 
 def _qori_file_snapshot():
     """Ambil cadangan JSON dan berkas materi/foto yang sudah tersimpan lokal."""
@@ -2264,12 +2443,15 @@ def _qori_buat_snapshot():
         aman = _qori_json_aman(nilai)
         if aman is not _QORI_SKIP:
             global_data[nama] = aman
+    widget_values = _qori_kumpulkan_widget_values()
+    st.session_state["_qori_widget_values"] = widget_values
     return {
-        "versi": 1,
+        "versi": 2,
         "data": _qori_json_aman(st.session_state.get("data", {})),
-        # Simpan field pengaturan secara eksplisit selain snapshot Session State.
-        # Ini menjaga nama lembaga (key tunggal: sekolah) dan semua input pengaturan.
+        # Key kanonis pengaturan dan nilai widget disimpan eksplisit agar
+        # nilai tetap ada meskipun Streamlit membersihkan widget lintas halaman.
         "pengaturan": _qori_json_aman(_kumpulkan_pengaturan()),
+        "widget_values": widget_values,
         "session": _qori_kumpulkan_session(),
         "globals": global_data,
         "files": _qori_file_snapshot(),
@@ -2343,6 +2525,17 @@ def _qori_simpan_snapshot_global(alasan="autosave", manual=False):
         st.session_state["_qori_global_dirty"] = False
         st.session_state["_pengaturan_dirty"] = False
         st.session_state["_pengaturan_status"] = "saved"
+        # Samakan cache pengaturan dan file JSON khusus dengan snapshot terbaru.
+        cfg_terbaru = snapshot.get("pengaturan") or {}
+        if isinstance(cfg_terbaru, dict):
+            st.session_state["data_tersimpan"] = dict(cfg_terbaru)
+            st.session_state["pengaturan_tersimpan"] = dict(cfg_terbaru)
+            try:
+                _tulis_json(AUTOSAVE_FILE, cfg_terbaru)
+            except Exception:
+                pass
+        # Sidebar dirender sebelum isi halaman; satu rerun diperlukan agar jamnya sama.
+        st.session_state["_qori_global_refresh_after_autosave"] = True
         return True, waktu
     except Exception as exc:
         st.session_state["_qori_global_dirty"] = True
@@ -2398,6 +2591,10 @@ def _qori_terapkan_snapshot(snapshot):
                 st.session_state[k] = v
             except Exception:
                 continue
+        widget_values = snapshot.get("widget_values") or {}
+        if isinstance(widget_values, dict):
+            st.session_state["_qori_widget_values"] = widget_values
+            _qori_pulihkan_widget_values()
         st.session_state["_qori_global_last_saved"] = snapshot.get("terakhir_disimpan", "")
         return True
     finally:
@@ -2431,9 +2628,9 @@ def _qori_muat_snapshot_global():
                 snapshot = None
     if snapshot:
         _qori_terapkan_snapshot(snapshot)
-        # File data telah dipulihkan; muat ulang struktur inti dari berkas tersebut.
+        # Jangan memuat ulang data lokal di atas snapshot Supabase: file lokal
+        # pada perangkat baru bisa kosong/lama dan akan menimpa data terbaru.
         try:
-            st.session_state["data"] = load_all_data()
             for nama, nilai in (snapshot.get("globals") or {}).items():
                 target = globals().get(nama)
                 if nama in ("MATERI", "BANKS") and isinstance(target, dict) and isinstance(nilai, dict):
@@ -2442,6 +2639,10 @@ def _qori_muat_snapshot_global():
             for k, v in (snapshot.get("session") or {}).items():
                 if k not in ("user_name", "user_role", "password", "login_password", "logged_in"):
                     st.session_state[k] = v
+            widget_values = snapshot.get("widget_values") or {}
+            if isinstance(widget_values, dict):
+                st.session_state["_qori_widget_values"] = widget_values
+                _qori_pulihkan_widget_values()
         except Exception as exc:
             st.session_state["_qori_global_load_error"] = str(exc)
         st.session_state["_qori_global_last_saved"] = snapshot.get("terakhir_disimpan", "")
@@ -2450,9 +2651,15 @@ def _qori_muat_snapshot_global():
 
 
 def _qori_pantau_perubahan_global():
-    """Autosave otomatis saat snapshot isi aplikasi berubah, tanpa simpan ulang pada refresh."""
+    """Autosave semua perubahan state/widget sebelum dan sesudah halaman dirender."""
     if st.session_state.get("_qori_memuat_snapshot"):
         return
+    # Pastikan input pengaturan selalu memiliki satu cache kanonis.
+    if any(k in st.session_state for k in
+           ("set_nama", "set_lembaga", "set_email", "tema_aplikasi", "bahasa_aplikasi")):
+        cfg = _kumpulkan_pengaturan()
+        st.session_state["data_tersimpan"] = dict(cfg)
+        st.session_state["pengaturan_tersimpan"] = dict(cfg)
     snapshot = _qori_buat_snapshot()
     signature = _qori_signature_snapshot(snapshot)
     sebelumnya = st.session_state.get("_qori_global_signature")
@@ -2470,6 +2677,7 @@ def _qori_pantau_perubahan_global():
 
 # Pulihkan snapshot global setelah konektor Supabase tersedia dan sebelum halaman dirender.
 _qori_muat_snapshot_global()
+_qori_pulihkan_widget_values()
 
 @st.cache_resource(show_spinner=False)
 def get_openai_client():
@@ -2808,6 +3016,13 @@ def render_login():
                         if nama not in sudah_login:
                             sudah_login.add(nama)
                             st.session_state.setdefault("login_baru", []).append(nama)
+                        _qori_catat_aktivitas_siswa(
+                            f"login ke QORI AI pada {datetime.now(ZoneInfo('Asia/Jakarta')).strftime('%H:%M:%S WIB')}.",
+                            menu="Dashboard",
+                            event_key=f"login:{nama}:{datetime.now(ZoneInfo('Asia/Jakarta')).strftime('%Y%m%d%H%M%S%f')}",
+                            persist=False,
+                        )
+                        st.session_state["_qori_last_activity_menu"] = None
                     save_all_data()
                     st.rerun()
                 else:
@@ -2995,6 +3210,8 @@ def simpan_hasil(tipe: str, mode: str, level: int, benar: int, total: int, xp_aw
         return skor, False
     q = st.session_state.get("quiz") or {}
     selesai = datetime.now().strftime("%Y-%m-%d %H:%M")
+    nama = data["profil"]["nama"]
+    posisi_sebelum = next((i + 1 for i, (n, _) in enumerate(papan_skor()) if n == nama), None)
     data["hasil"].append({
         "siswa": data["profil"]["nama"],
         "tipe": tipe,
@@ -3010,9 +3227,16 @@ def simpan_hasil(tipe: str, mode: str, level: int, benar: int, total: int, xp_aw
     })
     progres = data["progress"].setdefault(mode, {"xp": 0})
     progres["xp"] += skor
-    nama = data["profil"]["nama"]
     data.setdefault("papan", {})
     data["papan"][nama] = max(data["papan"].get(nama, 0), skor)
+    posisi_sesudah = next((i + 1 for i, (n, _) in enumerate(papan_skor()) if n == nama), None)
+    if posisi_sebelum and posisi_sesudah and posisi_sesudah < posisi_sebelum:
+        _qori_catat_aktivitas_siswa(
+            f"naik peringkat Leaderboard dari #{posisi_sebelum} ke #{posisi_sesudah}.",
+            menu="Leaderboard",
+            event_key=f"rank:{nama}:{posisi_sebelum}:{posisi_sesudah}:{selesai}",
+            persist=False,
+        )
     save_all_data()
     if tipe == "ujian":
         simpan_hasil_ujian(nama, mode, str(level), [], skor,
@@ -3020,6 +3244,23 @@ def simpan_hasil(tipe: str, mode: str, level: int, benar: int, total: int, xp_aw
     else:
         simpan_hasil_game(nama, mode, level, benar, total, skor)
     naik = level_dari_xp(progres["xp"])[0] > level_dari_xp(xp_awal)[0]
+    if st.session_state.get("user_role") == "Siswa":
+        tujuan_notif = "Ujian" if tipe == "ujian" else "Nilai & Hasil"
+        label_tipe = "Ujian" if tipe == "ujian" else "Game"
+        _qori_catat_aktivitas_siswa(
+            f"menyelesaikan {label_tipe} <b>{html.escape(str(mode))}</b> level {level}, "
+            f"nilai <b>{skor}</b>, memperoleh {skor} poin.",
+            menu=tujuan_notif,
+            mode=mode,
+            event_key=f"aktivitas:{len(data['hasil']) - 1}:{nama}:{selesai}:{skor}",
+        )
+        if naik:
+            _qori_catat_aktivitas_siswa(
+                f"naik level pada mode <b>{html.escape(str(mode))}</b>.",
+                menu="Belajar & Game",
+                mode=mode,
+                event_key=f"naik-level:{nama}:{mode}:{progres['xp']}:{selesai}",
+            )
     return skor, naik
 
 
@@ -3442,21 +3683,26 @@ st.markdown(
 # Notifikasi
 # ---------------------------------------------------------------------------
 def daftar_notif(nama: str):
-    return st.session_state.setdefault("notif", {}).setdefault(nama, [])
+    mapa = st.session_state.setdefault("notif", {})
+    clave = next((k for k in mapa if str(k).casefold() == str(nama).casefold()), nama)
+    return mapa.setdefault(clave, [])
 
 
-def tambah_notif(nama: str, kunci: str, teks: str):
+def tambah_notif(nama: str, kunci: str, teks: str, menu: str = "Dashboard"):
     dilihat = st.session_state.setdefault("notif_dilihat", {}).setdefault(nama, set())
-    if kunci in dilihat:
+    daftar = daftar_notif(nama)
+    if kunci in dilihat or any(n.get("event_key") == kunci for n in daftar):
         return False
     dilihat.add(kunci)
     seq = st.session_state.get("notif_seq", 0) + 1
     st.session_state["notif_seq"] = seq
-    daftar_notif(nama).insert(0, {
+    daftar.insert(0, {
         "id": f"n{seq}",
+        "event_key": kunci,
         "teks": teks,
-        "waktu": datetime.now().strftime("%d/%m %H:%M"),
+        "waktu": datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%d/%m/%Y %H:%M:%S WIB"),
         "dibaca": False,
+        "menu": menu,
     })
     return True
 
@@ -3477,6 +3723,8 @@ def perbarui_notifikasi(nama: str, peran: str):
                 f"aktivitas:{i}:{siswa}:{h.get('tanggal')}:{h.get('skor')}",
                 f"🧑‍🎓 <b>{opsi_aman(siswa)}</b> selesai {jenis} "
                 f"{opsi_aman(str(h.get('mode')))} · Nilai <b>{h.get('skor')}</b>",
+                menu=("Belajar & Game" if h.get("tipe") == "game" else
+                      "Materi" if h.get("tipe") == "materi" else "Ujian"),
             )
         for siswa in st.session_state.get("login_baru", []):
             berubah |= tambah_notif(nama, f"login:{siswa}",
@@ -3491,6 +3739,8 @@ def perbarui_notifikasi(nama: str, peran: str):
                 f"nilai:{i}:{h.get('tanggal')}:{h.get('skor')}",
                 f"📊 Nilai kamu sudah keluar: {jenis} "
                 f"{opsi_aman(str(h.get('mode')))} · Nilai <b>{h.get('skor')}</b>",
+                menu=("Belajar & Game" if h.get("tipe") == "game" else
+                      "Materi" if h.get("tipe") == "materi" else "Ujian"),
             )
         for p in st.session_state.get("pengumuman", []):
             berubah |= tambah_notif(nama, f"pengumuman:{p['id']}",
@@ -3503,29 +3753,50 @@ def perbarui_notifikasi(nama: str, peran: str):
             if lama and lama != posisi:
                 berubah |= tambah_notif(nama, f"peringkat:{lama}:{posisi}:{len(hasil)}",
                                         f"🏆 Peringkat Leaderboard kamu berubah: "
-                                        f"#{lama} → #{posisi}")
+                                        f"#{lama} → #{posisi}", menu="Leaderboard")
     if berubah:
         save_all_data()
 
 
 def render_panel_notif(nama: str, peran: str):
     notifs = daftar_notif(nama)
-    belum = sum(1 for n in notifs if not n["dibaca"])
+    belum = sum(1 for n in notifs if not n.get("dibaca", False))
     judul = f"🔔 {belum} Notifikasi Baru" if belum else "🔔 Notifikasi"
     st.markdown(f'<div class="notif-title">{judul}</div>', unsafe_allow_html=True)
     if not notifs:
         st.caption("Belum ada notifikasi.")
-    for n in notifs:
+    for n in list(notifs):
         kiri, kanan = st.columns([7, 1], vertical_alignment="center", gap="small")
-        kelas = "notif-baru" if not n["dibaca"] else "notif-lama"
+        kelas = "notif-baru" if not n.get("dibaca", False) else "notif-lama"
+        teks_html = str(n.get("teks") or "Aktivitas baru")
         with kiri:
             st.markdown(
                 f'<div class="notif-item {kelas}"><span class="notif-titik"></span>'
-                f'<div>{n["teks"]}<div class="notif-waktu">{n["waktu"]}</div></div></div>',
+                f'<div>{teks_html}<div class="notif-waktu">{html.escape(str(n.get("waktu") or ""))}</div></div></div>',
                 unsafe_allow_html=True,
             )
+            teks_tombol = re.sub(r"<[^>]*>", "", html.unescape(teks_html))
+            teks_tombol = re.sub(r"\s+", " ", teks_tombol).strip()
+            if st.button(
+                "Buka: " + (teks_tombol[:95] + ("…" if len(teks_tombol) > 95 else "")),
+                key=f"buka_notif_{nama}_{n.get('id')}",
+                use_container_width=True,
+            ):
+                n["dibaca"] = True
+                tujuan = str(n.get("menu") or "Dashboard")
+                menu_valid = {
+                    "Dashboard", "Belajar & Game", "Ujian", "Nilai & Hasil",
+                    "Leaderboard", "Materi", "Al-Qur'an (Juz 30)", "Data Siswa",
+                    "AI Assistant", "Pengaturan", "Pengaturan Aplikasi",
+                }
+                st.session_state.menu = tujuan if tujuan in menu_valid else "Dashboard"
+                if n.get("mode") in MODE_LIST:
+                    st.session_state.mode = n["mode"]
+                    st.session_state.mini_mode = n["mode"]
+                save_all_data()
+                st.rerun()
         with kanan:
-            if st.button("🗑️", key=f"hapus_notif_{nama}_{n['id']}", help="Hapus notifikasi"):
+            if st.button("🗑️", key=f"hapus_notif_{nama}_{n.get('id')}", help="Hapus notifikasi"):
                 notifs.remove(n)
                 save_all_data()
                 st.rerun()
@@ -3540,10 +3811,16 @@ def render_panel_notif(nama: str, peran: str):
             isi = st.text_input("Isi pengumuman", key=f"pengumuman_isi_{nama}")
             if st.button("Kirim Pengumuman", type="primary", key=f"kirim_pengumuman_{nama}"):
                 if isi.strip():
+                    pengumuman_id = f"p{int(datetime.now(ZoneInfo('Asia/Jakarta')).timestamp() * 1000)}"
                     st.session_state.setdefault("pengumuman", []).insert(0, {
-                        "id": f"p{int(datetime.now().timestamp() * 1000)}",
+                        "id": pengumuman_id,
                         "teks": isi.strip(),
                     })
+                    _qori_tambah_notif_admin(
+                        f"📣 Pengelola membuat pengumuman: <b>{html.escape(isi.strip())}</b>",
+                        menu="Dashboard",
+                        event_key=f"pengumuman-admin:{pengumuman_id}",
+                    )
                     save_all_data()
                     st.rerun()
                 else:
@@ -3679,6 +3956,23 @@ if notif_belum:
     )
 
 menu = st.session_state.menu
+
+# Catat kunjungan menu siswa hanya saat benar-benar berpindah menu/mode,
+# bukan pada setiap rerun Streamlit.
+if st.session_state.get("user_role") == "Siswa":
+    mode_kunjungan = (st.session_state.get("mode") or "") if menu == "Belajar & Game" else ""
+    tanda_menu = (str(menu), str(mode_kunjungan))
+    if tanda_menu != st.session_state.get("_qori_last_activity_menu"):
+        label_menu = str(menu)
+        if mode_kunjungan:
+            label_menu += f" · Mode {mode_kunjungan}"
+        _qori_catat_aktivitas_siswa(
+            f"membuka menu <b>{html.escape(label_menu)}</b>.",
+            menu=("Belajar & Game" if menu == "Belajar & Game" else menu),
+            mode=mode_kunjungan,
+            event_key=f"menu:{st.session_state.get('user_name')}:{label_menu}:{datetime.now(ZoneInfo('Asia/Jakarta')).strftime('%Y%m%d%H%M%S%f')}",
+        )
+        st.session_state["_qori_last_activity_menu"] = tanda_menu
 
 # Header hanya tampil di Dashboard.
 if menu == "Dashboard":
@@ -4174,6 +4468,9 @@ def simpan_game_cepat(mode: str, skor: int, benar: int = 0,
     total = max(1, int(total))
     benar = max(0, min(total, int(benar)))
     persen = round(benar / total * 100)
+    nama = data["profil"]["nama"]
+    tanggal_hasil = datetime.now().strftime("%Y-%m-%d %H:%M")
+    posisi_sebelum = next((i + 1 for i, (n, _) in enumerate(papan_skor()) if n == nama), None)
     data["hasil"].append({
         "siswa": data["profil"]["nama"],
         "tipe": "game",
@@ -4182,15 +4479,30 @@ def simpan_game_cepat(mode: str, skor: int, benar: int = 0,
         "benar": benar,
         "total": total,
         "skor": persen,
-        "tanggal": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "tanggal": tanggal_hasil,
     })
     progres = data["progress"].setdefault(mode, {"xp": 0})
     progres["xp"] += int(skor)
-    nama = data["profil"]["nama"]
     data.setdefault("papan", {})
     data["papan"][nama] = max(data["papan"].get(nama, 0), persen)
+    posisi_sesudah = next((i + 1 for i, (n, _) in enumerate(papan_skor()) if n == nama), None)
+    if posisi_sebelum and posisi_sesudah and posisi_sesudah < posisi_sebelum:
+        _qori_catat_aktivitas_siswa(
+            f"naik peringkat Leaderboard dari #{posisi_sebelum} ke #{posisi_sesudah}.",
+            menu="Leaderboard",
+            event_key=f"rank-game:{nama}:{posisi_sebelum}:{posisi_sesudah}:{datetime.now(ZoneInfo('Asia/Jakarta')).strftime('%Y%m%d%H%M%S%f')}",
+            persist=False,
+        )
     save_all_data()
     simpan_hasil_game(nama, mode, int(level), benar, total, persen)
+    if st.session_state.get("user_role") == "Siswa":
+        _qori_catat_aktivitas_siswa(
+            f"menyelesaikan game <b>{html.escape(str(mode))}</b> level {int(level)}, "
+            f"nilai <b>{persen}</b>, memperoleh {int(skor)} poin.",
+            menu="Nilai & Hasil",
+            mode=mode,
+            event_key=f"aktivitas:{len(data['hasil']) - 1}:{nama}:{tanggal_hasil}:{persen}",
+        )
 
 
 def mini_reset(mode: str, game: str):
@@ -8756,6 +9068,7 @@ def page_pengaturan():
                 _qori_ok, _qori_detail = _qori_simpan_snapshot_global(
                     alasan="simpan_manual_dari_pengaturan", manual=True)
                 if _qori_ok:
+                    st.session_state["_qori_global_refresh_after_autosave"] = True
                     st.success("✅ Semua isi 14 menu QORI AI berhasil disimpan. "
                                f"Terakhir disimpan: {_qori_detail} WIB")
                 else:
@@ -9143,6 +9456,12 @@ def _chat_tambah(peran: str, isi: str, audio: str = "", audio_nama: str = "") ->
         judul = re.sub(r"\s+", " ", re.sub(r"[*_`#>|]", "", isi)).strip()
         c["judul"] = (judul[:46] + "…") if len(judul) > 46 else judul
     _simpan_chat_ai()
+    if peran == "user" and st.session_state.get("user_role") == "Siswa":
+        _qori_catat_aktivitas_siswa(
+            "mengirim pesan ke AI Assistant.",
+            menu="AI Assistant",
+            event_key=f"chat:{st.session_state.get('user_name')}:{pesan['id']}",
+        )
     return pesan
 
 
@@ -10028,6 +10347,13 @@ def page_ai_assistant():
             _ai_proses(prompt)
             st.rerun()
 
+
+# ---------------------------------------------------------------------------
+# AUTOSAVE PRA-RENDER
+# Widget state Streamlit sudah diperbarui sebelum script rerun dimulai.
+# Simpan di sini agar perubahan tetap tersimpan walau halaman melakukan st.rerun()/st.stop().
+# ---------------------------------------------------------------------------
+_qori_pantau_perubahan_global()
 
 # ---------------------------------------------------------------------------
 # Router
