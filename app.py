@@ -10,7 +10,6 @@ import json
 import os
 import random
 import re
-import secrets
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -30,11 +29,6 @@ try:
     from dotenv import load_dotenv
 except ImportError:
     load_dotenv = None
-
-try:
-    import bcrypt
-except ImportError:
-    bcrypt = None
 
 try:
     from openai import OpenAI
@@ -100,21 +94,13 @@ MODE_DESKRIPSI = {
     "Tahfidz": "Latihan hafalan dan muraja'ah melalui sambung ayat serta penguatan hafalan.",
 }
 
-PENGELOLA = {
-    "syamsul hadi": "123",
-    "muhamad sidiq asyhari": "123",
-    "kendar sultoni": "123",
-    "ade romli": "123",
-    "muhamad rais": "123",
-}
+PENGELOLA = {}
 SUPER_ADMIN = {"kendar sultoni"}
 PENGELOLA_2 = {"syamsul hadi", "muhamad sidiq asyhari",
                "muhamad rais", "ade romli"}
-PENGELOLA_LOKAL = dict(PENGELOLA)
 PESAN_AKSES_DITOLAK = ("⚠️ Akses Ditolak. Menu ini hanya untuk Pengelola 1 "
                        "(Kendar Sultoni). Silakan minta izin ke Pengelola 1 "
                        "terlebih dahulu.")
-PASSWORD_SISWA = "321"
 MENU_SLUGS = {
     "dashboard": "Dashboard",
     "belajar": "Belajar & Game",
@@ -1601,33 +1587,6 @@ def _username_pengelola(nama: str | None = None) -> str:
     return " ".join(str(n or "").strip().lower().split())
 
 
-def _hash_password(password: str) -> str:
-    if bcrypt is None:
-        raise RuntimeError("Paket bcrypt belum terpasang. Jalankan: pip install bcrypt")
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("ascii")
-
-
-def _verify_password(password: str, stored: str) -> bool:
-    if not stored:
-        return False
-    if stored.startswith(("$2a$", "$2b$", "$2y$")):
-        if bcrypt is None:
-            return False
-        try:
-            return bcrypt.checkpw(password.encode("utf-8"), stored.encode("ascii"))
-        except (ValueError, UnicodeError):
-            return False
-    return secrets.compare_digest(password, stored)
-
-
-def _akun_lokal(username: str, password: str):
-    if username in PENGELOLA_LOKAL and _verify_password(password, PENGELOLA_LOKAL[username]):
-        return rapikan_nama(username), "Pengelola"
-    if username in SISWA_LOGIN and password == PASSWORD_SISWA:
-        return SISWA_LOGIN[username], "Siswa"
-    return None, None
-
-
 def level_pengelola(nama: str | None = None) -> str:
     n = _username_pengelola(nama)
     if n in SUPER_ADMIN:
@@ -1761,7 +1720,7 @@ def data_awal():
         for i, (nama, program) in enumerate(SISWA_AWAL)
     ]
     return {
-        "profil": {"nama": "Kendar Sultoni", "peran": "Siswa", "target": 15},
+        "profil": {"nama": "", "peran": "", "target": 15},
         "progress": {"Iqro'": {"xp": 0}, "Tahsin": {"xp": 0}, "Tahfidz": {"xp": 0}},
         "hasil": [],
         "papan": {},
@@ -1804,8 +1763,7 @@ def _pastikan_berkas_data():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     FOTO_DIR.mkdir(parents=True, exist_ok=True)
     bawaan = {
-        USERS_FILE: {"akun": {}, "progress": {}, "siswa": [], "papan": {},
-                     "foto": {}, "login_pertama": []},
+        USERS_FILE: {"siswa": [], "papan": {}, "foto": {}, "login_pertama": []},
         NILAI_FILE: {"hasil": []},
         PENGUMUMAN_FILE: {"pengumuman": []},
         NOTIF_FILE: {"notif": {}, "dilihat": {}, "seq": 0},
@@ -1831,8 +1789,9 @@ def _tulis_semua(data):
         foto_map[nama] = f"profile_pics/{berkas}"
 
     users_lama = _baca_json(USERS_FILE, {})
-    sukses_users = sukses_progress = False
-    if st.session_state.get("supabase_session_token") and "save_users_supabase" in globals():
+    if not isinstance(users_lama, dict):
+        users_lama = {}
+    if st.session_state.get("supabase_session_token"):
         nama_aktif = st.session_state.get("user_name") or data.get("profil", {}).get("nama", "")
         st.session_state["_foto_profil_aktif"] = (
             foto_map.get(nama_aktif) or data.get("profil", {}).get("foto") or "")
@@ -1842,27 +1801,18 @@ def _tulis_semua(data):
             st.session_state.pop("supabase_users_error", None)
         else:
             st.session_state["supabase_users_error"] = (
-                err_users or err_progress or "Supabase gagal; data akun/progress memakai backup lokal.")
-    if not (sukses_users and sukses_progress):
-        users_lama["akun"] = data.get("profil", {})
-        users_lama["progress"] = data.get("progress", {})
-        users_lama["pengelola"] = dict(PENGELOLA_LOKAL)
-    else:
-        users_lama.setdefault("akun", data.get("profil", {}))
-        users_lama.setdefault("progress", data.get("progress", {}))
-        users_lama.setdefault("pengelola", dict(PENGELOLA_LOKAL))
+                err_users or err_progress or "Supabase gagal menyimpan akun/profil/progres.")
 
-    _tulis_json(USERS_FILE, {
+    users_baru = dict(users_lama)
+    users_baru.update({
         "versi": 1,
-        "akun": users_lama.get("akun", {}),
-        "progress": users_lama.get("progress", {}),
         "siswa": data.get("siswa", []),
         "papan": data.get("papan", {}),
         "foto": foto_map,
         "login_pertama": sorted(st.session_state.get("login_pertama", set())),
         "nilai_mode": st.session_state.get("nilai_mode", "contoh"),
-        "pengelola": users_lama.get("pengelola", {}),
     })
+    _tulis_json(USERS_FILE, users_baru)
     _tulis_json(NILAI_FILE, {"versi": 1, "hasil": data.get("hasil", [])})
     _tulis_json(PENGUMUMAN_FILE, {
         "versi": 1, "pengumuman": st.session_state.get("pengumuman", []),
@@ -1886,20 +1836,15 @@ def _tulis_semua(data):
 
 
 def _muat_pengelola():
-    akun = _baca_json(USERS_FILE, {}).get("pengelola")
-    lokal = {str(k).strip().lower(): str(v)
-             for k, v in (akun or {}).items() if str(k).strip()} if isinstance(akun, dict) else {}
-    PENGELOLA_LOKAL.clear()
-    PENGELOLA_LOKAL.update(lokal)
-    if st.session_state.get("supabase_session_token") and "load_manager_accounts_supabase" in globals():
-        rows, error = load_manager_accounts_supabase()
-        if error is None and rows is not None:
-            PENGELOLA.clear()
-            PENGELOLA.update({str(row.get("username") or "").lower(): ""
-                              for row in rows if row.get("username")})
-            return
     PENGELOLA.clear()
-    PENGELOLA.update(lokal)
+    if not st.session_state.get("supabase_session_token"):
+        return
+    rows, error = load_manager_accounts_supabase()
+    if error:
+        st.session_state["supabase_users_error"] = error
+        return
+    PENGELOLA.update({str(row.get("username") or "").strip().lower(): ""
+                      for row in rows if str(row.get("username") or "").strip()})
 
 
 def load_all_data():
@@ -1914,13 +1859,6 @@ def load_all_data():
     settings = _baca_json(SETTINGS_FILE, {})
 
     data = data_awal()
-    akun_pengelola = users.get("pengelola")
-    if isinstance(akun_pengelola, dict) and akun_pengelola:
-        PENGELOLA.clear()
-        PENGELOLA.update({str(k).strip().lower(): str(v)
-                          for k, v in akun_pengelola.items() if str(k).strip()})
-    data["profil"] = users.get("akun") or lama.get("profil") or data["profil"]
-    data["progress"] = users.get("progress") or lama.get("progress") or data["progress"]
     data["siswa"] = users.get("siswa") or lama.get("siswa") or data["siswa"]
     data["papan"] = users.get("papan") if "papan" in users else (lama.get("papan") or {})
     if nilai.get("versi"):
@@ -2068,20 +2006,6 @@ def get_supabase_client():
         return create_client(url, key), None
     except Exception as exc:
         return None, f"Gagal membuat klien Supabase: {exc}"
-
-
-@st.cache_resource(show_spinner=False)
-def get_supabase_admin_client():
-    url = kredensial("SUPABASE_URL")
-    key = kredensial("SUPABASE_SERVICE_ROLE_KEY") or kredensial("SUPABASE_SECRET_KEY")
-    if not url or not key:
-        return None, "Migrasi memerlukan SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SECRET_KEY di secrets atau .env."
-    if create_client is None:
-        return None, "Paket supabase belum terpasang. Jalankan: pip install supabase"
-    try:
-        return create_client(url, key), None
-    except Exception as exc:
-        return None, f"Gagal membuat klien admin Supabase: {exc}"
 
 
 def _rpc_users(nama: str, payload: dict):
@@ -2290,31 +2214,6 @@ def delete_user_supabase(username: str):
     return _nilai_rpc(rows) is True, None
 
 
-def _hapus_pengelola_dari_backup_lokal(username: str):
-    PENGELOLA_LOKAL.pop(username, None)
-    users = _baca_json(USERS_FILE, {})
-    pengelola = users.get("pengelola")
-    if isinstance(pengelola, dict):
-        pengelola.pop(username, None)
-        _tulis_json(USERS_FILE, users)
-
-
-def _simpan_password_backup_lokal(username: str, password: str):
-    try:
-        password_hash = _hash_password(password)
-    except RuntimeError as exc:
-        return str(exc)
-    username = _username_pengelola(username)
-    PENGELOLA_LOKAL[username] = password_hash
-    users = _baca_json(USERS_FILE, {})
-    pengelola = users.setdefault("pengelola", {})
-    if isinstance(pengelola, dict):
-        pengelola[username] = password_hash
-        _tulis_json(USERS_FILE, users)
-        return None
-    return "Format pengelola pada users.json tidak valid."
-
-
 def _simpan_profil_dari_pengaturan():
     if not st.session_state.get("user_name"):
         return
@@ -2339,11 +2238,8 @@ def _simpan_profil_dari_pengaturan():
     st.session_state.user_name = nama_baru
     profil_ok, error = save_users_supabase()
     if not profil_ok:
-        users = _baca_json(USERS_FILE, {})
-        users["akun"] = st.session_state.data["profil"]
-        _tulis_json(USERS_FILE, users)
         st.session_state["supabase_users_error"] = error
-        st.session_state["_profil_error"] = "Profil disimpan ke backup lokal: " + error
+        st.session_state["_profil_error"] = "Profil belum dapat disimpan: " + error
     else:
         st.session_state.pop("supabase_users_error", None)
         st.session_state["_profil_pesan"] = "Profil berhasil disimpan ke Supabase."
@@ -2354,112 +2250,14 @@ def _simpan_profil_dari_pengaturan():
         if ok:
             if token_baru:
                 st.session_state["supabase_session_token"] = token_baru
-            error_backup = _simpan_password_backup_lokal(_username_pengelola(), password_baru)
-            if error_backup:
-                st.session_state["_profil_error"] = (
-                    "Password Supabase berhasil diubah, tetapi backup lokal gagal: " + error_backup)
             st.session_state["set_pass"] = ""
             st.session_state["_profil_pesan"] = (
                 "Profil dan password berhasil disimpan ke Supabase." if profil_ok else
-                "Password berhasil diubah di Supabase; profil memakai backup lokal.")
-        elif _username_pengelola() in PENGELOLA_LOKAL:
-            try:
-                PENGELOLA_LOKAL[_username_pengelola()] = _hash_password(password_baru)
-                users = _baca_json(USERS_FILE, {})
-                users["pengelola"] = dict(PENGELOLA_LOKAL)
-                _tulis_json(USERS_FILE, users)
-                st.session_state["set_pass"] = ""
-                st.session_state["_profil_pesan"] = "Password disimpan ke backup lokal."
-            except RuntimeError as exc:
-                st.session_state["_profil_error"] = str(exc)
+                "Password berhasil diubah; profil belum dapat disimpan.")
         else:
-            st.session_state["_profil_error"] = "Password belum dapat diubah: " + (error or "Supabase tidak tersedia.")
+            st.session_state["_profil_error"] = (
+                "Password belum dapat diubah: " + (error or "Supabase tidak tersedia."))
     autosave_pengaturan()
-
-
-def migrasi_users_json_ke_supabase():
-    users = _baca_json(USERS_FILE, {})
-    if not users:
-        return False, None, "users.json tidak ditemukan atau kosong."
-    client, error = get_supabase_admin_client()
-    if error:
-        return False, None, error
-
-    profiles = {}
-    akun = users.get("akun") or {}
-    pengelola = users.get("pengelola") or {}
-    foto_map = users.get("foto") or {}
-    nama_aktif = str(akun.get("nama") or "Kendar Sultoni")
-    username_aktif = _username_pengelola(nama_aktif)
-
-    def tambah_profil(username, nama, role, password="", password_hash="", target=15):
-        username = _username_pengelola(username)
-        if not username or username in profiles:
-            return
-        foto = foto_map.get(nama) or foto_map.get(rapikan_nama(nama)) or ""
-        item = {
-            "username": username,
-            "nama": rapikan_nama(nama) or nama,
-            "email": akun.get("email") if username == username_aktif else "",
-            "role": role,
-            "foto": foto,
-            "target": int(target or 15),
-        }
-        if password_hash:
-            item["password_hash"] = password_hash
-        else:
-            item["password"] = password
-        profiles[username] = item
-
-    if isinstance(pengelola, dict):
-        for username, password in pengelola.items():
-            if isinstance(password, str) and password.startswith(("$2a$", "$2b$", "$2y$")):
-                tambah_profil(username, username, "Pengelola", password_hash=password)
-            else:
-                tambah_profil(username, username, "Pengelola", password=str(password))
-
-    for siswa in users.get("siswa") or []:
-        if isinstance(siswa, dict) and siswa.get("nama"):
-            tambah_profil(siswa["nama"], siswa["nama"], "Siswa", password=PASSWORD_SISWA)
-
-    if username_aktif in profiles:
-        profiles[username_aktif].update({
-            "nama": rapikan_nama(nama_aktif) or nama_aktif,
-            "email": akun.get("email") or "",
-            "foto": foto_map.get(nama_aktif) or foto_map.get(rapikan_nama(nama_aktif)) or "",
-            "target": int(akun.get("target") or 15),
-        })
-    else:
-        password_aktif = pengelola.get(username_aktif) if isinstance(pengelola, dict) else None
-        role_aktif = akun.get("peran") or "Pengelola"
-        if role_aktif == "Siswa":
-            tambah_profil(username_aktif, nama_aktif, role_aktif, password=PASSWORD_SISWA,
-                          target=akun.get("target") or 15)
-        elif isinstance(password_aktif, str) and password_aktif.startswith(("$2a$", "$2b$", "$2y$")):
-            tambah_profil(username_aktif, nama_aktif, role_aktif,
-                          password_hash=password_aktif, target=akun.get("target") or 15)
-        else:
-            tambah_profil(username_aktif, nama_aktif, role_aktif,
-                          password=password_aktif or secrets.token_urlsafe(24),
-                          target=akun.get("target") or 15)
-
-    payload = {
-        "profiles": list(profiles.values()),
-        "progress": {username_aktif: users.get("progress") or {}} if username_aktif else {},
-    }
-    try:
-        result = client.rpc("qori_users_migrate_json", {"p_payload": payload}).execute()
-        return True, _nilai_rpc(result.data), None
-    except Exception as exc:
-        return False, None, f"Migrasi Supabase gagal: {exc}"
-
-
-if os.getenv("QORI_MIGRASI_USERS") == "1":
-    _ok_migrasi, _laporan_migrasi, _error_migrasi = migrasi_users_json_ke_supabase()
-    if not _ok_migrasi:
-        raise SystemExit(_error_migrasi)
-    print(json.dumps(_laporan_migrasi, ensure_ascii=False, default=str))
-    raise SystemExit(0)
 
 
 _muat_pengelola()
@@ -2771,43 +2569,36 @@ def render_login():
             if masuk:
                 username = " ".join(username_input.strip().lower().split())
                 password = password_input.strip()
-                nama = peran = None
                 profile, token, error = login_users_supabase(username, password)
                 if error:
                     st.session_state["supabase_users_error"] = error
                     st.session_state.pop("supabase_session_token", None)
-                    nama, peran = _akun_lokal(username, password)
-                elif profile:
-                    st.session_state.pop("supabase_users_error", None)
-                    if not _muat_data_pengguna_supabase():
-                        st.session_state.pop("supabase_session_token", None)
-                        nama, peran = _akun_lokal(username, password)
-                        if not nama:
-                            st.error("Login Supabase berhasil, tetapi profil/progress gagal dimuat. Coba lagi.")
-                            st.stop()
-                    else:
-                        nama = profile.get("nama") or rapikan_nama(username)
-                        peran = profile.get("role")
-                else:
-                    ada_profil, error_status = supabase_has_profiles()
-                    if error_status or not ada_profil:
-                        nama, peran = _akun_lokal(username, password)
-                        if nama:
-                            st.session_state["supabase_users_error"] = (
-                                error_status or "Akun belum dimigrasi; memakai backup lokal.")
-                    else:
-                        st.session_state.pop("supabase_session_token", None)
+                    st.error("Login Supabase gagal: " + error)
+                    st.stop()
+                if not profile:
+                    st.session_state.pop("supabase_session_token", None)
+                    st.error(T("Username atau password salah. Periksa nama lengkap dan password Anda.",
+                               "Incorrect username or password. Check your full name and password.",
+                               "اسم المستخدم أو كلمة المرور غير صحيحة. تحقق من اسمك الكامل وكلمة المرور."))
+                    st.stop()
+                st.session_state.pop("supabase_users_error", None)
+                if not _muat_data_pengguna_supabase():
+                    st.session_state.pop("supabase_session_token", None)
+                    st.error("Login Supabase berhasil, tetapi profil/progress gagal dimuat. Coba lagi.")
+                    st.stop()
+                nama = profile.get("nama") or rapikan_nama(username)
+                peran = profile.get("role")
                 if nama and peran in ("Pengelola", "Siswa"):
                     st.session_state.user_username = username
                     st.session_state.user_name = nama
                     st.session_state.user_role = peran
-                    st.session_state["pengelola_level"] = (
-                        level_pengelola(username) if peran == "Pengelola" else "")
                     st.session_state.data["profil"].update({"nama": nama, "peran": peran})
                     st.session_state.menu = "Dashboard"
                     st.session_state.pop("quiz", None)
                     if peran == "Pengelola":
                         _muat_pengelola()
+                    st.session_state["pengelola_level"] = (
+                        level_pengelola(username) if peran == "Pengelola" else "")
                     if peran == "Siswa":
                         sudah_login = st.session_state.setdefault("login_pertama", set())
                         if nama not in sudah_login:
@@ -2816,9 +2607,9 @@ def render_login():
                     save_all_data()
                     st.rerun()
                 else:
-                    st.error(T("Username atau password salah. Periksa nama lengkap dan password Anda.",
-                               "Incorrect username or password. Check your full name and password.",
-                               "اسم المستخدم أو كلمة المرور غير صحيحة. تحقق من اسمك الكامل وكلمة المرور."))
+                    st.session_state.pop("supabase_session_token", None)
+                    st.error("Peran akun Supabase tidak dikenali.")
+                    st.stop()
 
 
 if "user_name" not in st.session_state:
@@ -3326,9 +3117,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     if st.session_state.get("supabase_users_error"):
-        st.caption(T("Akun/profil/progress memakai backup lokal: ",
-                     "Accounts/profile/progress use local backup: ",
-                     "الحسابات والملف والتقدم تستخدم النسخة المحلية: ")
+        st.caption(T("Galat Supabase: ", "Supabase error: ", "خطأ Supabase: ")
                    + opsi_aman(st.session_state["supabase_users_error"]))
     if st.button(T("Keluar", "Log out", "تسجيل الخروج"), key="logout",
                  use_container_width=True):
@@ -8297,24 +8086,9 @@ def page_kelola_pengelola():
                 ok, error = register_user_supabase(un, rapikan_nama(un), pass_baru.strip())
                 if ok:
                     PENGELOLA[un] = ""
-                    error_backup = _simpan_password_backup_lokal(un, pass_baru.strip())
-                    if error_backup:
-                        st.session_state["_kelola_error"] = (
-                            "Akun Supabase berhasil dibuat, tetapi backup lokal gagal: " + error_backup)
                     st.session_state["_kelola_pesan"] = (
                         "✅ Pengelola 2 baru ditambahkan ke Supabase: " + rapikan_nama(un)
                         + " (Admin Terbatas).")
-                elif not st.session_state.get("supabase_session_token"):
-                    try:
-                        password_hash = _hash_password(pass_baru.strip())
-                        PENGELOLA_LOKAL[un] = password_hash
-                        PENGELOLA[un] = password_hash
-                        save_all_data()
-                        st.session_state["_kelola_pesan"] = (
-                            "✅ Pengelola 2 disimpan ke backup lokal: " + rapikan_nama(un)
-                            + ". Supabase: " + (error or "tidak tersedia"))
-                    except RuntimeError as exc:
-                        st.session_state["_kelola_error"] = str(exc)
                 else:
                     st.session_state["_kelola_error"] = (
                         "Akun tidak ditambahkan ke Supabase: " + (error or "RPC tidak mengembalikan akun."))
@@ -8347,24 +8121,8 @@ def page_kelola_pengelola():
                 if ok:
                     if token_baru:
                         st.session_state["supabase_session_token"] = token_baru
-                    error_backup = _simpan_password_backup_lokal(target_pass, pass_anyar.strip())
-                    if error_backup:
-                        st.session_state["_kelola_error"] = (
-                            "Password Supabase berhasil diubah, tetapi backup lokal gagal: "
-                            + error_backup)
                     st.session_state["_kelola_pesan"] = (
                         "✅ Password " + rapikan_nama(target_pass) + " berhasil diubah di Supabase.")
-                elif not st.session_state.get("supabase_session_token"):
-                    try:
-                        password_hash = _hash_password(pass_anyar.strip())
-                        PENGELOLA_LOKAL[target_pass] = password_hash
-                        PENGELOLA[target_pass] = password_hash
-                        save_all_data()
-                        st.session_state["_kelola_pesan"] = (
-                            "✅ Password disimpan ke backup lokal. Supabase: "
-                            + (error or "tidak tersedia"))
-                    except RuntimeError as exc:
-                        st.session_state["_kelola_error"] = str(exc)
                 else:
                     st.session_state["_kelola_error"] = (
                         "Password tidak diubah di Supabase: " + (error or "RPC gagal."))
@@ -8394,17 +8152,9 @@ def page_kelola_pengelola():
                          key="kelola_hapus_btn"):
                 ok, error = delete_user_supabase(target_hapus)
                 if ok:
-                    _hapus_pengelola_dari_backup_lokal(target_hapus)
                     PENGELOLA.pop(target_hapus, None)
                     st.session_state["_kelola_pesan"] = (
                         "🗑️ Akun pengelola dinonaktifkan: " + rapikan_nama(target_hapus))
-                elif not st.session_state.get("supabase_session_token"):
-                    PENGELOLA_LOKAL.pop(target_hapus, None)
-                    PENGELOLA.pop(target_hapus, None)
-                    save_all_data()
-                    st.session_state["_kelola_pesan"] = (
-                        "🗑️ Akun pengelola dihapus dari backup lokal. Supabase: "
-                        + (error or "tidak tersedia"))
                 else:
                     st.session_state["_kelola_error"] = (
                         "Akun tidak dinonaktifkan di Supabase: " + (error or "RPC gagal."))
