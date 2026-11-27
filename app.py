@@ -2981,7 +2981,12 @@ def render_login():
                 + '</p></div>',
                 unsafe_allow_html=True,
             )
-            with st.form("qori_login"):
+            # Bersihkan submitter lama dari form versi sebelumnya sebelum widget dibuat.
+            # Tidak ada assignment manual ke state widget Login.
+            for _login_state_key in list(st.session_state.keys()):
+                if str(_login_state_key).startswith("FormSubmitter:qori_login"):
+                    st.session_state.pop(_login_state_key, None)
+            with st.form("qori_login_form_v2"):
                 username_input = st.text_input(
                     T(":material/person: Username", ":material/person: Username",
                       ":material/person: اسم المستخدم"),
