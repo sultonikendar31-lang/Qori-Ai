@@ -12,10 +12,11 @@ import os
 import random
 import re
 import time
+import urllib.error
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.request import ProxyHandler, Request, build_opener, urlopen
 
 import pandas as pd
 import streamlit as st
@@ -1606,6 +1607,9 @@ def aku_super_admin() -> bool:
 
 
 def _muat_permintaan_izin() -> list:
+    if st.session_state.get("_izin_supabase_ok"):
+        daftar = st.session_state.get("permintaan_izin", [])
+        return daftar if isinstance(daftar, list) else []
     isi = _baca_json(IZIN_FILE, {"versi": 1, "permintaan": []})
     daftar = isi.get("permintaan") if isinstance(isi, dict) else None
     if not isinstance(daftar, list):
@@ -1617,6 +1621,24 @@ def _muat_permintaan_izin() -> list:
 def _simpan_permintaan_izin(daftar: list):
     st.session_state["permintaan_izin"] = daftar
     _tulis_json(IZIN_FILE, {"versi": 1, "permintaan": daftar})
+
+
+def _pulihkan_tahap7_json():
+    peng = _baca_json(PENGUMUMAN_FILE, {})
+    notif = _baca_json(NOTIF_FILE, {})
+    izin = _baca_json(IZIN_FILE, {})
+    st.session_state.pengumuman = (
+        peng.get("pengumuman", []) if isinstance(peng, dict) else [])
+    st.session_state.notif = notif.get("notif", {}) if isinstance(notif, dict) else {}
+    st.session_state.notif_dilihat = {
+        k: set(v) for k, v in (notif.get("dilihat") or {}).items()
+    } if isinstance(notif, dict) else {}
+    st.session_state.notif_dihapus = {
+        k: set(v) for k, v in (notif.get("notif_dihapus") or {}).items()
+    } if isinstance(notif, dict) else {}
+    st.session_state.notif_seq = int(notif.get("seq", 0) or 0) if isinstance(notif, dict) else 0
+    daftar = izin.get("permintaan", []) if isinstance(izin, dict) else []
+    st.session_state.permintaan_izin = daftar if isinstance(daftar, list) else []
 
 
 def _izin_aktif(nama: str | None = None) -> bool:
@@ -1823,6 +1845,8 @@ def _tulis_semua(data):
         "notif": st.session_state.get("notif", {}),
         "dilihat": {k: sorted(v) for k, v in
                     st.session_state.get("notif_dilihat", {}).items()},
+        "notif_dihapus": {k: sorted(v) for k, v in
+                          st.session_state.get("notif_dihapus", {}).items()},
         "seq": st.session_state.get("notif_seq", 0),
     })
     materi_cadangan = st.session_state.get("_materi_json_cadangan", MATERI)
@@ -1885,6 +1909,9 @@ def load_all_data():
     st.session_state.notif = notif.get("notif", {})
     st.session_state.notif_dilihat = {
         k: set(v) for k, v in (notif.get("dilihat") or {}).items()
+    }
+    st.session_state.notif_dihapus = {
+        k: set(v) for k, v in (notif.get("notif_dihapus") or {}).items()
     }
     st.session_state.notif_seq = int(notif.get("seq", 0) or 0)
     st.session_state.login_pertama = set(users.get("login_pertama", []))
@@ -2038,6 +2065,38 @@ def _rpc_users(nama: str, payload: dict):
         return None, f"RPC {nama} gagal: {exc}"
 
 
+def _rpc_konten(nama: str, payload: dict):
+    url = kredensial("SUPABASE_URL")
+    key = kredensial("SUPABASE_KEY") or kredensial("SUPABASE_ANON_KEY")
+    if not url or not key:
+        return None, "Supabase belum dikonfigurasi (SUPABASE_URL & SUPABASE_KEY)."
+    request = Request(
+        f"{url.rstrip('/')}/rest/v1/rpc/{nama}",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "apikey": key,
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        opener = build_opener(ProxyHandler({}))
+        with opener.open(request, timeout=30) as response:
+            body = response.read().decode("utf-8")
+            return json.loads(body) if body else None, None
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", "replace")
+        try:
+            message = json.loads(body).get("message") or body
+        except (json.JSONDecodeError, AttributeError):
+            message = body
+        return None, f"RPC {nama} gagal: HTTP {exc.code} {message}"
+    except Exception as exc:
+        return None, f"RPC {nama} gagal: {exc}"
+
+
 def _log_konten_supabase(nama: str, status: str, jumlah: int = 0, error: str = ""):
     st.session_state.setdefault("_log_supabase_konten", {})[nama] = {
         "status": status,
@@ -2067,14 +2126,15 @@ def _daftar_rpc_konten(value):
 
 def _gabung_payload_konten(row: dict):
     data = dict(row)
-    payload = data.get("payload")
-    if isinstance(payload, str):
-        try:
-            payload = json.loads(payload)
-        except (json.JSONDecodeError, TypeError):
-            payload = None
-    if isinstance(payload, dict):
-        data = {**payload, **data}
+    for key in ("payload", "soal"):
+        nested = data.get(key)
+        if isinstance(nested, str):
+            try:
+                nested = json.loads(nested)
+            except (json.JSONDecodeError, TypeError):
+                nested = None
+        if isinstance(nested, dict):
+            data = {**nested, **data}
     return data
 
 
@@ -2230,9 +2290,11 @@ def _bank_soal_dari_rpc(value):
 
 
 def load_materi_supabase():
-    rows, error = _rpc_users("qori_materi_load", {
+    rows, error = _rpc_konten("qori_materi_load", {
         "p_token": st.session_state.get("supabase_session_token") or "",
     })
+    if error and ("PGRST202" in error or "Could not find the function" in error):
+        rows, error = _rpc_konten("qori_materi_load", {})
     if error:
         _log_konten_supabase("qori_materi_load", "error", error=error)
         return None, error
@@ -2266,9 +2328,11 @@ def load_materi_supabase():
 
 
 def load_bank_soal_supabase():
-    rows, error = _rpc_users("qori_bank_soal_load", {
+    rows, error = _rpc_konten("qori_bank_soal_load", {
         "p_token": st.session_state.get("supabase_session_token") or "",
     })
+    if error and ("PGRST202" in error or "Could not find the function" in error):
+        rows, error = _rpc_konten("qori_bank_soal_load", {})
     if error:
         _log_konten_supabase("qori_bank_soal_load", "error", error=error)
         return None, error
@@ -2293,6 +2357,571 @@ def load_bank_soal_supabase():
     jumlah = sum(len(bank) for bank in banks.values())
     _log_konten_supabase("qori_bank_soal_load", "ok", jumlah)
     return banks, None
+
+
+def _log_tahap7_supabase(nama: str, status: str, jumlah: int = 0, error: str = ""):
+    st.session_state.setdefault("_log_supabase_tahap7", {})[nama] = {
+        "status": status,
+        "jumlah": int(jumlah),
+        "error": str(error or ""),
+        "waktu": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def _tahap7_token(value) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True,
+                      separators=(",", ":")).encode().hex()
+
+
+def _tahap7_marker(teks: str, prefix: str):
+    for line in reversed(str(teks or "").splitlines()):
+        if line.startswith(prefix) and line.endswith("-->"):
+            try:
+                return json.loads(bytes.fromhex(line[len(prefix):-3]).decode("utf-8"))
+            except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+                return None
+    return None
+
+
+def _tahap7_waktu(nilai, format_waktu: str = "%d/%m %H:%M", cadangan: str = ""):
+    if not nilai:
+        return cadangan
+    try:
+        waktu = datetime.fromisoformat(str(nilai).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return cadangan or str(nilai)
+    if waktu.tzinfo:
+        waktu = waktu.astimezone().replace(tzinfo=None)
+    return waktu.strftime(format_waktu)
+
+
+def _pengumuman_dari_rpc(value) -> list[dict]:
+    if not isinstance(value, list):
+        raise ValueError("RPC tidak mengembalikan array pengumuman.")
+    hasil = []
+    for row in _daftar_rpc_konten(value):
+        teks = str(row.get("isi") or row.get("teks") or "").strip()
+        if not teks:
+            continue
+        item = {"id": str(row.get("id")), "teks": teks}
+        judul = str(row.get("judul") or "")
+        if judul.startswith("qori-ann:"):
+            try:
+                local_id = bytes.fromhex(judul[len("qori-ann:"):]).decode("utf-8")
+            except (ValueError, UnicodeDecodeError):
+                local_id = ""
+            if local_id:
+                item["_qori_local_id"] = local_id
+        hasil.append(item)
+    return hasil
+
+
+def _notifikasi_dari_rpc(value) -> tuple[list[dict], set[str]]:
+    if not isinstance(value, list):
+        raise ValueError("RPC tidak mengembalikan array notifikasi.")
+    aktif = []
+    dilihat = set()
+    for row in _daftar_rpc_konten(value):
+        pesan = str(row.get("pesan") or row.get("teks") or "")
+        payload = _tahap7_marker(pesan, "<!--qori-notif:")
+        source = _tahap7_marker(pesan, "<!--qori-source:")
+        if source:
+            dilihat.add(str(source))
+        if isinstance(payload, dict) and payload.get("source"):
+            dilihat.add(str(payload["source"]))
+        terhapus = pesan.startswith("<!--qori-deleted-->")
+        if terhapus:
+            pesan = pesan[len("<!--qori-deleted-->"):]
+        teks = "\n".join(
+            line for line in pesan.splitlines()
+            if not line.startswith("<!--qori-notif:")
+            and not line.startswith("<!--qori-source:")
+        ).strip()
+        if terhapus or not teks:
+            continue
+        item = {
+            "id": str(row.get("id")),
+            "teks": teks,
+            "waktu": (str(payload.get("waktu") or "") if isinstance(payload, dict)
+                      else "") or _tahap7_waktu(row.get("tanggal")),
+            "dibaca": bool(row.get("dibaca")),
+        }
+        if isinstance(payload, dict) and payload.get("id"):
+            item["_qori_local_id"] = str(payload["id"])
+        aktif.append(item)
+    return aktif, dilihat
+
+
+def _izin_dari_rpc(value) -> list[dict]:
+    if not isinstance(value, list):
+        raise ValueError("RPC tidak mengembalikan array permintaan izin.")
+    hasil = []
+    for row in _daftar_rpc_konten(value):
+        payload = _tahap7_marker(row.get("pesan"), "<!--qori-izin:")
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if isinstance(data, dict):
+            item = dict(data)
+        else:
+            username = " ".join(str(row.get("nama_pengelola") or "").strip().lower().split())
+            item = {
+                "username": username,
+                "nama": str(row.get("nama_pengelola") or username),
+                "aksi": "Permintaan izin",
+                "alasan": str(row.get("pesan") or ""),
+                "waktu": _tahap7_waktu(row.get("tanggal"), "%d/%m/%Y %H:%M"),
+                "status": "menunggu",
+                "berlaku_hingga": "",
+            }
+        item["id"] = str(row.get("id"))
+        item["status"] = {
+            "approved": "disetujui", "disetujui": "disetujui",
+            "rejected": "ditolak", "ditolak": "ditolak",
+        }.get(str(item.get("status") or "").casefold(), "menunggu")
+        item["waktu"] = item.get("waktu") or _tahap7_waktu(
+            row.get("tanggal"), "%d/%m/%Y %H:%M")
+        hasil.append(item)
+    return hasil
+
+
+def _gabung_pengumuman_tahap7(remote: list[dict]) -> list[dict]:
+    dokumen = _baca_json(PENGUMUMAN_FILE, {})
+    lokal = dokumen.get("pengumuman", []) if isinstance(dokumen, dict) else []
+    remote_id = {str(item.get("id")) for item in remote}
+    remote_lokal = {str(item.get("_qori_local_id")) for item in remote
+                    if item.get("_qori_local_id")}
+    remote_teks = {" ".join(str(item.get("teks") or "").strip().casefold().split())
+                   for item in remote if not item.get("_qori_local_id")}
+    tertunda = []
+    for item in lokal if isinstance(lokal, list) else []:
+        if not isinstance(item, dict):
+            continue
+        item_id = str(item.get("id") or "")
+        teks = " ".join(str(item.get("teks") or "").strip().casefold().split())
+        if not item_id or item_id in remote_id or item_id in remote_lokal or teks in remote_teks:
+            continue
+        tertunda.append(item)
+    return tertunda + remote
+
+
+def _gabung_notifikasi_tahap7(nama: str, remote: list[dict],
+                              remote_dilihat: set[str]) -> tuple[list[dict], set[str]]:
+    dokumen = _baca_json(NOTIF_FILE, {})
+    lokal = (dokumen.get("notif") or {}).get(nama, []) if isinstance(dokumen, dict) else []
+    dilihat = set((dokumen.get("dilihat") or {}).get(nama, [])) if isinstance(dokumen, dict) else set()
+    dihapus = set((dokumen.get("notif_dihapus") or {}).get(nama, [])) if isinstance(dokumen, dict) else set()
+    dilihat.update(st.session_state.get("notif_dilihat", {}).get(nama, set()))
+    dihapus.update(st.session_state.get("notif_dihapus", {}).get(nama, set()))
+    dilihat.update(remote_dilihat)
+
+    remote_id = {str(item.get("id")): item for item in remote}
+    remote_lokal = {str(item.get("_qori_local_id")): item for item in remote
+                    if item.get("_qori_local_id")}
+    remote_teks = {" ".join(str(item.get("teks") or "").strip().casefold().split()): item
+                   for item in remote if not item.get("_qori_local_id")}
+    tertunda = []
+    for item in lokal if isinstance(lokal, list) else []:
+        if not isinstance(item, dict):
+            continue
+        item_id = str(item.get("id") or "")
+        local_id = str(item.get("_qori_local_id") or item_id)
+        if item_id in dihapus or local_id in dihapus:
+            continue
+        target = remote_id.get(item_id) or remote_lokal.get(local_id)
+        if target is None:
+            teks = " ".join(str(item.get("teks") or "").strip().casefold().split())
+            target = remote_teks.get(teks)
+        if target is not None:
+            if item.get("dibaca"):
+                target["dibaca"] = True
+            continue
+        if item_id:
+            tertunda.append(item)
+
+    gabung = []
+    terpakai = set()
+    for item in tertunda + remote:
+        item_id = str(item.get("id") or "")
+        local_id = str(item.get("_qori_local_id") or item_id)
+        if not item_id or item_id in terpakai:
+            continue
+        if item_id in dihapus or local_id in dihapus:
+            continue
+        terpakai.add(item_id)
+        gabung.append(item)
+    return gabung, dilihat
+
+
+def _gabung_izin_tahap7(remote: list[dict]) -> list[dict]:
+    dokumen = _baca_json(IZIN_FILE, {})
+    lokal = dokumen.get("permintaan", []) if isinstance(dokumen, dict) else []
+    remote_id = {str(item.get("id")): item for item in remote}
+    remote_lokal = {str(item.get("local_id") or item.get("_qori_local_id")): item
+                    for item in remote
+                    if item.get("local_id") or item.get("_qori_local_id")}
+    remote_alasan = {
+        (" ".join(str(item.get("username") or "").strip().casefold().split()),
+         " ".join(str(item.get("alasan") or "").strip().casefold().split())): item
+        for item in remote
+        if item.get("alasan") and not item.get("local_id") and not item.get("_qori_local_id")
+    }
+    tertunda = []
+    for item in lokal if isinstance(lokal, list) else []:
+        if not isinstance(item, dict):
+            continue
+        item_id = str(item.get("id") or "")
+        local_id = str(item.get("local_id") or item.get("_qori_local_id") or item_id)
+        target = remote_id.get(item_id) or remote_lokal.get(local_id)
+        if target is None:
+            kunci_alasan = (
+                " ".join(str(item.get("username") or "").strip().casefold().split()),
+                " ".join(str(item.get("alasan") or "").strip().casefold().split()),
+            )
+            target = remote_alasan.get(kunci_alasan)
+        if target is not None:
+            if (target.get("status") == "menunggu"
+                    and item.get("status") in ("disetujui", "ditolak")):
+                hasil = dict(item)
+                hasil["id"] = target["id"]
+                tertunda.append(hasil)
+            continue
+        if item_id:
+            tertunda.append(item)
+    return tertunda + remote
+
+
+def _muat_tahap7_supabase():
+    identitas = (
+        " ".join(str(st.session_state.get("user_username")
+                     or st.session_state.get("user_name") or "").strip().lower().split()),
+        str(st.session_state.get("user_name") or ""),
+        str(st.session_state.get("user_role") or ""),
+    )
+    if st.session_state.get("_tahap7_identitas") == identitas:
+        return
+    st.session_state["_tahap7_identitas"] = identitas
+    for kunci in ("_pengumuman_supabase_ok", "_notifikasi_supabase_ok", "_izin_supabase_ok"):
+        st.session_state[kunci] = False
+
+    token = st.session_state.get("supabase_session_token") or ""
+    if not token:
+        for nama in ("qori_pengumuman_load", "qori_notifikasi_load", "qori_izin_load"):
+            _log_tahap7_supabase(nama, "error", error="Sesi Supabase belum tersedia.")
+        return
+
+    nama = str(st.session_state.get("user_name") or "")
+    for nama_rpc, kunci_ok in (
+        ("qori_pengumuman_load", "_pengumuman_supabase_ok"),
+        ("qori_notifikasi_load", "_notifikasi_supabase_ok"),
+        ("qori_izin_load", "_izin_supabase_ok"),
+    ):
+        rows, error = _rpc_konten(nama_rpc, {"p_token": token})
+        if error:
+            _log_tahap7_supabase(nama_rpc, "error", error=error)
+            continue
+        try:
+            if nama_rpc == "qori_pengumuman_load":
+                remote = _pengumuman_dari_rpc(rows)
+                st.session_state.pengumuman = _gabung_pengumuman_tahap7(remote)
+                jumlah = len(remote)
+            elif nama_rpc == "qori_notifikasi_load":
+                remote, remote_dilihat = _notifikasi_dari_rpc(rows)
+                gabung, dilihat = _gabung_notifikasi_tahap7(nama, remote, remote_dilihat)
+                st.session_state.setdefault("notif", {})[nama] = gabung
+                st.session_state.setdefault("notif_dilihat", {})[nama] = dilihat
+                max_id = max(
+                    [int(str(row.get("id"))) for row in rows
+                     if str(row.get("id") or "").isdigit()] or [0])
+                st.session_state.notif_seq = max(
+                    int(st.session_state.get("notif_seq", 0) or 0), max_id)
+                jumlah = len(remote)
+            else:
+                remote = _izin_dari_rpc(rows)
+                st.session_state.permintaan_izin = _gabung_izin_tahap7(remote)
+                jumlah = len(remote)
+            st.session_state[kunci_ok] = True
+            _log_tahap7_supabase(nama_rpc, "ok", jumlah)
+        except Exception as exc:
+            _log_tahap7_supabase(
+                nama_rpc, "error", error=f"Format {nama_rpc} tidak valid: {exc}")
+
+
+def _log_tahap8_supabase(nama: str, status: str, jumlah: int = 0, error: str = ""):
+    st.session_state.setdefault("_log_supabase_tahap8", {})[nama] = {
+        "status": status,
+        "jumlah": int(jumlah),
+        "error": str(error or ""),
+        "waktu": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def _tahap8_normal(value) -> str:
+    return " ".join(str(value or "").strip().casefold().split())
+
+
+def _tahap8_marker(teks: str):
+    prefix = "<!--qori-ai-chat:"
+    for line in reversed(str(teks or "").splitlines()):
+        if line.startswith(prefix) and line.endswith("-->"):
+            try:
+                return json.loads(bytes.fromhex(line[len(prefix):-3]).decode("utf-8"))
+            except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+                return None
+    return None
+
+
+def _tahap8_chat_baru(judul: str = "") -> dict:
+    sekarang = datetime.now()
+    return {
+        "id": sekarang.strftime("%Y%m%d%H%M%S%f"),
+        "judul": judul,
+        "waktu": sekarang.strftime("%d/%m/%Y %H:%M"),
+        "mode": "Ramah",
+        "pesan": [],
+    }
+
+
+def _tahap8_normalisasi_chat(chat: dict, index: int = 0) -> dict:
+    pesan = []
+    for i, item in enumerate(chat.get("pesan") or []):
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            item = {"peran": item[0], "isi": item[1]}
+        if not isinstance(item, dict) or not str(item.get("isi") or "").strip():
+            continue
+        pesan.append({
+            "id": str(item.get("id") or f"{chat.get('id', index)}-{i}"),
+            "peran": item.get("peran") if item.get("peran") in ("user", "assistant") else "assistant",
+            "isi": str(item.get("isi")),
+            "waktu": str(item.get("waktu") or ""),
+            "audio": str(item.get("audio") or ""),
+            "audio_nama": str(item.get("audio_nama") or ""),
+        })
+    return {
+        "id": str(chat.get("id") or f"legacy-{index}"),
+        "judul": str(chat.get("judul") or ""),
+        "waktu": str(chat.get("waktu") or ""),
+        "mode": chat.get("mode") if chat.get("mode") in ("Ramah", "Tegas", "Ustadz") else "Ramah",
+        "pesan": pesan,
+    }
+
+
+def _chat_file_aktif() -> Path:
+    nama = _tahap8_normal(st.session_state.get("user_username") or st.session_state.get("user_name"))
+    if not nama or nama == "kendar sultoni":
+        return CHAT_AI_FILE
+    return DATA_DIR / "chat_ai" / f"{_slug_nama(nama)}.json"
+
+
+def _tahap8_ai_dari_rpc(value) -> list[dict]:
+    if not isinstance(value, (list, dict)):
+        raise ValueError("RPC tidak mengembalikan array riwayat AI.")
+    hasil = []
+    for index, row in enumerate(_daftar_rpc_konten(value)):
+        payload = _tahap8_marker(row.get("jawaban_ai")) or _tahap8_marker(row.get("pertanyaan"))
+        chat = payload.get("chat") if isinstance(payload, dict) else None
+        if isinstance(chat, dict):
+            hasil.append(_tahap8_normalisasi_chat(chat, index))
+            continue
+        pertanyaan = str(row.get("pertanyaan") or "").strip()
+        jawaban = str(row.get("jawaban_ai") or "").strip()
+        if not pertanyaan and not jawaban:
+            continue
+        pesan = []
+        if pertanyaan:
+            pesan.append({"id": f"remote-{row.get('id')}-user", "peran": "user",
+                          "isi": pertanyaan, "waktu": "", "audio": "", "audio_nama": ""})
+        if jawaban:
+            pesan.append({"id": f"remote-{row.get('id')}-assistant", "peran": "assistant",
+                          "isi": jawaban, "waktu": "", "audio": "", "audio_nama": ""})
+        legacy = _tahap8_chat_baru(pertanyaan[:46])
+        legacy["id"] = f"remote-{row.get('id')}"
+        legacy["waktu"] = _tahap7_waktu(row.get("tanggal"), "%d/%m/%Y %H:%M")
+        legacy["pesan"] = pesan
+        hasil.append(legacy)
+    return hasil
+
+
+def _tahap8_gabung_ai(remote: list[dict]) -> list[dict]:
+    owner = _tahap8_normal(st.session_state.get("user_username") or st.session_state.get("user_name"))
+    path = _chat_file_aktif()
+    dokumen = _baca_json(path, {})
+    if not isinstance(dokumen, dict):
+        dokumen = {}
+    pemilik = _tahap8_normal(dokumen.get("pemilik"))
+    if (pemilik and pemilik != owner) or (not pemilik and owner != "kendar sultoni"):
+        dokumen = {}
+    dihapus = {str(item) for item in (dokumen.get("dihapus") or [])}
+    dihapus.update(str(item) for item in st.session_state.get("ai_dihapus", set()))
+    lokal = [
+        _tahap8_normalisasi_chat(item, index)
+        for index, item in enumerate(dokumen.get("percakapan") or [])
+        if isinstance(item, dict)
+    ]
+    peta = {}
+    for chat in list(remote) + list(lokal):
+        chat_id = str(chat.get("id") or "")
+        if not chat_id or chat_id in dihapus:
+            continue
+        if chat_id not in peta:
+            peta[chat_id] = {**chat, "pesan": [dict(m) for m in chat.get("pesan", [])]}
+            continue
+        target = peta[chat_id]
+        for kunci in ("judul", "waktu", "mode"):
+            if chat.get(kunci):
+                target[kunci] = chat[kunci]
+        pesan = {str(m.get("id")): m for m in target["pesan"]}
+        for item in chat.get("pesan", []):
+            if isinstance(item, dict) and item.get("id"):
+                pesan[str(item["id"])] = item
+        target["pesan"] = sorted(pesan.values(), key=lambda m: str(m.get("id", "")))
+    daftar = sorted(peta.values(), key=lambda c: str(c.get("id", "")))
+    if not daftar:
+        daftar = [_tahap8_chat_baru()]
+    aktif = str(dokumen.get("aktif") or "")
+    if aktif not in {c["id"] for c in daftar}:
+        aktif = daftar[-1]["id"]
+    st.session_state.ai_percakapan = daftar
+    st.session_state.ai_chat_aktif = aktif
+    st.session_state.ai_dihapus = dihapus
+    st.session_state.ai_sudah_dimuat = True
+    _tulis_json(path, {
+        "versi": 1,
+        "pemilik": owner,
+        "pemilik_nama": str(st.session_state.get("user_name") or owner),
+        "aktif": aktif,
+        "diperbarui": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        "percakapan": daftar,
+        "dihapus": sorted(dihapus),
+    })
+    return daftar
+
+
+def _tahap8_settings_dari_rpc(value) -> list[dict]:
+    if not isinstance(value, (list, dict)):
+        raise ValueError("RPC tidak mengembalikan array pengaturan.")
+    hasil = []
+    for row in _daftar_rpc_konten(value):
+        settings = row.get("settings")
+        if isinstance(settings, str):
+            settings = json.loads(settings)
+        if isinstance(settings, dict) and settings:
+            hasil.append({**row, "settings": settings})
+    return hasil
+
+
+def _tahap8_timestamp(value, fmt: str | None = None):
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        if not fmt:
+            return None
+        try:
+            parsed = datetime.strptime(str(value), fmt)
+        except (TypeError, ValueError):
+            return None
+    if parsed.tzinfo:
+        parsed = parsed.astimezone().replace(tzinfo=None)
+    return parsed
+
+
+def _tahap8_terapkan_settings(rows: list[dict]) -> bool:
+    if not rows:
+        return False
+    remote = dict(rows[0]["settings"])
+    lokal = st.session_state.get("data_tersimpan") or _baca_autosave()
+    waktu_remote = _tahap8_timestamp(rows[0].get("updated_at"))
+    waktu_lokal = _tahap8_timestamp(lokal.get("terakhir_disimpan"), "%d/%m/%Y %H:%M:%S")
+    if waktu_lokal and waktu_remote and waktu_lokal > waktu_remote:
+        return False
+    if not remote.get("terakhir_disimpan"):
+        remote["terakhir_disimpan"] = (
+            waktu_remote.strftime("%d/%m/%Y %H:%M:%S") if waktu_remote
+            else datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
+    pemetaan = {
+        "nama": "set_nama", "sekolah": "set_lembaga", "qori": "set_suara",
+        "level": "set_mode", "level_iqro": "set_iqro", "target": "set_target",
+        "notifikasi": "set_reminder", "huruf": "set_huruf",
+        "kecepatan": "set_kecepatan", "autoplay": "set_autoplay",
+        "tajwid": "set_tajwid", "notif_leader": "set_notif_leader",
+        "tema": "tema_aplikasi", "bahasa": "bahasa_aplikasi", "email": "set_email",
+    }
+    for field, kunci in pemetaan.items():
+        if field in remote and remote[field] not in (None, ""):
+            st.session_state[kunci] = remote[field]
+    if st.session_state.get("set_suara") not in QORI_LIST:
+        st.session_state["set_suara"] = QORI_LIST[0]
+    jam = remote.get("jam_pengingat")
+    if jam:
+        try:
+            st.session_state["set_jam_input"] = datetime.strptime(str(jam), "%H:%M").time()
+        except (TypeError, ValueError):
+            pass
+    st.session_state["data_tersimpan"] = remote
+    st.session_state["pengaturan_tersimpan"] = {
+        **remote,
+        **{kunci: st.session_state[kunci] for kunci in pemetaan.values() if kunci in st.session_state},
+    }
+    st.session_state["_tampilan_aktif"] = {
+        "tema": st.session_state.get("tema_aplikasi", "Terang"),
+        "bahasa": st.session_state.get("bahasa_aplikasi", "Bahasa Indonesia"),
+    }
+    _DISK_CFG.clear()
+    _DISK_CFG.update(remote)
+    try:
+        AUTOSAVE_FILE.write_text(json.dumps(remote, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError:
+        pass
+    st.session_state["_sig_autosave"] = json.dumps(_kumpulkan_pengaturan(), sort_keys=True, default=str)
+    return True
+
+
+def _muat_tahap8_supabase():
+    identitas = (
+        _tahap8_normal(st.session_state.get("user_username") or st.session_state.get("user_name")),
+        str(st.session_state.get("user_name") or ""),
+        str(st.session_state.get("user_role") or ""),
+    )
+    if st.session_state.get("_tahap8_identitas") == identitas:
+        return
+    st.session_state["_tahap8_identitas"] = identitas
+    st.session_state["_ai_supabase_ok"] = False
+    st.session_state["_settings_supabase_ok"] = False
+    st.session_state["ai_sudah_dimuat"] = False
+    st.session_state.pop("ai_dihapus", None)
+
+    token = st.session_state.get("supabase_session_token") or ""
+    if not token:
+        for nama in ("qori_ai_history_load", "qori_settings_load"):
+            _log_tahap8_supabase(nama, "error", error="Sesi Supabase belum tersedia.")
+        return
+
+    rows, error = _rpc_konten("qori_ai_history_load", {"p_token": token})
+    if error:
+        _log_tahap8_supabase("qori_ai_history_load", "error", error=error)
+    else:
+        try:
+            remote = _tahap8_ai_dari_rpc(rows)
+            _tahap8_gabung_ai(remote)
+            st.session_state["_ai_supabase_ok"] = True
+            _log_tahap8_supabase("qori_ai_history_load", "ok", len(remote))
+        except Exception as exc:
+            _log_tahap8_supabase("qori_ai_history_load", "error",
+                                 error=f"Format qori_ai_history_load tidak valid: {exc}")
+
+    rows, error = _rpc_konten("qori_settings_load", {"p_token": token})
+    if error:
+        _log_tahap8_supabase("qori_settings_load", "error", error=error)
+    else:
+        try:
+            remote = _tahap8_settings_dari_rpc(rows)
+            if _tahap8_terapkan_settings(remote):
+                st.session_state["_tahap8_perlu_rerun"] = True
+            st.session_state["_settings_supabase_ok"] = True
+            _log_tahap8_supabase("qori_settings_load", "ok", len(remote))
+        except Exception as exc:
+            _log_tahap8_supabase("qori_settings_load", "error",
+                                 error=f"Format qori_settings_load tidak valid: {exc}")
 
 
 def _pastikan_cadangan_konten():
@@ -3173,6 +3802,8 @@ def render_login():
                         if nama not in sudah_login:
                             sudah_login.add(nama)
                             st.session_state.setdefault("login_baru", []).append(nama)
+                    _muat_tahap7_supabase()
+                    _muat_tahap8_supabase()
                     save_all_data()
                     st.rerun()
                 else:
@@ -3190,6 +3821,10 @@ if not st.session_state.user_name:
     render_login()
     st.stop()
 
+_muat_tahap7_supabase()
+_muat_tahap8_supabase()
+if st.session_state.pop("_tahap8_perlu_rerun", False):
+    st.rerun()
 st.session_state["permintaan_izin"] = _muat_permintaan_izin()
 if st.session_state.get("user_role") == "Pengelola":
     st.session_state["pengelola_level"] = level_pengelola()
@@ -3798,7 +4433,7 @@ with st.sidebar:
         st.session_state.pop("mini", None)
         st.session_state.pop("chat_ai", None)
         for _kunci_ai in ("ai_percakapan", "ai_chat_aktif", "ai_sudah_dimuat",
-                          "ai_kuis", "ai_kuis_hasil", "ai_audio_otomatis",
+                          "ai_dihapus", "ai_kuis", "ai_kuis_hasil", "ai_audio_otomatis",
                           "ai_autoplay_id", "ai_mic_hash", "ai_flash",
                           "ai_flash_error", "ai_prompt_awal"):
             st.session_state.pop(_kunci_ai, None)
@@ -3810,6 +4445,15 @@ with st.sidebar:
                               "_bank_soal_supabase", "_bank_soal_supabase_ok",
                               "_log_supabase_konten"):
             st.session_state.pop(_kunci_konten, None)
+        for _kunci_tahap7 in ("_tahap7_identitas", "_pengumuman_supabase_ok",
+                              "_notifikasi_supabase_ok", "_izin_supabase_ok",
+                              "_log_supabase_tahap7"):
+            st.session_state.pop(_kunci_tahap7, None)
+        for _kunci_tahap8 in ("_tahap8_identitas", "_tahap8_perlu_rerun",
+                              "_ai_supabase_ok", "_settings_supabase_ok",
+                              "_log_supabase_tahap8"):
+            st.session_state.pop(_kunci_tahap8, None)
+        _pulihkan_tahap7_json()
         _pulihkan_konten_json()
         st.session_state.pop("menu", None)
         st.session_state.pop("locked_mode", None)
@@ -4007,6 +4651,8 @@ def render_panel_notif(nama: str, peran: str):
             )
         with kanan:
             if st.button("🗑️", key=f"hapus_notif_{nama}_{n['id']}", help="Hapus notifikasi"):
+                st.session_state.setdefault("notif_dihapus", {}).setdefault(nama, set()).add(
+                    str(n["id"]))
                 notifs.remove(n)
                 save_all_data()
                 st.rerun()
@@ -9593,52 +10239,33 @@ def jawab_ai(teks: str) -> str:
 
 
 def _chat_ai_baru(judul: str = "") -> dict:
-    sekarang = datetime.now()
-    return {
-        "id": sekarang.strftime("%Y%m%d%H%M%S%f"),
-        "judul": judul,
-        "waktu": sekarang.strftime("%d/%m/%Y %H:%M"),
-        "mode": "Ramah",
-        "pesan": [],
-    }
+    return _tahap8_chat_baru(judul)
 
 
 def _muat_chat_ai():
     if st.session_state.get("ai_sudah_dimuat"):
         return
-    mentah = _baca_json(CHAT_AI_FILE, {})
-    daftar = []
-    for c in (mentah.get("percakapan") or []) if isinstance(mentah, dict) else []:
-        if not isinstance(c, dict):
-            continue
-        pesan = []
-        for i, m in enumerate(c.get("pesan") or []):
-            if isinstance(m, (list, tuple)) and len(m) == 2:
-                m = {"peran": m[0], "isi": m[1]}
-            if not isinstance(m, dict) or not str(m.get("isi") or "").strip():
-                continue
-            pesan.append({
-                "id": str(m.get("id") or f"{c.get('id', 'x')}-{i}"),
-                "peran": m.get("peran") if m.get("peran") in ("user", "assistant") else "assistant",
-                "isi": str(m.get("isi")),
-                "waktu": str(m.get("waktu") or ""),
-                "audio": str(m.get("audio") or ""),
-                "audio_nama": str(m.get("audio_nama") or ""),
-            })
-        daftar.append({
-            "id": str(c.get("id") or datetime.now().strftime("%Y%m%d%H%M%S%f")),
-            "judul": str(c.get("judul") or ""),
-            "waktu": str(c.get("waktu") or ""),
-            "mode": c.get("mode") if c.get("mode") in MODE_AI else "Ramah",
-            "pesan": pesan,
-        })
+    mentah = _baca_json(_chat_file_aktif(), {})
+    if not isinstance(mentah, dict):
+        mentah = {}
+    owner = _tahap8_normal(st.session_state.get("user_username") or st.session_state.get("user_name"))
+    pemilik = _tahap8_normal(mentah.get("pemilik"))
+    if (pemilik and pemilik != owner) or (not pemilik and owner != "kendar sultoni"):
+        mentah = {}
+    dihapus = {str(item) for item in (mentah.get("dihapus") or [])}
+    daftar = [
+        _tahap8_normalisasi_chat(c, index)
+        for index, c in enumerate(mentah.get("percakapan") or [])
+        if isinstance(c, dict) and str(c.get("id") or "") not in dihapus
+    ]
     if not daftar:
         daftar = [_chat_ai_baru()]
-    aktif = str(mentah.get("aktif") or "") if isinstance(mentah, dict) else ""
+    aktif = str(mentah.get("aktif") or "")
     if aktif not in {c["id"] for c in daftar}:
         aktif = daftar[-1]["id"]
     st.session_state.ai_percakapan = daftar
     st.session_state.ai_chat_aktif = aktif
+    st.session_state.ai_dihapus = dihapus
     st.session_state.ai_sudah_dimuat = True
 
 
@@ -9669,17 +10296,22 @@ def _simpan_chat_ai(gabung: bool = True):
     if "ai_percakapan" not in st.session_state:
         return
     daftar = st.session_state.ai_percakapan
+    path = _chat_file_aktif()
     if gabung:
-        disk = _baca_json(CHAT_AI_FILE, {})
+        disk = _baca_json(path, {})
         if isinstance(disk, dict) and disk.get("percakapan"):
             daftar = _gabung_percakapan(disk.get("percakapan"), daftar)
             st.session_state.ai_percakapan = daftar
+    owner = _tahap8_normal(st.session_state.get("user_username") or st.session_state.get("user_name"))
     try:
-        _tulis_json(CHAT_AI_FILE, {
+        _tulis_json(path, {
             "versi": 1,
+            "pemilik": owner,
+            "pemilik_nama": str(st.session_state.get("user_name") or owner),
             "aktif": st.session_state.get("ai_chat_aktif"),
             "diperbarui": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
             "percakapan": daftar,
+            "dihapus": sorted(st.session_state.get("ai_dihapus", set())),
         })
     except Exception:
         st.session_state.ai_flash_error = T(
@@ -9722,6 +10354,8 @@ def _chat_tambah(peran: str, isi: str, audio: str = "", audio_nama: str = "") ->
 
 
 def _chat_hapus_semua():
+    dihapus = st.session_state.setdefault("ai_dihapus", set())
+    dihapus.update(str(c.get("id")) for c in st.session_state.get("ai_percakapan", []))
     st.session_state.ai_percakapan = [_chat_ai_baru()]
     st.session_state.ai_chat_aktif = st.session_state.ai_percakapan[0]["id"]
     st.session_state.pop("ai_kuis", None)
