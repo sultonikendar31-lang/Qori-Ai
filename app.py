@@ -1806,7 +1806,7 @@ def _tulis_semua(data):
     users_baru = dict(users_lama)
     users_baru.update({
         "versi": 1,
-        "siswa": data.get("siswa", []),
+        "siswa": users_lama.get("siswa", data.get("siswa", [])),
         "papan": data.get("papan", {}),
         "foto": foto_map,
         "login_pertama": sorted(st.session_state.get("login_pertama", set())),
@@ -2166,6 +2166,11 @@ def _muat_data_pengguna_supabase():
         st.session_state["supabase_users_error"] = error
         return False
     st.session_state.data["progress"] = progress
+    siswa, error = load_students_supabase()
+    if error:
+        st.session_state["supabase_users_error"] = error
+        return False
+    st.session_state.data["siswa"] = siswa
     st.session_state.pop("supabase_users_error", None)
     return True
 
@@ -2273,43 +2278,87 @@ def get_openai_client():
         return None
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+def _siswa_remote_ke_lokal(row):
+    record = dict(row)
+    record["foto"] = record.get("foto_path") or ""
+    return record
+
+
+def _perbarui_siswa_dari_rpc(row):
+    record = _siswa_remote_ke_lokal(row)
+    siswa = st.session_state.data.setdefault("siswa", [])
+    for indeks, current in enumerate(siswa):
+        if str(current.get("id")) == str(record.get("id")):
+            siswa[indeks] = record
+            return
+    siswa.append(record)
+
+
 def load_students_supabase():
-    client, error = get_supabase_client()
+    token = st.session_state.get("supabase_session_token")
+    if not token:
+        return [], "Sesi Supabase belum tersedia."
+    rows, error = _rpc_users("qori_siswa_list", {"p_token": token})
     if error:
         return [], error
-    try:
-        result = client.table("siswa").select("*").execute()
-        return result.data or [], None
-    except Exception as exc:
-        return [], f"Tidak dapat membaca tabel public.siswa: {exc}"
+    return [_siswa_remote_ke_lokal(row) for row in (rows or [])], None
 
 
 def save_student_supabase(data, student_id=None):
-    client, error = get_supabase_client()
+    token = st.session_state.get("supabase_session_token")
+    if not token:
+        return False, "Sesi Supabase belum tersedia."
+    payload = dict(data)
+    payload["foto_path"] = payload.pop("foto", payload.get("foto_path", ""))
+    if student_id is not None:
+        payload["id"] = int(student_id)
+    rows, error = _rpc_users("qori_siswa_upsert", {
+        "p_token": token,
+        "p_data": payload,
+    })
     if error:
         return False, error
-    try:
-        if student_id is None:
-            client.table("siswa").insert(data).execute()
-        else:
-            client.table("siswa").update(data).eq("id", student_id).execute()
-        load_students_supabase.clear()
-        return True, None
-    except Exception as exc:
-        return False, f"Gagal menyimpan data siswa: {exc}"
+    if not rows:
+        return False, "RPC tidak mengembalikan data siswa setelah penyimpanan."
+    _perbarui_siswa_dari_rpc(rows[0])
+    return True, None
 
 
 def delete_student_supabase(student_id):
-    client, error = get_supabase_client()
+    token = st.session_state.get("supabase_session_token")
+    if not token:
+        return False, "Sesi Supabase belum tersedia."
+    rows, error = _rpc_users("qori_siswa_deactivate", {
+        "p_token": token,
+        "p_id": int(student_id),
+    })
     if error:
         return False, error
-    try:
-        client.table("siswa").delete().eq("id", student_id).execute()
-        load_students_supabase.clear()
-        return True, None
-    except Exception as exc:
-        return False, f"Gagal menghapus data siswa: {exc}"
+    if _nilai_rpc(rows) is not True:
+        return False, "Data siswa tidak ditemukan atau sudah nonaktif."
+    st.session_state.data["siswa"] = [
+        row for row in st.session_state.data.get("siswa", [])
+        if str(row.get("id")) != str(student_id)
+    ]
+    return True, None
+
+
+def update_student_score_supabase(nama, mode, nilai):
+    token = st.session_state.get("supabase_session_token")
+    if not token:
+        return False, "Sesi Supabase belum tersedia."
+    rows, error = _rpc_users("qori_siswa_update_nilai", {
+        "p_token": token,
+        "p_nama": nama,
+        "p_mode": mode,
+        "p_nilai": int(nilai),
+    })
+    if error:
+        return False, error
+    if not rows:
+        return False, "RPC tidak mengembalikan data siswa setelah pembaruan nilai."
+    _perbarui_siswa_dari_rpc(rows[0])
+    return True, None
 
 
 # Hasil game & ujian: lokal (nilai.json) tetap jadi sumber utama,
@@ -2584,6 +2633,10 @@ def render_login():
                 st.session_state.pop("supabase_users_error", None)
                 if not _muat_data_pengguna_supabase():
                     st.session_state.pop("supabase_session_token", None)
+                    st.session_state.user_name = ""
+                    st.session_state.user_role = ""
+                    st.session_state.pop("user_username", None)
+                    st.session_state.pop("pengelola_level", None)
                     st.error("Login Supabase berhasil, tetapi profil/progress gagal dimuat. Coba lagi.")
                     st.stop()
                 nama = profile.get("nama") or rapikan_nama(username)
@@ -4813,6 +4866,11 @@ def _ujian_selesaikan(auto=False):
                     s["nilai_tahfidz"] = skor
                 else:
                     s["nilai_tahsin"] = skor
+                ok, err = update_student_score_supabase(
+                    u["siswa"], u["kategori"], skor)
+                if not ok:
+                    st.session_state["_siswa_warn"] = (
+                        "Nilai ujian tersimpan, tetapi Data Siswa gagal diperbarui: " + str(err))
                 break
         papan = data.setdefault("papan", {})
         papan[u["siswa"]] = max(int(papan.get(u["siswa"]) or 0), skor)
@@ -5240,6 +5298,7 @@ def _contoh_aktif():
 
 def _hapus_data_contoh():
     data = st.session_state.data
+    perubahan = []
     for s in data.get("siswa", []) or []:
         nama_s = rapikan_nama(str(s.get("nama") or ""))
         riw = _nilai_hasil_nama(nama_s)
@@ -5249,9 +5308,19 @@ def _hapus_data_contoh():
                          and str(h.get("mode")) in ("Tahsin", "Iqro'") for h in riw)
         if not ada_tahfidz:
             s["nilai_tahfidz"] = 0
+            perubahan.append((nama_s, "Tahfidz", 0))
         if not ada_tahsin:
             s["nilai_tahsin"] = 0
+            perubahan.append((nama_s, "Tahsin", 0))
         s.pop("nilai_iqro", None)
+    gagal = None
+    for nama, mode, nilai in perubahan:
+        ok, err = update_student_score_supabase(nama, mode, nilai)
+        if not ok and gagal is None:
+            gagal = err
+    if gagal:
+        st.session_state["_siswa_warn"] = (
+            "Sebagian nilai contoh gagal direset di Data Siswa: " + str(gagal))
     st.session_state["nilai_mode"] = "asli"
     st.session_state["mode_pengelola"] = "Asli"
     save_all_data()
@@ -5704,6 +5773,11 @@ def page_nilai():
                             s["nilai_tahfidz"] = int(m_nilai)
                         else:
                             s["nilai_tahsin"] = int(m_nilai)
+                        ok, err = update_student_score_supabase(
+                            m_nama, mode_manual, int(m_nilai))
+                        if not ok:
+                            st.session_state["_siswa_warn"] = (
+                                "Nilai tersimpan, tetapi Data Siswa gagal diperbarui: " + str(err))
                         break
                 papan = data.setdefault("papan", {})
                 papan[m_nama] = max(int(papan.get(m_nama) or 0), int(m_nilai))
@@ -5850,10 +5924,6 @@ def _seed_kelas11(data):
         })
         baru.append(rec)
     data["siswa"] = baru
-    users = _baca_json(USERS_FILE, {})
-    users["siswa"] = baru
-    users.setdefault("versi", 1)
-    _tulis_json(USERS_FILE, users)
     if not isinstance(isi, dict):
         isi = {}
     isi.setdefault("versi", 1)
@@ -7006,17 +7076,12 @@ def _umur_siswa(nilai) -> str:
 
 def _lengkapi_siswa():
     siswa = st.session_state.data.setdefault("siswa", [])
-    berubah = False
     for s in siswa:
         for kunci, nilai in SISWA_EKSTRA_DEFAULT.items():
             if kunci not in s:
                 s[kunci] = nilai
-                berubah = True
         if not s.get("jenis_kelamin"):
             s["jenis_kelamin"] = jenis_kelamin_tampil(s)
-            berubah = True
-    if berubah:
-        save_all_data()
     return siswa
 
 
@@ -7069,28 +7134,6 @@ def _hapus_foto_siswa(rel):
         (ASSETS / rel).unlink(missing_ok=True)
     except Exception:
         pass
-
-
-def _simpan_siswa_lokal(record, before_nama=None):
-    siswa = st.session_state.data.setdefault("siswa", [])
-    kunci = rapikan_nama(str(before_nama or record.get("nama") or "")).lower()
-    for s in siswa:
-        if rapikan_nama(str(s.get("nama") or "")).lower() == kunci:
-            s.update(record)
-            break
-    else:
-        siswa.append(dict(record))
-    save_all_data()
-
-
-def _hapus_siswa_lokal(nama):
-    kunci = rapikan_nama(str(nama or "")).lower()
-    siswa = st.session_state.data.setdefault("siswa", [])
-    st.session_state.data["siswa"] = [
-        s for s in siswa
-        if rapikan_nama(str(s.get("nama") or "")).lower() != kunci
-    ]
-    save_all_data()
 
 
 def _nis_bentrok(nis, kecuali_nama=None, siswa_remote=None) -> bool:
@@ -7146,6 +7189,7 @@ def _rekam_dari_isian(isian, foto=""):
         "izin": int(isian.get("izin") or 0),
         "alpa": int(isian.get("alpa") or 0),
         "status_siswa": isian.get("status_siswa") or SISWA_STATUS_OPSI[0],
+        "status_santri": isian.get("status_santri") or "",
         "guru_pembimbing": str(isian.get("guru_pembimbing") or "").strip(),
         "tanggal_masuk": str(isian.get("tanggal_masuk") or "").strip(),
         "catatan_guru": str(isian.get("catatan_guru") or "").strip(),
@@ -7422,6 +7466,7 @@ def page_siswa():
         form_minta_izin("siswa")
     supa_rows, sb_error = load_students_supabase()
     if sb_error is None:
+        st.session_state.data["siswa"] = supa_rows
         st.success(T(f"Terhubung ke Supabase · {len(supa_rows)} siswa terdaftar",
                      f"Connected to Supabase · {len(supa_rows)} students registered",
                      f"متصل بـ Supabase · {len(supa_rows)} طالبًا مسجلًا"))
@@ -7429,36 +7474,7 @@ def page_siswa():
             st.success(T("20 siswa berhasil dimasukkan",
                          "20 students inserted successfully",
                          "تم إدخال 20 طالبًا بنجاح"))
-        if supa_rows:
-            lokal = {
-                rapikan_nama(str(s.get("nama") or "")).lower(): s
-                for s in st.session_state.data.get("siswa", [])
-            }
-            ubah = False
-            for row in supa_rows:
-                kunci = rapikan_nama(str(row.get("nama") or "")).lower()
-                program = str(row.get("program") or "").strip()
-                if not kunci or program not in MODE_LIST:
-                    continue
-                dasar = {
-                    "jenis_kelamin": str(row.get("jenis_kelamin") or "").strip(),
-                    "program": program,
-                    "kelas": str(row.get("kelas") or "").strip(),
-                }
-                rec = lokal.get(kunci)
-                if rec is None:
-                    st.session_state.data["siswa"].append({
-                        "nama": str(row.get("nama") or "").strip(), **dasar,
-                    })
-                    ubah = True
-                else:
-                    for kunci_bidang, nilai in dasar.items():
-                        if nilai and str(rec.get(kunci_bidang) or "") != nilai:
-                            rec[kunci_bidang] = nilai
-                            ubah = True
-            if ubah:
-                save_all_data()
-        else:
+        if not supa_rows:
             st.info(T("Belum ada data siswa di tabel Supabase.",
                           "No student data in the Supabase table yet.",
                           "لا توجد بيانات طلاب في جدول Supabase بعد."))
@@ -7467,50 +7483,35 @@ def page_siswa():
                                              "📥 إدخال 20 سجلًا أوليًا"),
                                            type="primary", key="seed_siswa",
                                            disabled=not boleh_ubah):
-                client, sb_err = get_supabase_client()
-                if sb_err:
-                    st.error(sb_err)
-                else:
-                    try:
-                        cek = client.table("siswa").select("id").limit(1).execute().data or []
-                    except Exception as exc:
-                        cek = None
-                        st.error(T("Gagal memeriksa isi tabel: ", "Failed to check table contents: ",
-                                       "فشل فحص محتويات الجدول: ") + str(exc))
-                    if cek == []:
-                        records = [
-                            {"nama": s.get("nama", ""),
-                             "program": s.get("program", "Iqro'"),
-                             "kelas": s.get("kelas", "")}
-                            for s in st.session_state.data["siswa"]
-                        ]
-                        try:
-                            client.table("siswa").insert(records).execute()
-                            load_students_supabase.clear()
-                            st.session_state["siswa_seeded"] = True
-                            st.rerun()
-                        except Exception as exc:
-                            st.error(T("Gagal memasukkan data awal: ", "Failed to insert initial data: ",
-                                           "فشل إدخال البيانات الأولية: ") + str(exc))
-                    elif cek:
-                        st.warning(T("Tabel siswa sudah berisi data. Tidak ada data yang dimasukkan.",
-                                     "The student table already contains data. Nothing was inserted.",
-                                     "جدول الطلاب يحتوي على بيانات بالفعل. لم يتم إدخال أي شيء."))
+                records = [
+                    {"nama": s.get("nama", ""),
+                     "program": s.get("program", "Iqro'"),
+                     "kelas": s.get("kelas", "")}
+                    for s in _baca_json(USERS_FILE, {}).get("siswa", [])
+                ]
+                gagal_seed = False
+                for record in records:
+                    ok, err = save_student_supabase(record)
+                    if not ok:
+                        gagal_seed = True
+                        st.error(T("Gagal memasukkan data awal: ",
+                                   "Failed to insert initial data: ",
+                                   "فشل إدخال البيانات الأولية: ") + str(err))
+                        break
+                if not gagal_seed:
+                    st.session_state["siswa_seeded"] = True
+                    st.rerun()
         if st.button(T("🔄 Muat ulang dari Supabase", "🔄 Reload from Supabase",
                        "🔄 إعادة التحميل من Supabase")):
-            load_students_supabase.clear()
             st.rerun()
         st.caption(T("Sumber data: tabel public.siswa di Supabase.",
                      "Data source: public.siswa table in Supabase.",
                      "مصدر البيانات: جدول public.siswa في Supabase."))
-    elif "belum dikonfigurasi" in str(sb_error) or "belum terpasang" in str(sb_error):
-        st.caption(T("Supabase belum aktif — menampilkan data siswa lokal.",
-                     "Supabase is inactive — showing local student data.",
-                     "Supabase غير مفعّل — يتم عرض بيانات الطلاب المحلية."))
     else:
+        st.session_state.data["siswa"] = []
         st.warning(sb_error)
 
-    siswa = _lengkapi_siswa()
+    siswa = _lengkapi_siswa() if sb_error is None else []
     nis_kosong = [s for s in siswa if not str(s.get("nis") or "").strip()]
     if nis_kosong:
         st.warning(T(
@@ -7757,14 +7758,14 @@ def page_siswa():
                            "✏️ تعديل هذا الطالب"),
                          key="detail_edit_siswa", use_container_width=True,
                          disabled=not boleh_ubah):
-                st.session_state["siswa_edit"] = str(s.get("nama") or "")
+                st.session_state["siswa_edit"] = str(s.get("id") or "")
                 st.session_state.pop("siswa_hapus", None)
                 st.rerun()
             if b2.button(T("🗑️ Hapus Siswa Ini", "🗑️ Delete This Student",
                            "🗑️ حذف هذا الطالب"),
                          key="detail_hapus_siswa", use_container_width=True,
                          disabled=not boleh_ubah):
-                st.session_state["siswa_hapus"] = str(s.get("nama") or "")
+                st.session_state["siswa_hapus"] = str(s.get("id") or "")
                 st.session_state.pop("siswa_edit", None)
                 st.rerun()
 
@@ -7784,21 +7785,13 @@ def page_siswa():
                     berkas = baru.pop("_foto_baru", None)
                     foto_rel = _simpan_foto_siswa(baru.get("nama"), berkas)
                     rekam = _rekam_dari_isian(baru, foto=foto_rel)
-                    gagal_supabase = False
-                    if sb_error is None:
-                        ok, err = save_student_supabase({
-                            "nama": rekam["nama"],
-                            "nis": rekam["nis"],
-                            "program": rekam["program"],
-                            "kelas": rekam["kelas"],
-                        })
-                        if not ok:
-                            gagal_supabase = True
-                            st.error(T("Data gagal disimpan ke Supabase: ",
-                                       "Failed to save student data to Supabase: ",
-                                       "تعذر حفظ بيانات الطالب في Supabase: ") + str(err))
-                    if not gagal_supabase:
-                        _simpan_siswa_lokal(rekam)
+                    ok, err = save_student_supabase(rekam)
+                    if not ok:
+                        _hapus_foto_siswa(foto_rel)
+                        st.error(T("Data gagal disimpan ke Supabase: ",
+                                   "Failed to save student data to Supabase: ",
+                                   "تعذر حفظ بيانات الطالب في Supabase: ") + str(err))
+                    else:
                         st.session_state["_siswa_pesan"] = (
                             T("✅ Data siswa berhasil ditambahkan.",
                               "✅ Student data added successfully.",
@@ -7815,8 +7808,11 @@ def page_siswa():
                 nama_opsi = [str(s.get("nama") or "") for s in siswa]
                 target_awal = (st.session_state.get("siswa_edit")
                                or st.session_state.get("siswa_hapus"))
-                indeks_awal = (nama_opsi.index(target_awal)
-                               if target_awal in nama_opsi else 0)
+                rec_awal = next((s for s in siswa
+                                 if str(s.get("id") or "") == str(target_awal or "")), None)
+                nama_awal = str(rec_awal.get("nama") or "") if rec_awal else ""
+                indeks_awal = (nama_opsi.index(nama_awal)
+                               if nama_awal in nama_opsi else 0)
                 pilih = st.selectbox(
                     T("Pilih siswa", "Choose student", "اختر الطالب"),
                     nama_opsi, index=indeks_awal, key="pilih_kelola_siswa")
@@ -7825,21 +7821,26 @@ def page_siswa():
                                "✏️ تعديل هذه البيانات"),
                              key="kelola_edit_siswa", use_container_width=True,
                              disabled=not boleh_ubah):
-                    st.session_state["siswa_edit"] = pilih
+                    rec_pilih = next((s for s in siswa
+                                      if str(s.get("nama") or "") == pilih), None)
+                    if rec_pilih:
+                        st.session_state["siswa_edit"] = str(rec_pilih.get("id") or "")
                     st.session_state.pop("siswa_hapus", None)
                     st.rerun()
                 if k2.button(T("🗑️ Hapus Data Ini", "🗑️ Delete This Data",
                                "🗑️ حذف هذه البيانات"),
                              key="kelola_hapus_siswa", use_container_width=True,
                              disabled=not boleh_ubah):
-                    st.session_state["siswa_hapus"] = pilih
+                    rec_pilih = next((s for s in siswa
+                                      if str(s.get("nama") or "") == pilih), None)
+                    if rec_pilih:
+                        st.session_state["siswa_hapus"] = str(rec_pilih.get("id") or "")
                     st.session_state.pop("siswa_edit", None)
                     st.rerun()
 
                 target_edit = st.session_state.get("siswa_edit")
                 rec_edit = next((s for s in siswa
-                                 if rapikan_nama(str(s.get("nama") or "")).lower()
-                                 == rapikan_nama(str(target_edit or "")).lower()), None)
+                                 if str(s.get("id") or "") == str(target_edit or "")), None)
                 if rec_edit and boleh_ubah:
                     boleh_ubah_nis = aku_super_admin()
                     st.markdown(f"#### ✏️ {T('Edit', 'Edit', 'تعديل')}: "
@@ -7864,56 +7865,55 @@ def page_siswa():
                             st.error(pesan)
                         else:
                             berkas = isian_edit.pop("_foto_baru", None)
-                            foto_rel = (rec_edit.get("foto") or "")
+                            foto_lama = str(rec_edit.get("foto") or "")
+                            foto_rel = foto_lama
+                            cadangan_foto = None
                             if berkas is not None:
-                                foto_lama = rec_edit.get("foto") or ""
+                                if foto_lama:
+                                    try:
+                                        cadangan_foto = (ASSETS / foto_lama).read_bytes()
+                                    except Exception:
+                                        cadangan_foto = None
                                 foto_rel = _simpan_foto_siswa(
                                     isian_edit.get("nama"), berkas)
-                                if foto_lama and foto_lama != foto_rel:
-                                    _hapus_foto_siswa(foto_lama)
                             rekam = _rekam_dari_isian(isian_edit, foto=foto_rel)
                             if not boleh_ubah_nis:
                                 rekam["nis"] = str(rec_edit.get("nis") or "").strip()
-                            gagal_supabase = False
-                            if sb_error is None:
-                                sid = next(
-                                    (r.get("id") for r in supa_rows
-                                     if rapikan_nama(str(r.get("nama") or "")).lower()
-                                     == rapikan_nama(nama_lama).lower()), None)
-                                if sid is not None:
-                                    ok, err = save_student_supabase({
-                                        "nama": rekam["nama"],
-                                        "nis": rekam["nis"],
-                                        "program": rekam["program"],
-                                        "kelas": rekam["kelas"],
-                                    }, student_id=sid)
-                                    if not ok:
-                                        gagal_supabase = True
-                                        st.error(T("Perubahan gagal disimpan ke Supabase: ",
-                                                   "Failed to save changes to Supabase: ",
-                                                   "تعذر حفظ التغييرات في Supabase: ") + str(err))
+                            sid = rec_edit.get("id")
+                            if sid is None:
+                                st.error(T("Data siswa tidak ditemukan di Supabase. "
+                                           "Perubahan belum disimpan.",
+                                           "Student data was not found in Supabase. "
+                                           "Changes were not saved.",
+                                           "لم يتم العثور على بيانات الطالب في Supabase. "
+                                           "لم يتم حفظ التغييرات."))
+                            else:
+                                ok, err = save_student_supabase(rekam, student_id=sid)
+                                if not ok:
+                                    if cadangan_foto is not None:
+                                        try:
+                                            (ASSETS / foto_lama).write_bytes(cadangan_foto)
+                                        except Exception:
+                                            pass
+                                    elif berkas is not None:
+                                        _hapus_foto_siswa(foto_rel)
+                                    st.error(T("Perubahan gagal disimpan ke Supabase: ",
+                                               "Failed to save changes to Supabase: ",
+                                               "تعذر حفظ التغييرات في Supabase: ") + str(err))
                                 else:
-                                    gagal_supabase = True
-                                    st.error(T("Data siswa tidak ditemukan di Supabase. "
-                                               "Perubahan belum disimpan.",
-                                               "Student data was not found in Supabase. "
-                                               "Changes were not saved.",
-                                               "لم يتم العثور على بيانات الطالب في Supabase. "
-                                               "لم يتم حفظ التغييرات."))
-                            if not gagal_supabase:
-                                _simpan_siswa_lokal(rekam, before_nama=nama_lama)
-                                st.session_state.pop("siswa_edit", None)
-                                st.session_state["_siswa_pesan"] = (
-                                    T("✅ Data siswa berhasil diperbarui.",
-                                      "✅ Student data updated successfully.",
-                                      "✅ تم تحديث بيانات الطالب بنجاح.")
-                                    + f" {rekam['nama']}")
-                                st.rerun()
+                                    if foto_lama and foto_lama != foto_rel:
+                                        _hapus_foto_siswa(foto_lama)
+                                    st.session_state.pop("siswa_edit", None)
+                                    st.session_state["_siswa_pesan"] = (
+                                        T("✅ Data siswa berhasil diperbarui.",
+                                          "✅ Student data updated successfully.",
+                                          "✅ تم تحديث بيانات الطالب بنجاح.")
+                                        + f" {rekam['nama']}")
+                                    st.rerun()
 
                 target_hapus = st.session_state.get("siswa_hapus")
                 rec_hapus = next((s for s in siswa
-                                  if rapikan_nama(str(s.get("nama") or "")).lower()
-                                  == rapikan_nama(str(target_hapus or "")).lower()), None)
+                                  if str(s.get("id") or "") == str(target_hapus or "")), None)
                 if rec_hapus and boleh_ubah:
                     st.warning(T("Yakin hapus data siswa ", "Delete student data ",
                                  "حذف بيانات الطالب ")
@@ -7931,22 +7931,21 @@ def page_siswa():
                     if h1.button(T("Ya, Hapus", "Yes, Delete", "نعم، احذف"),
                                  type="primary", disabled=not yakin,
                                  key="konfirmasi_hapus_ya"):
-                        if sb_error is None:
-                            sid = next(
-                                (r.get("id") for r in supa_rows
-                                 if rapikan_nama(str(r.get("nama") or "")).lower()
-                                 == rapikan_nama(str(rec_hapus.get("nama") or "")).lower()),
-                                None)
-                            if sid is not None:
-                                delete_student_supabase(sid)
-                        _hapus_foto_siswa(rec_hapus.get("foto"))
-                        nama_hapus = str(rec_hapus.get("nama") or "")
-                        _hapus_siswa_lokal(nama_hapus)
-                        st.session_state.pop("siswa_hapus", None)
-                        st.session_state["_siswa_pesan"] = (
-                            T("🗑️ Data siswa dihapus:", "🗑️ Student data deleted:",
-                              "🗑️ تم حذف بيانات الطالب:") + f" {nama_hapus}")
-                        st.rerun()
+                        sid = rec_hapus.get("id")
+                        ok, err = (delete_student_supabase(sid)
+                                   if sid is not None else (False, "ID siswa tidak tersedia."))
+                        if not ok:
+                            st.error(T("Data gagal dihapus dari Supabase: ",
+                                       "Failed to delete student data from Supabase: ",
+                                       "تعذر حذف بيانات الطالب من Supabase: ") + str(err))
+                        else:
+                            _hapus_foto_siswa(rec_hapus.get("foto"))
+                            nama_hapus = str(rec_hapus.get("nama") or "")
+                            st.session_state.pop("siswa_hapus", None)
+                            st.session_state["_siswa_pesan"] = (
+                                T("🗑️ Data siswa dihapus:", "🗑️ Student data deleted:",
+                                  "🗑️ تم حذف بيانات الطالب:") + f" {nama_hapus}")
+                            st.rerun()
                     if h2.button(T("Batal", "Cancel", "إلغاء"),
                                  key="konfirmasi_hapus_batal"):
                         st.session_state.pop("siswa_hapus", None)
