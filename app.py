@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import difflib
 import hashlib
 import html
@@ -1824,10 +1825,11 @@ def _tulis_semua(data):
                     st.session_state.get("notif_dilihat", {}).items()},
         "seq": st.session_state.get("notif_seq", 0),
     })
+    materi_cadangan = st.session_state.get("_materi_json_cadangan", MATERI)
     _tulis_json(MATERI_FILE, {
         "versi": 1,
         "materi": {m: {str(lvl): html for lvl, html in levels.items()}
-                   for m, levels in MATERI.items()},
+                   for m, levels in materi_cadangan.items()},
     })
     _tulis_json(SOAL_FILE, {"versi": 1, "banks": BANKS})
     cap_waktu = datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -1913,6 +1915,8 @@ def save_all_data():
 
 def _segarkan_materi():
     """Muat materi tersimpan setiap rerun agar tambahan AI tidak hilang."""
+    if st.session_state.get("_materi_level_supabase_ok"):
+        return
     tersimpan = _baca_json(MATERI_FILE, {})
     levels = tersimpan.get("materi") if isinstance(tersimpan, dict) else None
     if not isinstance(levels, dict):
@@ -1925,6 +1929,21 @@ def _segarkan_materi():
                 MATERI[mode][int(lvl)] = isi
             except (ValueError, TypeError):
                 continue
+
+
+def _pulihkan_konten_json():
+    materi = st.session_state.pop("_materi_json_cadangan", None)
+    if materi is None:
+        tersimpan = _baca_json(MATERI_FILE, {})
+        materi = tersimpan.get("materi", {}) if isinstance(tersimpan, dict) else {}
+    tersimpan = _baca_json(SOAL_FILE, {})
+    banks = tersimpan.get("banks", {}) if isinstance(tersimpan, dict) else {}
+    for mode in MODE_LIST:
+        levels = materi.get(mode, {}) if isinstance(materi, dict) else {}
+        MATERI[mode] = {int(lvl): isi for lvl, isi in levels.items()
+                        if str(lvl).isdigit()}
+        bank = banks.get(mode, []) if isinstance(banks, dict) else []
+        BANKS[mode] = copy.deepcopy(bank) if isinstance(bank, list) else []
 
 
 if "data" not in st.session_state:
@@ -2019,6 +2038,304 @@ def _rpc_users(nama: str, payload: dict):
         return None, f"RPC {nama} gagal: {exc}"
 
 
+def _log_konten_supabase(nama: str, status: str, jumlah: int = 0, error: str = ""):
+    st.session_state.setdefault("_log_supabase_konten", {})[nama] = {
+        "status": status,
+        "jumlah": int(jumlah),
+        "error": str(error or ""),
+        "waktu": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def _daftar_rpc_konten(value):
+    if isinstance(value, dict):
+        for key in ("data", "rows", "items", "materi", "banks", "bank_soal", "kurikulum"):
+            if isinstance(value.get(key), list):
+                value = value[key]
+                break
+        else:
+            value = [value]
+    if not isinstance(value, list):
+        return []
+    if len(value) == 1 and isinstance(value[0], dict):
+        for key in ("data", "rows", "items", "banks", "bank_soal", "kurikulum"):
+            if isinstance(value[0].get(key), list):
+                value = value[0][key]
+                break
+    return [dict(row) for row in value if isinstance(row, dict)]
+
+
+def _gabung_payload_konten(row: dict):
+    data = dict(row)
+    payload = data.get("payload")
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (json.JSONDecodeError, TypeError):
+            payload = None
+    if isinstance(payload, dict):
+        data = {**payload, **data}
+    return data
+
+
+def _mode_konten(row: dict):
+    for key in ("mode", "kategori", "mapel", "materi_nama", "materi"):
+        nilai = str(row.get(key) or "").strip()
+        if nilai.casefold() == "tajwid":
+            return "Tahsin"
+        if nilai.casefold() == "iqro":
+            return "Iqro'"
+        for mode in MODE_LIST:
+            if nilai.casefold() == mode.casefold():
+                return mode
+    return ""
+
+
+def _level_konten(row: dict):
+    for key in ("level", "tingkat", "lv"):
+        try:
+            level = int(float(row.get(key)))
+        except (TypeError, ValueError):
+            continue
+        if 1 <= level <= MAX_LEVEL:
+            return level
+    return None
+
+
+def _teks_konten(row: dict, *keys: str):
+    for key in keys:
+        nilai = row.get(key)
+        if nilai is not None and str(nilai).strip():
+            return str(nilai)
+    return ""
+
+
+def _opsi_konten(row: dict):
+    opsi = row.get("options")
+    if opsi is None:
+        opsi = row.get("opsi") or row.get("pilihan")
+    if opsi is None and any(row.get(key) for key in ("opsi_a", "opsi_b", "opsi_c", "opsi_d")):
+        opsi = [row.get(key) for key in ("opsi_a", "opsi_b", "opsi_c", "opsi_d")]
+    if isinstance(opsi, str):
+        try:
+            opsi = json.loads(opsi)
+        except (json.JSONDecodeError, TypeError):
+            opsi = [bagian.strip() for bagian in opsi.split("|") if bagian.strip()]
+    if not isinstance(opsi, list):
+        return []
+    return [str(o) for o in opsi if str(o).strip()]
+
+
+def _normalisasi_soal(row: dict):
+    data = _gabung_payload_konten(row)
+    if data.get("aktif") is False or data.get("is_tes") is True or data.get("deleted_at"):
+        return None
+    prompt = _teks_konten(data, "prompt", "pertanyaan", "question", "soal", "teks", "teks_soal")
+    opsi = _opsi_konten(data)
+    jawaban = data.get("answer")
+    if jawaban is None:
+        jawaban = data.get("jawaban") or data.get("jawaban_benar") or data.get("kunci_jawaban")
+    if jawaban not in opsi:
+        if isinstance(jawaban, int) and 0 <= jawaban < len(opsi):
+            jawaban = opsi[jawaban]
+        elif isinstance(jawaban, str) and jawaban.strip().isdigit():
+            indeks = int(jawaban.strip())
+            if 0 <= indeks < len(opsi):
+                jawaban = opsi[indeks]
+    jawaban = str(jawaban or "").strip()
+    if not prompt or len(opsi) < 2 or jawaban not in opsi:
+        return None
+    return {
+        "prompt": prompt,
+        "answer": jawaban,
+        "options": opsi,
+        "arab": _teks_konten(data, "arab"),
+        "bahas": _teks_konten(data, "bahas", "pembahasan", "penjelasan"),
+        "level": _level_konten(data) or 1,
+    }
+
+
+def _normalisasi_kurikulum(row: dict):
+    data = _gabung_payload_konten(row)
+    if data.get("aktif") is False or data.get("deleted_at"):
+        return None
+    materi_id = _teks_konten(data, "id", "materi_id", "kode", "slug")
+    judul = _teks_konten(data, "judul", "nama", "title")
+    if not materi_id or not judul:
+        return None
+    kategori = _teks_konten(data, "kategori", "mode", "mapel") or "Iqro'"
+    if kategori.casefold() == "tahsin":
+        kategori = "Tajwid"
+    return {
+        "id": materi_id,
+        "kategori": kategori,
+        "judul": judul,
+        "deskripsi": _teks_konten(data, "deskripsi", "konten", "isi"),
+        "durasi": _teks_konten(data, "durasi") or "15",
+        "level": _teks_konten(data, "level_label", "tingkat_label") or "Semua",
+        "lv": _level_konten(data) or 1,
+        "huruf": _teks_konten(data, "huruf"),
+        "latin": _teks_konten(data, "latin"),
+        "arti": _teks_konten(data, "arti"),
+        "contoh": _teks_konten(data, "contoh"),
+        "video": _teks_konten(data, "video") or VIDEO_MATERI,
+        "makhraj": _teks_konten(data, "makhraj"),
+        "tips": _teks_konten(data, "tips"),
+        "surah": data.get("surah"),
+        "kustom": bool(data.get("kustom") or data.get("is_custom")),
+        "berkas": data.get("berkas") or data.get("assets") or [],
+    }
+
+
+def _materi_dari_rpc(value):
+    if isinstance(value, dict) and isinstance(value.get("materi"), dict):
+        rows = []
+        for mode, levels in value["materi"].items():
+            if isinstance(levels, dict):
+                for level, konten in levels.items():
+                    rows.append({"mode": mode, "level": level, "konten": konten})
+        if isinstance(value.get("kurikulum"), list):
+            rows.extend(value["kurikulum"])
+        return rows
+    rows = []
+    for row in _daftar_rpc_konten(value):
+        data = _gabung_payload_konten(row)
+        if isinstance(data.get("materi"), dict):
+            for mode, levels in data["materi"].items():
+                if isinstance(levels, dict):
+                    for level, konten in levels.items():
+                        rows.append({"mode": mode, "level": level, "konten": konten})
+        else:
+            rows.append(data)
+    return rows
+
+
+def _bank_soal_dari_rpc(value):
+    if isinstance(value, dict) and isinstance(value.get("banks"), dict):
+        rows = []
+        for mode, bank in value["banks"].items():
+            if isinstance(bank, list):
+                rows.extend({**soal, "mode": mode} for soal in bank if isinstance(soal, dict))
+        return rows
+    rows = []
+    for row in _daftar_rpc_konten(value):
+        data = _gabung_payload_konten(row)
+        if isinstance(data.get("banks"), dict):
+            for mode, bank in data["banks"].items():
+                if isinstance(bank, list):
+                    rows.extend({**soal, "mode": mode} for soal in bank if isinstance(soal, dict))
+        else:
+            rows.append(data)
+    return rows
+
+
+def load_materi_supabase():
+    rows, error = _rpc_users("qori_materi_load", {
+        "p_token": st.session_state.get("supabase_session_token") or "",
+    })
+    if error:
+        _log_konten_supabase("qori_materi_load", "error", error=error)
+        return None, error
+    try:
+        level_notes = []
+        kurikulum = []
+        jumlah = 0
+        for row in _materi_dari_rpc(rows):
+            mode = _mode_konten(row)
+            level = _level_konten(row)
+            konten = _teks_konten(row, "konten", "isi", "content", "catatan")
+            if str(row.get("jenis") or "").casefold() == "konten_level":
+                konten = konten or _teks_konten(row, "deskripsi", "payload")
+            note_valid = bool(mode and level and konten)
+            materi = None if str(row.get("jenis") or "").casefold() == "konten_level" else _normalisasi_kurikulum(row)
+            if note_valid:
+                level_notes.append({"mode": mode, "level": level, "konten": konten})
+            if materi:
+                kurikulum.append(materi)
+            if note_valid or materi:
+                jumlah += 1
+        if not level_notes and not kurikulum:
+            raise ValueError("RPC mengembalikan 0 materi yang valid")
+        data = {"level": level_notes, "kurikulum": kurikulum}
+    except Exception as exc:
+        error = f"Format qori_materi_load tidak valid: {exc}"
+        _log_konten_supabase("qori_materi_load", "error", error=error)
+        return None, error
+    _log_konten_supabase("qori_materi_load", "ok", jumlah)
+    return data, None
+
+
+def load_bank_soal_supabase():
+    rows, error = _rpc_users("qori_bank_soal_load", {
+        "p_token": st.session_state.get("supabase_session_token") or "",
+    })
+    if error:
+        _log_konten_supabase("qori_bank_soal_load", "error", error=error)
+        return None, error
+    try:
+        banks = {mode: [] for mode in MODE_LIST}
+        for row in _bank_soal_dari_rpc(rows):
+            mode = _mode_konten(row)
+            soal = _normalisasi_soal(row)
+            if mode in banks and soal:
+                banks[mode].append(soal)
+        banks = {
+            mode: list({(q["prompt"], q["answer"], tuple(q["options"]), q["level"]): q
+                        for q in bank}.values())
+            for mode, bank in banks.items() if bank
+        }
+        if not banks:
+            raise ValueError("RPC mengembalikan 0 soal yang valid")
+    except Exception as exc:
+        error = f"Format qori_bank_soal_load tidak valid: {exc}"
+        _log_konten_supabase("qori_bank_soal_load", "error", error=error)
+        return None, error
+    jumlah = sum(len(bank) for bank in banks.values())
+    _log_konten_supabase("qori_bank_soal_load", "ok", jumlah)
+    return banks, None
+
+
+def _pastikan_cadangan_konten():
+    if "_materi_json_cadangan" not in st.session_state:
+        st.session_state["_materi_json_cadangan"] = {
+            mode: dict(levels) for mode, levels in MATERI.items()
+        }
+
+
+def _terapkan_materi_supabase(data: dict):
+    _pastikan_cadangan_konten()
+    for catatan in data.get("level") or []:
+        MATERI[catatan["mode"]][catatan["level"]] = catatan["konten"]
+    remote = {}
+    for materi in data.get("kurikulum") or []:
+        remote[str(materi["id"])] = materi
+    st.session_state["_materi_supabase"] = list(remote.values())
+    st.session_state["_materi_level_supabase_ok"] = bool(data.get("level"))
+    st.session_state["_materi_supabase_ok"] = True
+
+
+def _terapkan_bank_soal_supabase(banks: dict):
+    st.session_state["_bank_soal_supabase"] = banks
+    st.session_state["_bank_soal_supabase_ok"] = True
+
+
+def _bank_game(mode: str):
+    remote = st.session_state.get("_bank_soal_supabase") or {}
+    return remote.get(mode) or BANKS[mode]
+
+
+def _muat_konten_supabase():
+    if st.session_state.get("_konten_supabase_dicoba"):
+        return
+    st.session_state["_konten_supabase_dicoba"] = True
+    materi, _ = load_materi_supabase()
+    if materi:
+        _terapkan_materi_supabase(materi)
+    banks, _ = load_bank_soal_supabase()
+    if banks:
+        _terapkan_bank_soal_supabase(banks)
+
+
 def get_riwayat_hasil(username: str):
     rows, error = _rpc_users("qori_riwayat_load", {"p_username": username})
     if error:
@@ -2027,12 +2344,78 @@ def get_riwayat_hasil(username: str):
     return rows or []
 
 
+def _load_leaderboard(mode: str = ""):
+    return _rpc_users("qori_leaderboard_load", {
+        "p_mode": mode or "",
+        "p_kontrak": "agregat",
+    })
+
+
 def get_leaderboard(mode: str = ""):
-    rows, error = _rpc_users("qori_leaderboard_load", {"p_mode": mode or ""})
+    rows, error = _load_leaderboard(mode)
     if error:
         st.error(f"Gagal memuat leaderboard dari Supabase: {error}")
-        return []
-    return rows or []
+        return None
+    if not isinstance(rows, list):
+        st.error("Format respons Leaderboard dari Supabase tidak valid.")
+        return None
+    return rows
+
+
+def _lb_meta_default():
+    return {"versi": 1, "reset_at": "", "baseline": {},
+            "hall_of_fame": [], "musim": "", "seed_kelas11": 1}
+
+
+def _lb_meta_normalize(row):
+    meta = _lb_meta_default()
+    if not isinstance(row, dict):
+        return meta
+    baseline = row.get("baseline_xp")
+    if baseline is None:
+        baseline = row.get("baseline")
+    if isinstance(baseline, dict):
+        meta["baseline"] = baseline
+    hall = row.get("hall_of_fame_json")
+    if hall is None:
+        hall = row.get("hall_of_fame")
+    if isinstance(hall, list):
+        meta["hall_of_fame"] = [e for e in hall if isinstance(e, dict)]
+    meta["reset_at"] = str(row.get("reset_at") or "")
+    meta["musim"] = str(row.get("musim") or "")
+    return meta
+
+
+def _lb_meta_muat():
+    rows, error = _rpc_users("qori_leaderboard_meta_load", {})
+    if error:
+        return None, error
+    row = rows[0] if isinstance(rows, list) and rows else rows
+    if row is None:
+        return _lb_meta_default(), None
+    if not isinstance(row, dict):
+        return None, "Format metadata Leaderboard dari Supabase tidak valid."
+    return _lb_meta_normalize(row), None
+
+
+def _lb_meta_simpan(meta):
+    rows, error = _rpc_users("qori_leaderboard_meta_save", {
+        "p_token": st.session_state.get("supabase_session_token") or "",
+        "p_reset_at": meta.get("reset_at") or datetime.now().isoformat(),
+        "p_baseline_xp": meta.get("baseline") if isinstance(meta.get("baseline"), dict) else {},
+        "p_musim": str(meta.get("musim") or ""),
+        "p_hall_of_fame_json": [
+            e for e in (meta.get("hall_of_fame") or []) if isinstance(e, dict)
+        ],
+    })
+    if error:
+        st.error(f"Gagal menyimpan metadata Leaderboard ke Supabase: {error}")
+        return False
+    status = _nilai_rpc(rows)
+    if not isinstance(status, dict) or status.get("ok") is not True:
+        st.error("Metadata Leaderboard gagal atau ditolak Supabase; baseline lama tetap digunakan.")
+        return False
+    return True
 
 
 def _rpc_is_tes(row):
@@ -2253,6 +2636,7 @@ def _muat_data_pengguna_supabase():
         return False
     st.session_state.data["siswa"] = siswa
     st.session_state.pop("supabase_users_error", None)
+    _muat_konten_supabase()
     return True
 
 
@@ -2894,7 +3278,7 @@ def _kode_sesi(username, mode, level):
 
 def susun_soal(mode: str, level: int, tipe: str, rng=None):
     rng = rng or random
-    bank = BANKS[mode]
+    bank = _bank_game(mode)
     utama = [q for q in bank if q["level"] == level]
     lain = [q for q in bank if q["level"] != level]
     lain.sort(key=lambda q: (abs(int(q["level"]) - int(level)), int(q["level"])))
@@ -2918,7 +3302,7 @@ def acak_pilihan(soal, rng=None):
 
 def susun_soal_ujian(mode: str, rng=None):
     rng = rng or random
-    bank = BANKS[mode]
+    bank = _bank_game(mode)
 
     def ambil(levels, n):
         pool = [q for q in bank if q["level"] in levels]
@@ -3421,6 +3805,12 @@ with st.sidebar:
         for _kunci_mat in ("_kurikulum", "mat_flash", "mat_balloons",
                            "mat_filter_kategori", "mat_cari", "mat_filter_status"):
             st.session_state.pop(_kunci_mat, None)
+        for _kunci_konten in ("_konten_supabase_dicoba", "_materi_supabase",
+                              "_materi_level_supabase_ok", "_materi_supabase_ok",
+                              "_bank_soal_supabase", "_bank_soal_supabase_ok",
+                              "_log_supabase_konten"):
+            st.session_state.pop(_kunci_konten, None)
+        _pulihkan_konten_json()
         st.session_state.pop("menu", None)
         st.session_state.pop("locked_mode", None)
         st.rerun()
@@ -4792,7 +5182,7 @@ def _belajar_skor():
     terakhir = max(skor_saya)[1] if skor_saya else None
 
     skor_kelas = []
-    for row in get_leaderboard(mode):
+    for row in get_leaderboard(mode) or []:
         if _rpc_is_tes(row):
             continue
         skor = _rpc_skor(row)
@@ -4802,6 +5192,7 @@ def _belajar_skor():
 
 
 def page_belajar():
+    _muat_konten_supabase()
     st.markdown(_CSS_BELAJAR, unsafe_allow_html=True)
     st.markdown(f"""
     <div class="hero-small">
@@ -6423,26 +6814,40 @@ def _lb_parse_tanggal(teks):
 
 
 def _lb_state(mode: str = ""):
-    meta = st.session_state.get("lb_meta")
-    if not isinstance(meta, dict):
-        meta = {"versi": 1, "reset_at": "", "baseline": {},
-                "hall_of_fame": [], "seed_kelas11": 1}
-        st.session_state["lb_meta"] = meta
+    cached = st.session_state.get("lb_meta")
+    if not isinstance(cached, dict):
+        cached = _lb_meta_default()
+    remote, error = _lb_meta_muat()
+    if error:
+        st.error(f"Gagal memuat metadata Leaderboard dari Supabase: {error}. Menggunakan cache sesi.")
+        meta = _lb_meta_normalize(cached)
+        meta["meta_error"] = error
+    else:
+        meta = remote
+        meta["meta_error"] = ""
+    rows, error = _load_leaderboard(mode)
+    if error:
+        meta["rows"] = []
+        meta["rows_error"] = error
+    elif not isinstance(rows, list):
+        meta["rows"] = []
+        meta["rows_error"] = "Format respons Leaderboard dari Supabase tidak valid."
+    else:
+        meta["rows"] = rows
+        meta["rows_error"] = ""
     meta["mode"] = mode or ""
-    meta["rows"] = get_leaderboard(mode or "")
+    st.session_state["lb_meta"] = meta
     return meta
 
 
 def _lb_simpan(state):
-    st.session_state["lb_meta"] = {
-        "versi": 1,
-        "reset_at": str(state.get("reset_at") or ""),
-        "baseline": state.get("baseline") if isinstance(state.get("baseline"), dict) else {},
-        "hall_of_fame": [e for e in (state.get("hall_of_fame") or []) if isinstance(e, dict)],
-        "seed_kelas11": int(state.get("seed_kelas11") or 1),
-        "mode": str(state.get("mode") or ""),
-        "rows": state.get("rows") or [],
-    }
+    meta = _lb_meta_normalize(state)
+    if not _lb_meta_simpan(meta):
+        return False
+    meta["mode"] = str(state.get("mode") or "")
+    meta["rows"] = state.get("rows") or []
+    st.session_state["lb_meta"] = meta
+    return True
 
 
 def _lb_int(nilai, default=0):
@@ -6452,7 +6857,32 @@ def _lb_int(nilai, default=0):
         return default
 
 
+def _lb_adalah_pengelola(row):
+    peran = str(row.get("role") or row.get("peran") or "").strip().casefold()
+    username = str(row.get("username") or "").strip()
+    if peran == "pengelola":
+        return True
+    identitas = username or _rpc_nama(row)
+    if identitas and level_pengelola(identitas):
+        return True
+    return "pengelola" in identitas.casefold()
+
+
 def _lb_rows(state, mulai=None, sampai=None, demo=True):
+    def gagal(pesan):
+        if not state.get("contract_error_shown"):
+            st.error(pesan)
+            state["contract_error_shown"] = True
+        return []
+
+    if state.get("rows_error"):
+        return []
+    raw_rows = state.get("rows")
+    if raw_rows is None:
+        return []
+    if not isinstance(raw_rows, list):
+        return gagal("Format RPC Leaderboard tidak sesuai kontrak agregat: respons harus berupa daftar siswa.")
+
     siswa_map = {}
     for siswa in st.session_state.data.get("siswa", []) or []:
         for kunci in (siswa.get("nama"), siswa.get("username")):
@@ -6460,10 +6890,15 @@ def _lb_rows(state, mulai=None, sampai=None, demo=True):
             if kunci:
                 siswa_map[kunci] = siswa
 
-    agr = {}
+    baseline = state.get("baseline") or {}
+    baseline_norm = {rapikan_nama(str(kunci)).casefold(): nilai
+                     for kunci, nilai in baseline.items()}
     mode_filter = str(state.get("mode") or "")
-    for row in state.get("rows") or []:
-        if not isinstance(row, dict) or _rpc_is_tes(row):
+    agr = {}
+    for row in raw_rows:
+        if not isinstance(row, dict):
+            return gagal("Format RPC Leaderboard tidak sesuai kontrak agregat: setiap baris harus berupa objek siswa.")
+        if _rpc_is_tes(row) or _lb_adalah_pengelola(row):
             continue
         mode_row = _rpc_mode(row)
         if mode_filter and mode_row and mode_row != mode_filter:
@@ -6474,78 +6909,64 @@ def _lb_rows(state, mulai=None, sampai=None, demo=True):
         if dt is not None and sampai is not None and dt >= sampai:
             continue
         nama = _rpc_nama(row)
-        identitas = str(row.get("username") or nama)
-        kunci = rapikan_nama(identitas).casefold()
+        username = str(row.get("username") or nama).strip()
+        kunci = rapikan_nama(username).casefold()
         if not kunci:
-            continue
-        rec = siswa_map.get(kunci, {})
-        a = agr.setdefault(kunci, {
-            "nama": nama, "xp": 0, "xp_rpc": False, "benar": 0,
-            "hafalan": 0, "materi": 0, "hadir": 0, "ujian": 0,
-            "nilai": [], "skor_terakhir": None, "jk": "", "status": "",
-            "kategori": "", "badge": "",
-        })
-        xp = row.get("xp")
-        if xp is None:
-            xp = row.get("total_xp")
-        if xp is not None:
-            a["xp"] = max(a["xp"], _lb_int(xp))
-            a["xp_rpc"] = True
-        elif row.get("poin") is not None:
-            a["xp"] += max(0, _lb_int(row.get("poin")))
-        a["benar"] += max(0, _lb_int(row.get("benar")))
-        a["hafalan"] = max(a["hafalan"], _lb_int(
-            row.get("hafalan") if row.get("hafalan") is not None
-            else row.get("jumlah_hafalan")))
-        a["materi"] = max(a["materi"], _lb_int(
-            row.get("materi") if row.get("materi") is not None
-            else row.get("materi_selesai")))
-        a["hadir"] = max(a["hadir"], _lb_int(row.get("hadir")))
-        a["ujian"] = max(a["ujian"], _lb_int(row.get("ujian") or row.get("lulus")))
-        skor = _rpc_skor(row)
-        if skor is not None and 0 <= skor <= 100:
-            a["nilai"].append(skor)
-        if row.get("skor_terakhir") is not None:
-            a["skor_terakhir"] = _lb_int(row.get("skor_terakhir"), a["skor_terakhir"] or 0)
-        if mode_row == "Tahfidz" and skor is not None and skor >= 60:
-            a["hafalan"] += 1
-        a["jk"] = str(row.get("jk") or row.get("jenis_kelamin") or
-                      rec.get("jenis_kelamin") or a["jk"])
-        a["status"] = str(row.get("status_santri") or row.get("status") or
-                          rec.get("status_santri") or a["status"])
+            return gagal("Format RPC Leaderboard tidak sesuai kontrak agregat: siswa harus memiliki username atau nama.")
+        xp_value = row.get("xp")
+        if xp_value is None:
+            xp_value = row.get("total_xp")
+        if xp_value is None:
+            return gagal("Format RPC Leaderboard tidak sesuai kontrak agregat: setiap siswa harus memiliki field xp/total_xp.")
+        if kunci in agr:
+            return gagal("Format RPC Leaderboard tidak sesuai kontrak agregat: ditemukan lebih dari satu baris untuk siswa yang sama.")
+        rec = siswa_map.get(kunci) or siswa_map.get(rapikan_nama(nama).casefold(), {})
         kategori = str(row.get("kategori") or row.get("program") or
                        rec.get("program") or mode_row or "")
         if kategori == "Iqro'":
             kategori = "Iqro' Dasar"
-        a["kategori"] = kategori or a["kategori"]
-        a["badge"] = str(row.get("badge") or a["badge"])
+        agr[kunci] = {
+            "nama": nama or username,
+            "username": username,
+            "xp_total": max(0, _lb_int(xp_value)),
+            "benar": max(0, _lb_int(row.get("benar"))),
+            "hafalan": max(0, _lb_int(row.get("hafalan") if row.get("hafalan") is not None
+                                      else row.get("jumlah_hafalan"))),
+            "materi": max(0, _lb_int(row.get("materi") if row.get("materi") is not None
+                                     else row.get("materi_selesai"))),
+            "hadir": max(0, _lb_int(row.get("hadir"))),
+            "ujian": max(0, _lb_int(row.get("ujian") or row.get("lulus"))),
+            "nilai": _rpc_skor(row),
+            "jk": str(row.get("jk") or row.get("jenis_kelamin") or
+                      rec.get("jenis_kelamin") or ""),
+            "status": str(row.get("status_santri") or row.get("status") or
+                          rec.get("status_santri") or ""),
+            "kategori": kategori,
+            "badge": str(row.get("badge") or ""),
+        }
 
-    baseline = state.get("baseline") or {}
-    baseline_norm = {rapikan_nama(str(kunci)).casefold(): nilai
-                     for kunci, nilai in baseline.items()}
     rows = []
     for a in agr.values():
-        if not a["xp_rpc"]:
-            a["xp"] += a["benar"] * LB_XP["benar"]
-        rec = siswa_map.get(rapikan_nama(a["nama"]).casefold(), {})
-        hafalan_field = _lb_int(rec.get("jumlah_hafalan"))
-        hadir_field = _lb_int(rec.get("hadir"))
-        nilai_field = _lb_int(rec.get("nilai_tahsin") or rec.get("nilai_tahfidz"))
-        nilai_list = a["nilai"]
-        nilai = (round(sum(nilai_list) / len(nilai_list)) if nilai_list
-                 else a["skor_terakhir"] if a["skor_terakhir"] is not None
-                 else nilai_field)
-        hafalan = max(a["hafalan"], hafalan_field)
-        hadir = max(a["hadir"], hadir_field)
-        xp = max(0, a["xp"])
-        b = baseline_norm.get(rapikan_nama(a["nama"]).casefold())
-        if isinstance(b, dict):
-            xp = max(0, xp - _lb_int(b.get("xp")))
+        rec = siswa_map.get(rapikan_nama(a["username"]).casefold()) or siswa_map.get(
+            rapikan_nama(a["nama"]).casefold(), {})
+        hafalan = max(a["hafalan"], _lb_int(rec.get("jumlah_hafalan")))
+        hadir = max(a["hadir"], _lb_int(rec.get("hadir")))
+        nilai = a["nilai"]
+        if nilai is None:
+            nilai = _lb_int(rec.get("nilai_tahsin") or rec.get("nilai_tahfidz"))
+        xp = a["xp_total"]
+        if mulai is None and sampai is None:
+            b = baseline_norm.get(rapikan_nama(a["username"]).casefold())
+            if b is None:
+                b = baseline_norm.get(rapikan_nama(a["nama"]).casefold())
+            if isinstance(b, dict):
+                xp = max(0, xp - _lb_int(b.get("xp")))
         rows.append({
-            "nama": a["nama"], "jk": a["jk"], "status": a["status"],
-            "kategori": a["kategori"], "xp": xp, "nilai": nilai,
-            "hafalan": hafalan, "materi": a["materi"], "hadir": hadir,
-            "badge": a["badge"], "benar": a["benar"],
+            "nama": a["nama"], "username": a["username"],
+            "jk": a["jk"], "status": a["status"],
+            "kategori": a["kategori"], "xp": xp, "xp_total": a["xp_total"],
+            "nilai": nilai, "hafalan": hafalan, "materi": a["materi"],
+            "hadir": hadir, "badge": a["badge"], "benar": a["benar"],
             "raw": {"materi": a["materi"], "benar": a["benar"],
                     "hafalan": hafalan, "hadir": hadir, "ujian": a["ujian"]},
         })
@@ -6629,7 +7050,8 @@ def page_leaderboard():
     """, unsafe_allow_html=True)
     st.markdown(_CSS_LEADERBOARD, unsafe_allow_html=True)
     if st.session_state.get("lb_info"):
-        st.success(st.session_state.pop("lb_info"))
+        st.success(st.session_state["lb_info"])
+        del st.session_state["lb_info"]
     st.markdown(
         '<div class="lb-head">📍 ' + T(
             "Kelas 11 - 20 Siswa - Tahun Ajaran 2026/2027",
@@ -6638,6 +7060,12 @@ def page_leaderboard():
         + "</div>", unsafe_allow_html=True)
 
     state = _lb_state()
+    if state.get("rows_error"):
+        st.error(f"Data Leaderboard gagal dimuat dari Supabase: {state['rows_error']}")
+        if st.button(T("Coba lagi", "Retry", "إعادة المحاولة"),
+                     key="lb_retry_rpc", use_container_width=True):
+            st.rerun()
+        st.stop()
     pengelola_lb = st.session_state.get("user_role") == "Pengelola"
     demo_lb = _contoh_aktif()
     if pengelola_lb:
@@ -6685,10 +7113,18 @@ def page_leaderboard():
     elif periode == "bulan":
         mulai = sekarang.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     else:
-        mulai = reset_dt
-    if reset_dt and (mulai is None or reset_dt > mulai):
+        mulai = None
+    if reset_dt and mulai is not None and reset_dt > mulai:
         mulai = reset_dt
     rows = _lb_rows(state, mulai, demo=demo_lb)
+    if state.get("contract_error_shown"):
+        st.warning(T("Leaderboard tidak ditampilkan karena format RPC belum sesuai kontrak agregat.",
+                     "Leaderboard is hidden because the RPC format does not match the aggregate contract.",
+                     "لا تظهر لوحة المتصدرين لأن تنسيق RPC لا يطابق عقد التجميع."))
+        if st.button(T("Coba lagi", "Retry", "إعادة المحاولة"),
+                     key="lb_retry_kontrak", use_container_width=True):
+            st.rerun()
+        st.stop()
     if periode == "minggu":
         m2 = (sekarang - timedelta(days=13)).replace(hour=0, minute=0, second=0, microsecond=0)
         s2 = (sekarang - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -6719,9 +7155,24 @@ def page_leaderboard():
     pos_lalu = {r["nama"]: i + 1
                 for i, r in enumerate(sorted(lalu, key=lambda r: (-r["xp"], r["nama"].lower())))}
 
-    st.caption(T("XP otomatis: Materi Selesai +10 · Kuis Benar +20 · Hafalan/Ujian Lulus +50 · Hadir +5.",
-                 "Automatic XP: Material Done +10 · Correct Quiz +20 · Memorization/Exam Passed +50 · Attendance +5.",
-                 "النقاط التلقائية: مادة مكتملة +10 · إجابة صحيحة +20 · حفظ/اختبار ناجح +50 · حضور +5."))
+    baseline_aktif = reset_dt and mulai is None
+    caption_xp = T(
+        "XP musim ini = total XP Supabase per siswa − baseline musim. Materi selesai belum menambah XP Leaderboard."
+        if baseline_aktif else
+        "XP periode ini memakai agregat Supabase untuk siswa dengan aktivitas pada periode tersebut; baseline musim tidak dikurangkan."
+        if reset_dt else
+        "XP Leaderboard bersumber dari agregat Supabase per siswa. Materi selesai belum menambah XP Leaderboard.",
+        "This season's XP = each student's total Supabase XP − season baseline. Completed materials do not add Leaderboard XP."
+        if baseline_aktif else
+        "Period XP uses Supabase aggregates for students active in that period; the season baseline is not subtracted."
+        if reset_dt else
+        "Leaderboard XP comes from Supabase aggregate data per student. Completed materials do not add Leaderboard XP.",
+        "نقاط هذا الموسم = إجمالي نقاط Supabase لكل طالب − خط الأساس للموسم. إكمال المواد لا يضيف نقاطًا إلى لوحة المتصدرين."
+        if baseline_aktif else
+        "تستخدم نقاط هذه الفترة بيانات Supabase المجمعة للطلاب النشطين في تلك الفترة؛ ولا يُطرح خط الأساس للموسم."
+        if reset_dt else
+        "نقاط لوحة المتصدرين مأخوذة من بيانات Supabase المجمعة لكل طالب. إكمال المواد لا يضيف نقاطًا إلى لوحة المتصدرين.")
+    st.caption(caption_xp)
 
     if not urut:
         if not pengelola_lb:
@@ -6761,7 +7212,7 @@ def page_leaderboard():
         st.markdown(_lb_tabel_html(tampil, pos_lalu, nama_saya), unsafe_allow_html=True)
 
     st.markdown("### 🏛️ " + T("Hall of Fame", "Hall of Fame", "قاعة المشاهير"))
-    hall = state.get("hall_of_fame") or []
+    hall = list(state.get("hall_of_fame") or [])
     if hall:
         kartu = []
         for e in list(reversed(hall))[:4]:
@@ -6791,12 +7242,12 @@ def page_leaderboard():
                          "إعادة تعيين الموسم تؤرشف أفضل 3 في قاعة المشاهير وتبدأ حساب نقاط جديد."))
             k1, k2, _ = st.columns([1, 1, 3])
             if k1.button(T("Ya", "Yes", "نعم"), key="lb_reset_ya"):
-                if not state.get("rows"):
+                rows_now = _lb_rows(state, demo=demo_lb)
+                if not rows_now or not any(r["xp"] > 0 for r in rows_now):
                     st.error(T("Belum ada aktivitas baru untuk diarsipkan.",
                                "There is no new activity to archive yet.",
                                "لا يوجد نشاط جديد للأرشفة بعد."))
                 else:
-                    rows_now = _lb_rows(state, demo=demo_lb)
                     urut_now = sorted(rows_now, key=lambda r: (-r["xp"], r["nama"].lower()))
                     juara = [{"nama": r["nama"], "xp": r["xp"],
                               "kategori": r["kategori"]} for r in urut_now[:3]]
@@ -6805,19 +7256,31 @@ def page_leaderboard():
                                  "juara": juara})
                     state = {"versi": 1,
                              "reset_at": sekarang.strftime("%Y-%m-%d %H:%M"),
-                             "baseline": {r["nama"]: {"xp": r["xp"], "raw": dict(r["raw"])}
-                                          for r in rows_now},
+                             "baseline": {
+                                 (r["username"] or r["nama"]): {
+                                     "xp": r["xp_total"], "raw": dict(r["raw"])
+                                 } for r in rows_now
+                             },
                              "hall_of_fame": hall,
-                             "seed_kelas11": state.get("seed_kelas11", 1)}
-                    _lb_simpan(state)
-                    st.session_state.pop("lb_konfirmasi", None)
+                             "musim": sekarang.strftime("%m/%Y"),
+                             "seed_kelas11": state.get("seed_kelas11", 1),
+                             "mode": state.get("mode", ""),
+                             "rows": state.get("rows") or []}
+                    if not _lb_simpan(state):
+                        st.error(T("Reset Musim gagal disimpan ke Supabase. Baseline lama tetap digunakan.",
+                                   "Season Reset failed to save to Supabase. The previous baseline remains active.",
+                                   "فشل حفظ إعادة تعيين الموسم في Supabase. يبقى خط الأساس السابق نشطًا."))
+                        return
+                    if "lb_konfirmasi" in st.session_state:
+                        del st.session_state["lb_konfirmasi"]
                     st.session_state["lb_info"] = T(
                         "Musim baru dimulai. Juara musim ini sudah masuk Hall of Fame.",
                         "A new season has started. This season's champions are in the Hall of Fame.",
                         "بدأ موسم جديد. أبطال هذا الموسم في قاعة المشاهير.")
                     st.rerun()
             if k2.button(T("Batal", "Cancel", "إلغاء"), key="lb_reset_batal"):
-                st.session_state.pop("lb_konfirmasi", None)
+                if "lb_konfirmasi" in st.session_state:
+                    del st.session_state["lb_konfirmasi"]
                 st.rerun()
         st.caption(T("Semua perubahan tersimpan otomatis.",
                      "All changes are saved automatically.",
@@ -6871,7 +7334,16 @@ def _simpan_kurikulum():
 
 def _semua_materi():
     _muat_kurikulum()
-    return list(st.session_state["_kurikulum"]["kustom"]) + list(DAFTAR_MATERI)
+    kustom = list(st.session_state["_kurikulum"]["kustom"])
+    id_kustom = {str(materi.get("id")) for materi in kustom}
+    gabung = {}
+    for materi in kustom + list(DAFTAR_MATERI):
+        gabung[str(materi.get("id"))] = materi
+    for materi in st.session_state.get("_materi_supabase") or []:
+        materi_id = str(materi.get("id"))
+        if materi_id not in id_kustom:
+            gabung[materi_id] = materi
+    return list(gabung.values())
 
 
 def _materi_by_id(materi_id: str):
@@ -7253,6 +7725,7 @@ def _kartu_materi(mat, status, selesai):
 
 
 def page_materi():
+    _muat_konten_supabase()
     st.markdown(f"""
     <div class="hero-small">
       <h2>📚 {T("Materi Pembelajaran", "Learning Materials", "المواد التعليمية")}</h2>
@@ -9747,6 +10220,11 @@ def _simpan_ke_materi(teks: str, mode_materi: str, level: int):
             + datetime.now().strftime("%d/%m/%Y %H:%M") + "</b><br>" + isi + "</div>")
     lama = MATERI.get(mode_materi, {}).get(int(level), "")
     MATERI[mode_materi][int(level)] = (lama + "<br><br>" + blok) if lama else blok
+    cadangan = st.session_state.get("_materi_json_cadangan")
+    if cadangan is not None:
+        lama_json = cadangan.get(mode_materi, {}).get(int(level), "")
+        cadangan.setdefault(mode_materi, {})[int(level)] = (
+            (lama_json + "<br><br>" + blok) if lama_json else blok)
     _tulis_semua(st.session_state.data)
 
 
