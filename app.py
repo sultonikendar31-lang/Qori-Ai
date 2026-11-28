@@ -2019,6 +2019,61 @@ def _rpc_users(nama: str, payload: dict):
         return None, f"RPC {nama} gagal: {exc}"
 
 
+def get_riwayat_hasil(username: str):
+    rows, error = _rpc_users("qori_riwayat_load", {"p_username": username})
+    if error:
+        st.error(f"Gagal memuat riwayat hasil dari Supabase: {error}")
+        return []
+    return rows or []
+
+
+def get_leaderboard(mode: str = ""):
+    rows, error = _rpc_users("qori_leaderboard_load", {"p_mode": mode or ""})
+    if error:
+        st.error(f"Gagal memuat leaderboard dari Supabase: {error}")
+        return []
+    return rows or []
+
+
+def _rpc_is_tes(row):
+    return row.get("is_tes") is True or str(row.get("is_tes") or "").lower() in (
+        "true", "1", "yes")
+
+
+def _rpc_mode(row):
+    nilai = str(row.get("mode") or row.get("materi_nama") or row.get("materi") or "")
+    if nilai.startswith("mode:"):
+        nilai = nilai[5:]
+    return next((m for m in MODE_LIST if m.casefold() == nilai.casefold()), "")
+
+
+def _rpc_nama(row):
+    return str(row.get("nama_siswa") or row.get("nama") or
+               row.get("siswa") or row.get("username") or "").strip()
+
+
+def _rpc_skor(row):
+    for key in ("skor", "persen", "skor_terakhir"):
+        if row.get(key) is not None:
+            try:
+                return int(float(row[key]))
+            except (TypeError, ValueError):
+                pass
+    try:
+        total = int(row.get("total_soal") or row.get("total") or 0)
+        benar = int(row.get("benar") or 0)
+        if total > 0:
+            return round(benar / total * 100)
+    except (TypeError, ValueError):
+        pass
+    if row.get("nilai") is not None:
+        try:
+            return int(float(row["nilai"]))
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
 def _nilai_rpc(value):
     if isinstance(value, list):
         return value[0] if value else None
@@ -2083,24 +2138,50 @@ def _progress_dari_rows(rows: list) -> dict:
     progress = {mode: {"xp": 0} for mode in MODE_LIST}
     mode_xp = {mode: 0 for mode in MODE_LIST}
     legacy_xp = {mode: 0 for mode in MODE_LIST}
+    mode_meta = {}
     for row in rows:
+        if row.get("is_tes") is True or str(row.get("is_tes") or "").lower() in ("true", "1", "yes"):
+            continue
         materi_id = str(row.get("materi_id") or "")
-        materi_nama = str(row.get("materi_nama") or "")
+        materi_nama = str(row.get("materi_nama") or row.get("mode") or "")
         mode = next((m for m in MODE_LIST if m.lower() == materi_nama.lower()), None)
         if mode is None and materi_id.startswith("mode:"):
             mode = next((m for m in MODE_LIST if m.lower() == materi_id[5:].lower()), None)
         if mode is None:
             continue
         try:
-            xp = max(0, int(float(row.get("nilai") or 0)))
+            xp_baru = max(0, int(float(row.get("xp") or 0)))
         except (TypeError, ValueError):
-            continue
+            xp_baru = 0
+        try:
+            xp_lama = max(0, int(float(row.get("nilai") or 0)))
+        except (TypeError, ValueError):
+            xp_lama = 0
+        xp = max(xp_baru, xp_lama)
         if materi_id.startswith("legacy:"):
             legacy_xp[mode] += xp
-        elif materi_id.startswith("mode:"):
+        elif materi_id.startswith("mode:") or row.get("mode"):
             mode_xp[mode] = max(mode_xp[mode], xp)
+            mode_meta[mode] = row
     for mode in MODE_LIST:
-        progress[mode]["xp"] = max(mode_xp[mode], legacy_xp[mode])
+        xp = max(mode_xp[mode], legacy_xp[mode])
+        meta = mode_meta.get(mode, {})
+        progress[mode]["xp"] = xp
+        try:
+            level = int(float(meta.get("level") or meta.get("level_terakhir") or 0))
+        except (TypeError, ValueError):
+            level = 0
+        progress[mode]["level"] = max(1, min(MAX_LEVEL, level or level_dari_xp(xp)[0]))
+        try:
+            progress[mode]["skor_terakhir"] = (
+                int(float(meta["skor_terakhir"])) if meta.get("skor_terakhir") is not None else None
+            )
+        except (TypeError, ValueError):
+            progress[mode]["skor_terakhir"] = None
+        try:
+            progress[mode]["jumlah_percobaan"] = max(0, int(meta.get("jumlah_percobaan") or 0))
+        except (TypeError, ValueError):
+            progress[mode]["jumlah_percobaan"] = 0
     return progress
 
 
@@ -2361,10 +2442,7 @@ def update_student_score_supabase(nama, mode, nilai):
     return True, None
 
 
-# Hasil game & ujian: lokal (nilai.json) tetap jadi sumber utama,
-# lalu disalin ke Supabase bila tersedia.
-KOLOM_HASIL_GAME = ("nama", "mode", "benar", "salah", "poin", "tanggal",
-                    "level", "jumlah_soal", "nilai")
+# Hasil game memakai RPC Supabase; jalur insert lama dipertahankan untuk ujian.
 KOLOM_HASIL_UJIAN = ("nama_siswa", "kelas", "materi", "skor", "jawaban",
                      "kategori", "nilai", "status_lulus", "tanggal")
 
@@ -2402,18 +2480,36 @@ def _kirim_hasil_supabase(tabel, isi, kandidat) -> bool:
         return False
 
 
-def simpan_hasil_game(nama_siswa, mode, level, benar, total_soal, nilai):
-    return _kirim_hasil_supabase("hasil_game", {
-        "nama": nama_siswa,
-        "mode": mode,
-        "benar": int(benar),
-        "salah": max(0, int(total_soal) - int(benar)),
-        "poin": int(nilai),
-        "tanggal": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "level": int(level),
-        "jumlah_soal": int(total_soal),
-        "nilai": int(nilai),
-    }, KOLOM_HASIL_GAME)
+def simpan_hasil_game(nama_siswa, mode, level, benar, total_soal, nilai,
+                      poin=None, is_tes=False):
+    username = st.session_state.get("user_username") or nama_siswa
+    payload = {
+        "p_username": str(username or "").strip(),
+        "p_nama": str(nama_siswa or "").strip(),
+        "p_mode": mode,
+        "p_level": int(level),
+        "p_benar": int(benar),
+        "p_salah": max(0, int(total_soal) - int(benar)),
+        "p_total_soal": int(total_soal),
+        "p_poin": int(nilai if poin is None else poin),
+        "p_is_tes": bool(is_tes),
+    }
+    result, error = _rpc_users("qori_hasil_save", payload)
+    if error:
+        st.error(f"Gagal menyimpan hasil ke Supabase: {error}")
+        return False
+    status = _nilai_rpc(result)
+    if isinstance(status, dict):
+        berhasil = bool(status.get("ok") or status.get("success"))
+    else:
+        try:
+            berhasil = int(status) > 0
+        except (TypeError, ValueError):
+            berhasil = status is True
+    if not berhasil:
+        st.error(f"Gagal menyimpan hasil ke Supabase: status RPC {status!r}.")
+        return False
+    return True
 
 
 def simpan_hasil_ujian(nama_siswa, kategori, materi, jawaban, nilai, status,
@@ -2835,15 +2931,55 @@ def mulai_sesi(tipe: str, mode: str, level: int):
     st.rerun()
 
 
+def _mode_tes_aktif():
+    return (st.session_state.get("user_role") == "Pengelola"
+            and bool(st.session_state.get("belajar_mode_tes")))
+
+
 def simpan_hasil(tipe: str, mode: str, level: int, benar: int, total: int, xp_awal: int):
     data = st.session_state.data
     skor = round(benar / total * 100)
-    if st.session_state.user_role != "Siswa":
+    if st.session_state.user_role not in ("Siswa", "Pengelola"):
         return skor, False
     q = st.session_state.get("quiz") or {}
     selesai = datetime.now().strftime("%Y-%m-%d %H:%M")
+    nama = data["profil"]["nama"]
+    if tipe == "ujian":
+        if st.session_state.user_role != "Siswa":
+            return skor, False
+        data["hasil"].append({
+            "siswa": nama,
+            "tipe": tipe,
+            "mode": mode,
+            "level": level,
+            "benar": benar,
+            "total": total,
+            "skor": skor,
+            "tanggal": selesai,
+            "seed": q.get("seed") or "",
+            "mulai": q.get("mulai") or selesai,
+            "selesai": selesai,
+        })
+        progres = data["progress"].setdefault(mode, {"xp": 0})
+        progres["xp"] += skor
+        data.setdefault("papan", {})
+        data["papan"][nama] = max(data["papan"].get(nama, 0), skor)
+        save_all_data()
+        simpan_hasil_ujian(nama, mode, str(level), [], skor,
+                           "Lulus" if skor >= BATAS_TUNTAS else "Belum lulus")
+        return skor, level_dari_xp(progres["xp"])[0] > level_dari_xp(xp_awal)[0]
+
+    is_tes = _mode_tes_aktif()
+    if st.session_state.user_role != "Siswa" and not is_tes:
+        return skor, False
+    if not simpan_hasil_game(nama, mode, level, benar, total, skor,
+                             poin=skor, is_tes=is_tes):
+        return skor, False
+    if is_tes:
+        return skor, False
+
     data["hasil"].append({
-        "siswa": data["profil"]["nama"],
+        "siswa": nama,
         "tipe": tipe,
         "mode": mode,
         "level": level,
@@ -2856,17 +2992,16 @@ def simpan_hasil(tipe: str, mode: str, level: int, benar: int, total: int, xp_aw
         "selesai": selesai,
     })
     progres = data["progress"].setdefault(mode, {"xp": 0})
-    progres["xp"] += skor
-    nama = data["profil"]["nama"]
+    progres["xp"] = int(progres.get("xp") or 0) + skor
+    level_baru = level_dari_xp(progres["xp"])[0]
+    progres["level"] = level_baru
+    progres["skor_terakhir"] = skor
+    progres["jumlah_percobaan"] = int(progres.get("jumlah_percobaan") or 0) + 1
     data.setdefault("papan", {})
     data["papan"][nama] = max(data["papan"].get(nama, 0), skor)
-    save_all_data()
-    if tipe == "ujian":
-        simpan_hasil_ujian(nama, mode, str(level), [], skor,
-                           "Lulus" if skor >= BATAS_TUNTAS else "Belum lulus")
-    else:
-        simpan_hasil_game(nama, mode, level, benar, total, skor)
-    naik = level_dari_xp(progres["xp"])[0] > level_dari_xp(xp_awal)[0]
+    naik = level_baru > level_dari_xp(xp_awal)[0]
+    if naik:
+        st.session_state[f"belajar_level_{mode}"] = level_baru
     return skor, naik
 
 
@@ -4029,12 +4164,24 @@ MINI_CSS = """<style>
 
 def simpan_game_cepat(mode: str, skor: int, benar: int = 0,
                       total: int = MINI_RONDE, level: int = 1):
+    role = st.session_state.get("user_role")
+    if role not in ("Siswa", "Pengelola"):
+        return
+    is_tes = _mode_tes_aktif()
+    if role != "Siswa" and not is_tes:
+        return
     data = st.session_state.data
     total = max(1, int(total))
     benar = max(0, min(total, int(benar)))
     persen = round(benar / total * 100)
+    nama = data["profil"]["nama"]
+    if not simpan_hasil_game(nama, mode, int(level), benar, total, persen,
+                             poin=int(skor), is_tes=is_tes):
+        return
+    if is_tes:
+        return
     data["hasil"].append({
-        "siswa": data["profil"]["nama"],
+        "siswa": nama,
         "tipe": "game",
         "mode": mode,
         "level": int(level),
@@ -4044,12 +4191,12 @@ def simpan_game_cepat(mode: str, skor: int, benar: int = 0,
         "tanggal": datetime.now().strftime("%Y-%m-%d %H:%M"),
     })
     progres = data["progress"].setdefault(mode, {"xp": 0})
-    progres["xp"] += int(skor)
-    nama = data["profil"]["nama"]
+    progres["xp"] = int(progres.get("xp") or 0) + int(skor)
+    progres["level"] = level_dari_xp(progres["xp"])[0]
+    progres["skor_terakhir"] = persen
+    progres["jumlah_percobaan"] = int(progres.get("jumlah_percobaan") or 0) + 1
     data.setdefault("papan", {})
     data["papan"][nama] = max(data["papan"].get(nama, 0), persen)
-    save_all_data()
-    simpan_hasil_game(nama, mode, int(level), benar, total, persen)
 
 
 def mini_reset(mode: str, game: str):
@@ -4298,7 +4445,7 @@ def render_mini_game():
                    "3 nyawa · 2 benar beruntun = level naik lebih cepat.")
     else:
         st.caption("Poin per jawaban benar: +10 (mudah), +15 (sedang), +20 (sulit) · "
-                   "3 nyawa · Hasil akhir otomatis masuk ke Nilai & Hasil.")
+                   "3 nyawa · Hasil hanya disimpan jika Mode Tes aktif.")
     if st.button("▶ Mulai Mini Game - 10 Ronde", key="mini_start", type="primary",
                  use_container_width=True):
         mini_reset(mode, game)
@@ -4537,23 +4684,29 @@ _CSS_BELAJAR = """<style>
 
 
 def _belajar_skor():
-    nama = rapikan_nama(str(st.session_state.get("user_name") or "")).casefold()
-    nama_kelas = {rapikan_nama(d["nama"]).casefold() for d in LB_SISWA}
-    skor_saya, skor_kelas = [], []
-    for h in st.session_state.data.get("hasil", []) or []:
-        if str(h.get("tipe")) != "game":
+    username = str(st.session_state.get("user_username") or "").strip()
+    mode = st.session_state.get("mode", MODE_LIST[0])
+    skor_saya = []
+    for row in get_riwayat_hasil(username):
+        jenis = str(row.get("tipe") or row.get("jenis") or "").casefold()
+        if (jenis and not any(k in jenis for k in ("game", "latihan", "mini"))) or _rpc_is_tes(row):
             continue
-        siapa = rapikan_nama(str(h.get("siswa") or "")).casefold()
-        if siapa not in nama_kelas:
+        if _rpc_mode(row) and _rpc_mode(row) != mode:
             continue
-        try:
-            skor = int(h.get("skor") or 0)
-        except (TypeError, ValueError):
+        skor = _rpc_skor(row)
+        if skor is None:
             continue
-        skor_kelas.append(skor)
-        if siapa == nama:
-            skor_saya.append((_lb_parse_tanggal(h.get("tanggal")) or datetime.min, skor))
+        skor_saya.append((_lb_parse_tanggal(row.get("tanggal") or row.get("created_at"))
+                          or datetime.min, skor))
     terakhir = max(skor_saya)[1] if skor_saya else None
+
+    skor_kelas = []
+    for row in get_leaderboard(mode):
+        if _rpc_is_tes(row):
+            continue
+        skor = _rpc_skor(row)
+        if skor is not None:
+            skor_kelas.append(skor)
     return terakhir, (max(skor_kelas) if skor_kelas else None)
 
 
@@ -4579,6 +4732,13 @@ def page_belajar():
     if st.session_state.get("quiz") and st.session_state.quiz["tipe"] == "game":
         render_quiz()
         return
+    if st.session_state.get("user_role") == "Pengelola":
+        st.session_state.setdefault("belajar_mode_tes", False)
+        st.checkbox("Simpan hasil coba ini ke Supabase (Mode Tes)",
+                    key="belajar_mode_tes")
+        if st.session_state.get("belajar_mode_tes"):
+            st.caption("Mode Tes aktif: hasil disimpan dengan is_tes=true dan "
+                       "tidak masuk progres atau peringkat Siswa.")
     tab_latihan, tab_mini = st.tabs([
         T("📝 Latihan Soal (20 Soal)", "📝 Question Practice (20 Qs)", "📝 تدريب الأسئلة (٢٠)"),
         T("🎮 Mini Game (10 Ronde)", "🎮 Mini Games (10 Rounds)", "🎮 ألعاب مصغرة (١٠)")])
@@ -4609,8 +4769,17 @@ def page_belajar():
                 return
             st.session_state.mode = mode
         with k2:
+            progres = st.session_state.data.get("progress", {}).get(mode, {})
+            try:
+                level_tersimpan = int(progres.get("level") or 1)
+            except (TypeError, ValueError):
+                level_tersimpan = 1
+            level_tersimpan = max(1, min(MAX_LEVEL, level_tersimpan))
+            level_key = f"belajar_level_{mode}"
             level = st.select_slider(T("Tingkat", "Level", "المستوى"),
-                                     options=list(range(1, MAX_LEVEL + 1)), value=1)
+                                     options=list(range(1, MAX_LEVEL + 1)),
+                                     value=st.session_state.get(level_key, level_tersimpan),
+                                     key=level_key)
             label_level = BELAJAR_LEVEL[mode][level - 1]
             st.markdown(
                 '<div class="bl-level"><b>Level ' + str(level) + ' - '
@@ -5905,37 +6074,6 @@ LB_PERIODE = {
 _LB_MEDAL = ["🥇", "🥈", "🥉"]
 
 
-def _seed_kelas11(data):
-    isi = _baca_json(LEADERBOARD_FILE, {})
-    if int(isi.get("seed_kelas11") or 0) >= 1:
-        return
-    lama = {rapikan_nama(str(s.get("nama") or "")).lower(): s
-            for s in data.get("siswa", []) or []}
-    baru = []
-    for d in LB_SISWA:
-        rec = dict(lama.get(d["nama"].lower(), {}))
-        program = "Iqro'" if d["kategori"] == "Iqro' Dasar" else d["kategori"]
-        rec.update({
-            "nama": d["nama"], "kelas": "Kelas 11", "program": program,
-            "jenis_kelamin": d["jk"], "status_santri": d["status"],
-            "jumlah_hafalan": str(d["hafalan"]),
-            "nilai_tahsin": d["nilai"] if program in ("Tahsin", "Iqro'") else int(rec.get("nilai_tahsin") or 0),
-            "nilai_tahfidz": d["nilai"] if program == "Tahfidz" else int(rec.get("nilai_tahfidz") or 0),
-        })
-        baru.append(rec)
-    data["siswa"] = baru
-    if not isinstance(isi, dict):
-        isi = {}
-    isi.setdefault("versi", 1)
-    isi.setdefault("reset_at", "")
-    isi.setdefault("baseline", {})
-    isi.setdefault("hall_of_fame", [])
-    isi["seed_kelas11"] = 1
-    _tulis_json(LEADERBOARD_FILE, isi)
-
-
-_seed_kelas11(st.session_state.data)
-
 _CSS_LEADERBOARD = """
 <style>
 .lb-podium{display:grid;grid-template-columns:1.1fr 1fr 1fr;gap:14px;align-items:end;margin:10px 0 18px}
@@ -5995,119 +6133,147 @@ _CSS_LEADERBOARD = """
 
 
 def _lb_parse_tanggal(teks):
+    teks = str(teks or "").strip()
+    if not teks:
+        return None
+    try:
+        dt = datetime.fromisoformat(teks.replace("Z", "+00:00"))
+        return dt.replace(tzinfo=None) if dt.tzinfo else dt
+    except ValueError:
+        pass
     for fmt in ("%Y-%m-%d %H:%M", "%d/%m/%Y %H:%M", "%Y-%m-%d"):
         try:
-            return datetime.strptime(str(teks or "").strip(), fmt)
+            return datetime.strptime(teks, fmt)
         except ValueError:
             continue
     return None
 
 
-def _lb_state():
-    isi = _baca_json(LEADERBOARD_FILE, {})
-    baseline = isi.get("baseline") if isinstance(isi.get("baseline"), dict) else {}
-    hall = [e for e in (isi.get("hall_of_fame") or []) if isinstance(e, dict)]
-    return {"versi": 1, "reset_at": str(isi.get("reset_at") or ""),
-            "baseline": baseline, "hall_of_fame": hall,
-            "seed_kelas11": int(isi.get("seed_kelas11") or 0)}
+def _lb_state(mode: str = ""):
+    meta = st.session_state.get("lb_meta")
+    if not isinstance(meta, dict):
+        meta = {"versi": 1, "reset_at": "", "baseline": {},
+                "hall_of_fame": [], "seed_kelas11": 1}
+        st.session_state["lb_meta"] = meta
+    meta["mode"] = mode or ""
+    meta["rows"] = get_leaderboard(mode or "")
+    return meta
 
 
 def _lb_simpan(state):
-    _tulis_json(LEADERBOARD_FILE, state)
+    st.session_state["lb_meta"] = {
+        "versi": 1,
+        "reset_at": str(state.get("reset_at") or ""),
+        "baseline": state.get("baseline") if isinstance(state.get("baseline"), dict) else {},
+        "hall_of_fame": [e for e in (state.get("hall_of_fame") or []) if isinstance(e, dict)],
+        "seed_kelas11": int(state.get("seed_kelas11") or 1),
+        "mode": str(state.get("mode") or ""),
+        "rows": state.get("rows") or [],
+    }
 
 
-def _lb_hasil_dalam(mulai=None, sampai=None):
-    keluar = []
-    for h in st.session_state.data.get("hasil", []) or []:
-        dt = _lb_parse_tanggal(h.get("tanggal"))
-        if dt is None:
-            continue
-        if mulai is not None and dt < mulai:
-            continue
-        if sampai is not None and dt >= sampai:
-            continue
-        keluar.append(h)
-    return keluar
+def _lb_int(nilai, default=0):
+    try:
+        return int(float(nilai))
+    except (TypeError, ValueError):
+        return default
 
 
 def _lb_rows(state, mulai=None, sampai=None, demo=True):
+    siswa_map = {}
+    for siswa in st.session_state.data.get("siswa", []) or []:
+        for kunci in (siswa.get("nama"), siswa.get("username")):
+            kunci = rapikan_nama(str(kunci or "")).casefold()
+            if kunci:
+                siswa_map[kunci] = siswa
+
     agr = {}
-    for h in _lb_hasil_dalam(mulai, sampai):
-        nama = str(h.get("siswa") or "").strip().lower()
-        if not nama:
+    mode_filter = str(state.get("mode") or "")
+    for row in state.get("rows") or []:
+        if not isinstance(row, dict) or _rpc_is_tes(row):
             continue
-        a = agr.setdefault(nama, {"benar": 0, "hafalan": 0, "nilai": [], "ujian": 0})
-        a["benar"] += max(0, int(h.get("benar") or 0))
-        skor = int(h.get("skor") or 0)
-        manual = str(h.get("tipe")) == "manual"
-        ujian_asli = str(h.get("tipe")) == "ujian"
-        if (str(h.get("mode")) == "Tahfidz" and not manual and not ujian_asli
-                and skor >= 60):
-            a["hafalan"] += 1
-        if manual and skor >= 70:
-            a["ujian"] += 1
-        if ujian_asli and skor >= BATAS_TUNTAS:
-            a["ujian"] += 1
-        if 0 <= skor <= 100:
-            a["nilai"].append(skor)
-    kur = _baca_json(KURIKULUM_FILE, {})
-    selesai_map = kur.get("selesai") if isinstance(kur.get("selesai"), dict) else {}
-    selesai_lower = {str(k).strip().lower(): v for k, v in selesai_map.items()}
-    siswa_map = {str(s.get("nama") or "").strip().lower(): s
-                 for s in st.session_state.data.get("siswa", []) or []}
-    baseline = state.get("baseline") or {}
-    rows = []
-    for d in LB_SISWA:
-        kunci = d["nama"].lower()
+        mode_row = _rpc_mode(row)
+        if mode_filter and mode_row and mode_row != mode_filter:
+            continue
+        dt = _lb_parse_tanggal(row.get("tanggal") or row.get("created_at"))
+        if dt is not None and mulai is not None and dt < mulai:
+            continue
+        if dt is not None and sampai is not None and dt >= sampai:
+            continue
+        nama = _rpc_nama(row)
+        identitas = str(row.get("username") or nama)
+        kunci = rapikan_nama(identitas).casefold()
+        if not kunci:
+            continue
         rec = siswa_map.get(kunci, {})
-        a = agr.get(kunci, {"benar": 0, "hafalan": 0, "nilai": [], "ujian": 0})
-        materi_kur = len({str(i) for i in (selesai_lower.get(kunci) or [])})
-        try:
-            hafalan_field = max(0, int(float(str(rec.get("jumlah_hafalan") or 0))))
-        except (TypeError, ValueError):
-            hafalan_field = 0
-        try:
-            hadir = max(0, int(rec.get("hadir") or 0))
-        except (TypeError, ValueError):
-            hadir = 0
-        try:
-            nilai_field = int(float(rec.get("nilai_tahsin") or rec.get("nilai_tahfidz") or 0))
-        except (TypeError, ValueError):
-            nilai_field = 0
-        nilai_list = [v for v in a["nilai"] if 0 <= v <= 100]
-        if demo:
-            materi = max(d["materi"], materi_kur)
-            hafalan = max(d["hafalan"], hafalan_field, a["hafalan"])
-            nilai = (round(sum(nilai_list) / len(nilai_list)) if nilai_list
-                     else max(d["nilai"], nilai_field))
-            badge = d["badge"]
-            xp = (d["xp"] + a["benar"] * LB_XP["benar"]
-                  + max(0, materi - d["materi"]) * LB_XP["materi"]
-                  + max(0, hafalan - d["hafalan"]) * LB_XP["hafalan"]
-                  + hadir * LB_XP["hadir"]
-                  + a["ujian"] * LB_XP["ujian"])
-        else:
-            materi = materi_kur
-            hafalan = a["hafalan"]
-            nilai = round(sum(nilai_list) / len(nilai_list)) if nilai_list else 0
-            badge = ""
-            xp = (a["benar"] * LB_XP["benar"] + materi * LB_XP["materi"]
-                  + hafalan * LB_XP["hafalan"] + hadir * LB_XP["hadir"]
-                  + a["ujian"] * LB_XP["ujian"])
-            if not (a["benar"] or nilai_list or materi_kur or hadir or a["ujian"]
-                    or a["hafalan"]):
-                continue
-        b = baseline.get(d["nama"]) if isinstance(baseline.get(d["nama"]), dict) else {}
-        try:
-            xp = max(0, xp - int(b.get("xp") or 0))
-        except (TypeError, ValueError):
-            pass
+        a = agr.setdefault(kunci, {
+            "nama": nama, "xp": 0, "xp_rpc": False, "benar": 0,
+            "hafalan": 0, "materi": 0, "hadir": 0, "ujian": 0,
+            "nilai": [], "skor_terakhir": None, "jk": "", "status": "",
+            "kategori": "", "badge": "",
+        })
+        xp = row.get("xp")
+        if xp is None:
+            xp = row.get("total_xp")
+        if xp is not None:
+            a["xp"] = max(a["xp"], _lb_int(xp))
+            a["xp_rpc"] = True
+        elif row.get("poin") is not None:
+            a["xp"] += max(0, _lb_int(row.get("poin")))
+        a["benar"] += max(0, _lb_int(row.get("benar")))
+        a["hafalan"] = max(a["hafalan"], _lb_int(
+            row.get("hafalan") if row.get("hafalan") is not None
+            else row.get("jumlah_hafalan")))
+        a["materi"] = max(a["materi"], _lb_int(
+            row.get("materi") if row.get("materi") is not None
+            else row.get("materi_selesai")))
+        a["hadir"] = max(a["hadir"], _lb_int(row.get("hadir")))
+        a["ujian"] = max(a["ujian"], _lb_int(row.get("ujian") or row.get("lulus")))
+        skor = _rpc_skor(row)
+        if skor is not None and 0 <= skor <= 100:
+            a["nilai"].append(skor)
+        if row.get("skor_terakhir") is not None:
+            a["skor_terakhir"] = _lb_int(row.get("skor_terakhir"), a["skor_terakhir"] or 0)
+        if mode_row == "Tahfidz" and skor is not None and skor >= 60:
+            a["hafalan"] += 1
+        a["jk"] = str(row.get("jk") or row.get("jenis_kelamin") or
+                      rec.get("jenis_kelamin") or a["jk"])
+        a["status"] = str(row.get("status_santri") or row.get("status") or
+                          rec.get("status_santri") or a["status"])
+        kategori = str(row.get("kategori") or row.get("program") or
+                       rec.get("program") or mode_row or "")
+        if kategori == "Iqro'":
+            kategori = "Iqro' Dasar"
+        a["kategori"] = kategori or a["kategori"]
+        a["badge"] = str(row.get("badge") or a["badge"])
+
+    baseline = state.get("baseline") or {}
+    baseline_norm = {rapikan_nama(str(kunci)).casefold(): nilai
+                     for kunci, nilai in baseline.items()}
+    rows = []
+    for a in agr.values():
+        if not a["xp_rpc"]:
+            a["xp"] += a["benar"] * LB_XP["benar"]
+        rec = siswa_map.get(rapikan_nama(a["nama"]).casefold(), {})
+        hafalan_field = _lb_int(rec.get("jumlah_hafalan"))
+        hadir_field = _lb_int(rec.get("hadir"))
+        nilai_field = _lb_int(rec.get("nilai_tahsin") or rec.get("nilai_tahfidz"))
+        nilai_list = a["nilai"]
+        nilai = (round(sum(nilai_list) / len(nilai_list)) if nilai_list
+                 else a["skor_terakhir"] if a["skor_terakhir"] is not None
+                 else nilai_field)
+        hafalan = max(a["hafalan"], hafalan_field)
+        hadir = max(a["hadir"], hadir_field)
+        xp = max(0, a["xp"])
+        b = baseline_norm.get(rapikan_nama(a["nama"]).casefold())
+        if isinstance(b, dict):
+            xp = max(0, xp - _lb_int(b.get("xp")))
         rows.append({
-            "nama": d["nama"], "jk": d["jk"], "status": d["status"],
-            "kategori": d["kategori"], "xp": xp, "nilai": nilai,
-            "hafalan": hafalan, "materi": materi, "hadir": hadir,
-            "badge": badge, "benar": a["benar"],
-            "raw": {"materi": materi, "benar": a["benar"],
+            "nama": a["nama"], "jk": a["jk"], "status": a["status"],
+            "kategori": a["kategori"], "xp": xp, "nilai": nilai,
+            "hafalan": hafalan, "materi": a["materi"], "hadir": hadir,
+            "badge": a["badge"], "benar": a["benar"],
+            "raw": {"materi": a["materi"], "benar": a["benar"],
                     "hafalan": hafalan, "hadir": hadir, "ujian": a["ujian"]},
         })
     return rows
@@ -6352,7 +6518,7 @@ def page_leaderboard():
                          "إعادة تعيين الموسم تؤرشف أفضل 3 في قاعة المشاهير وتبدأ حساب نقاط جديد."))
             k1, k2, _ = st.columns([1, 1, 3])
             if k1.button(T("Ya", "Yes", "نعم"), key="lb_reset_ya"):
-                if not _lb_hasil_dalam(reset_dt):
+                if not state.get("rows"):
                     st.error(T("Belum ada aktivitas baru untuk diarsipkan.",
                                "There is no new activity to archive yet.",
                                "لا يوجد نشاط جديد للأرشفة بعد."))
