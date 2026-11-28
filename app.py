@@ -2442,47 +2442,39 @@ def update_student_score_supabase(nama, mode, nilai):
     return True, None
 
 
-# Hasil game memakai RPC Supabase; jalur insert lama dipertahankan untuk ujian.
-KOLOM_HASIL_UJIAN = ("nama_siswa", "kelas", "materi", "skor", "jawaban",
-                     "kategori", "nilai", "status_lulus", "tanggal")
-
-
-@st.cache_data(ttl=600, show_spinner=False)
-def kolom_hasil_supabase(tabel: str, kandidat: tuple) -> tuple:
-    """Kolom yang benar-benar ada di tabel, agar cocok dengan skema Supabase guru."""
+# Hasil ujian dikirim langsung ke Supabase; JSON hanya cadangan setelah sukses.
+def _kirim_hasil_supabase(tabel, isi) -> bool:
     client, error = get_supabase_client()
     if error:
-        return ()
-    ada = []
-    for kolom in kandidat:
-        try:
-            client.table(tabel).select(kolom).limit(0).execute()
-            ada.append(kolom)
-        except Exception:
-            pass
-    return tuple(ada)
-
-
-def _kirim_hasil_supabase(tabel, isi, kandidat) -> bool:
-    client, error = get_supabase_client()
-    if error:
+        st.error(f"Gagal menyimpan hasil ujian ke Supabase: {error}")
         return False
-    kolom = kolom_hasil_supabase(tabel, kandidat)
-    if not kolom:
-        return False
-    data = {k: v for k, v in isi.items() if k in kolom}
     try:
-        client.table(tabel).insert(data).execute()
+        client.table(tabel).insert(isi).execute()
         return True
-    except Exception:
-        st.toast("Hasil tersimpan di aplikasi, tetapi gagal dikirim ke Supabase.",
-                 icon="⚠️")
+    except Exception as exc:
+        st.error(f"Gagal menyimpan hasil ujian ke Supabase: {exc}")
         return False
 
 
 def simpan_hasil_game(nama_siswa, mode, level, benar, total_soal, nilai,
                       poin=None, is_tes=False):
-    username = st.session_state.get("user_username") or nama_siswa
+    role = st.session_state.get("user_role")
+    if role == "Pengelola":
+        if not _mode_tes_aktif():
+            st.error("Pengelola harus mengaktifkan Mode Tes sebelum menyimpan hasil game.")
+            return False
+        is_tes = True
+    elif role == "Siswa":
+        is_tes = False
+    else:
+        st.error("Peran ini tidak diizinkan menyimpan hasil game.")
+        return False
+
+    username = st.session_state.get("user_username")
+    if role == "Pengelola" and not username:
+        st.error("Username Pengelola tidak tersedia untuk menyimpan Mode Tes.")
+        return False
+    username = username or _username_siswa(nama_siswa)
     payload = {
         "p_username": str(username or "").strip(),
         "p_nama": str(nama_siswa or "").strip(),
@@ -2513,18 +2505,62 @@ def simpan_hasil_game(nama_siswa, mode, level, benar, total_soal, nilai,
 
 
 def simpan_hasil_ujian(nama_siswa, kategori, materi, jawaban, nilai, status,
-                       kelas=""):
-    return _kirim_hasil_supabase("hasil_ujian", {
-        "nama_siswa": nama_siswa,
-        "kelas": kelas,
-        "materi": materi,
+                       kelas="", username="", is_tes=False, level="", created_at=""):
+    role = st.session_state.get("user_role")
+    if role == "Pengelola":
+        is_tes = bool(is_tes) and _mode_tes_aktif()
+        if is_tes:
+            username = st.session_state.get("user_username")
+    elif role in ("Siswa", "Guru"):
+        is_tes = False
+        username = username or st.session_state.get("user_username")
+    else:
+        st.error("Peran ini tidak diizinkan menyimpan hasil ujian.")
+        return False
+
+    username = str(username or "").strip()
+    if not username:
+        st.error("Nilai ujian tidak dikirim karena username pengirim kosong.")
+        return False
+    payload = {
+        "username": username,
+        "is_tes": bool(is_tes),
+        "level": str(level or ""),
+        "nama_siswa": str(nama_siswa or "").strip(),
+        "kelas": str(kelas or "").strip(),
+        "materi": str(materi or "").strip(),
         "skor": int(nilai),
-        "jawaban": jawaban,
-        "kategori": kategori,
-        "nilai": int(nilai),
-        "status_lulus": status,
-        "tanggal": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    }, KOLOM_HASIL_UJIAN)
+        "jawaban": jawaban or [],
+    }
+    if created_at:
+        payload["created_at"] = (created_at.strftime("%Y-%m-%d %H:%M:%S")
+                                 if isinstance(created_at, datetime) else str(created_at))
+    return _kirim_hasil_supabase("hasil_ujian", payload)
+
+
+def _reset_hasil_supabase():
+    client, error = get_supabase_client()
+    if error:
+        st.error(f"Gagal reset nilai di Supabase: {error}")
+        return False
+    for tabel in ("hasil_ujian", "hasil_game"):
+        try:
+            client.table(tabel).delete().gte("id", 0).execute()
+        except Exception as exc:
+            st.error(f"Gagal reset tabel {tabel} di Supabase: {exc}")
+            return False
+    try:
+        client.table("progress_belajar").update({
+            "xp": 0,
+            "nilai": 0,
+            "skor_terakhir": 0,
+            "jumlah_percobaan": 0,
+            "level": 1,
+        }).gte("id", 0).execute()
+    except Exception as exc:
+        st.error(f"Gagal reset progress di Supabase: {exc}")
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -2824,6 +2860,22 @@ def _nama_peserta():
     return str(st.session_state.get("user_name") or "Pengelola")
 
 
+def _kelas_dari_nama(nama):
+    kunci = rapikan_nama(str(nama or "")).casefold()
+    for siswa in st.session_state.get("data", {}).get("siswa", []) or []:
+        if rapikan_nama(str(siswa.get("nama") or "")).casefold() == kunci:
+            return str(siswa.get("kelas") or "")
+    return ""
+
+
+def _username_siswa(nama):
+    kunci = rapikan_nama(str(nama or "")).casefold()
+    for siswa in st.session_state.get("data", {}).get("siswa", []) or []:
+        if rapikan_nama(str(siswa.get("nama") or "")).casefold() == kunci:
+            return str(siswa.get("username") or kunci).strip()
+    return " ".join(str(nama or "").strip().lower().split())
+
+
 def _rng_sesi(username, mode, level):
     """Acak deterministik per siswa per hari: refresh tetap sama, siswa/besok beda."""
     tgl = datetime.now().strftime("%Y%m%d")
@@ -2939,14 +2991,28 @@ def _mode_tes_aktif():
 def simpan_hasil(tipe: str, mode: str, level: int, benar: int, total: int, xp_awal: int):
     data = st.session_state.data
     skor = round(benar / total * 100)
-    if st.session_state.user_role not in ("Siswa", "Pengelola"):
-        return skor, False
+    role = st.session_state.get("user_role")
+    if role not in ("Siswa", "Pengelola"):
+        st.error("Peran ini tidak diizinkan menyimpan hasil.")
+        return skor, False, False
     q = st.session_state.get("quiz") or {}
     selesai = datetime.now().strftime("%Y-%m-%d %H:%M")
     nama = data["profil"]["nama"]
     if tipe == "ujian":
-        if st.session_state.user_role != "Siswa":
-            return skor, False
+        is_tes = _mode_tes_aktif()
+        if role != "Siswa" and not is_tes:
+            st.error("Pengelola harus mengaktifkan Mode Tes sebelum menyimpan hasil ujian.")
+            return skor, False, False
+        username = (st.session_state.get("user_username") or _username_siswa(nama))
+        if not simpan_hasil_ujian(
+            nama, mode, mode, [], skor,
+            "Lulus" if skor >= BATAS_TUNTAS else "Belum lulus",
+            kelas=_kelas_dari_nama(nama), username=username,
+            is_tes=is_tes, level=str(level), created_at=selesai,
+        ):
+            return skor, False, False
+        if is_tes:
+            return skor, False, True
         data["hasil"].append({
             "siswa": nama,
             "tipe": tipe,
@@ -2959,24 +3025,24 @@ def simpan_hasil(tipe: str, mode: str, level: int, benar: int, total: int, xp_aw
             "seed": q.get("seed") or "",
             "mulai": q.get("mulai") or selesai,
             "selesai": selesai,
+            "username": username,
+            "is_tes": False,
         })
         progres = data["progress"].setdefault(mode, {"xp": 0})
-        progres["xp"] += skor
+        progres["xp"] = int(progres.get("xp") or 0) + skor
         data.setdefault("papan", {})
         data["papan"][nama] = max(data["papan"].get(nama, 0), skor)
         save_all_data()
-        simpan_hasil_ujian(nama, mode, str(level), [], skor,
-                           "Lulus" if skor >= BATAS_TUNTAS else "Belum lulus")
-        return skor, level_dari_xp(progres["xp"])[0] > level_dari_xp(xp_awal)[0]
+        st.session_state.pop("_nilai_riwayat_cache", None)
+        naik = level_dari_xp(progres["xp"])[0] > level_dari_xp(xp_awal)[0]
+        return skor, naik, True
 
     is_tes = _mode_tes_aktif()
-    if st.session_state.user_role != "Siswa" and not is_tes:
-        return skor, False
     if not simpan_hasil_game(nama, mode, level, benar, total, skor,
                              poin=skor, is_tes=is_tes):
-        return skor, False
+        return skor, False, False
     if is_tes:
-        return skor, False
+        return skor, False, True
 
     data["hasil"].append({
         "siswa": nama,
@@ -3002,17 +3068,25 @@ def simpan_hasil(tipe: str, mode: str, level: int, benar: int, total: int, xp_aw
     naik = level_baru > level_dari_xp(xp_awal)[0]
     if naik:
         st.session_state[f"belajar_level_{mode}"] = level_baru
-    return skor, naik
+    save_all_data()
+    st.session_state.pop("_nilai_riwayat_cache", None)
+    return skor, naik, True
 
 
 def selesaikan_sesi():
     q = st.session_state.quiz
     n = len(q["soal"])
-    skor, naik = simpan_hasil(
+    skor, naik, tersimpan = simpan_hasil(
         q["tipe"], q["mode"], q["level"], q["benar"], n, q["xp_awal"]
     )
     q["skor"] = skor
-    q["naik"] = naik
+    q["naik"] = naik if tersimpan else False
+    if not tersimpan:
+        q["gagal_simpan"] = (
+            "Hasil sesi gagal disimpan ke Supabase. Silakan coba kirim kembali.")
+        st.rerun()
+        return
+    q.pop("gagal_simpan", None)
     q["finished"] = True
     st.rerun()
 
@@ -3027,10 +3101,17 @@ def ada_arab(teks) -> bool:
 
 def _selesaikan_waktu():
     q = st.session_state.quiz
-    skor, naik = simpan_hasil(
+    skor, naik, tersimpan = simpan_hasil(
         q["tipe"], q["mode"], q["level"], q["benar"], len(q["soal"]), q["xp_awal"]
     )
-    q.update(skor=skor, naik=naik, finished=True, expired=True)
+    q.update(skor=skor, naik=naik if tersimpan else False,
+             finished=True, expired=True)
+    if not tersimpan:
+        q["gagal_simpan"] = (
+            "Waktu habis, tetapi hasil sesi gagal disimpan ke Supabase. "
+            "Silakan coba kirim kembali.")
+    else:
+        q.pop("gagal_simpan", None)
     st.rerun(scope="app")
 
 
@@ -3054,6 +3135,19 @@ def render_quiz():
     mode, level, tipe = q["mode"], q["level"], q["tipe"]
     soal_list = q["soal"]
     n = len(soal_list)
+
+    if q.get("gagal_simpan"):
+        st.error(str(q["gagal_simpan"]))
+        if st.button("🔄 Coba simpan kembali", type="primary",
+                     use_container_width=True):
+            if q.get("expired"):
+                _selesaikan_waktu()
+            else:
+                selesaikan_sesi()
+        if st.button("✖ Batalkan sesi", use_container_width=True):
+            st.session_state.pop("quiz", None)
+            st.rerun()
+        return
 
     if q["finished"]:
         skor = q["skor"]
@@ -4164,12 +4258,7 @@ MINI_CSS = """<style>
 
 def simpan_game_cepat(mode: str, skor: int, benar: int = 0,
                       total: int = MINI_RONDE, level: int = 1):
-    role = st.session_state.get("user_role")
-    if role not in ("Siswa", "Pengelola"):
-        return
     is_tes = _mode_tes_aktif()
-    if role != "Siswa" and not is_tes:
-        return
     data = st.session_state.data
     total = max(1, int(total))
     benar = max(0, min(total, int(benar)))
@@ -4197,6 +4286,8 @@ def simpan_game_cepat(mode: str, skor: int, benar: int = 0,
     progres["jumlah_percobaan"] = int(progres.get("jumlah_percobaan") or 0) + 1
     data.setdefault("papan", {})
     data["papan"][nama] = max(data["papan"].get(nama, 0), persen)
+    save_all_data()
+    st.session_state.pop("_nilai_riwayat_cache", None)
 
 
 def mini_reset(mode: str, game: str):
@@ -4999,6 +5090,15 @@ def _ujian_selesaikan(auto=False):
     u = st.session_state.get("ujian")
     if not u or u.get("selesai"):
         return
+    role = st.session_state.get("user_role")
+    if role not in ("Siswa", "Pengelola"):
+        st.error("Peran ini tidak diizinkan menyimpan hasil ujian.")
+        return
+    is_tes = _mode_tes_aktif()
+    if role != "Siswa" and not is_tes:
+        st.error("Pengelola harus mengaktifkan Mode Tes sebelum menyimpan hasil ujian.")
+        return
+
     total = len(u["soal"])
     jawaban = list(u.get("jawaban") or [])
     while len(jawaban) < total:
@@ -5011,47 +5111,53 @@ def _ujian_selesaikan(auto=False):
     skor = round(benar / total * 100) if total else 0
     detik = max(0, min(int(u["menit"]) * 60,
                        int((datetime.now() - u["mulai"]).total_seconds())))
-    u.update(selesai=True, auto=auto, jawaban=jawaban,
-             benar=benar, skor=skor, waktu=detik)
+    u.update(jawaban=jawaban, benar=benar, skor=skor, waktu=detik, is_tes=is_tes)
+    u.pop("gagal_simpan", None)
     if u["mode"] == "asli" and not u.get("tersimpan"):
         data = st.session_state.data
         tanggal = datetime.now().strftime("%Y-%m-%d %H:%M")
-        mulai_teks = (u["mulai"].strftime("%Y-%m-%d %H:%M")
-                      if isinstance(u.get("mulai"), datetime)
-                      else str(u.get("mulai") or tanggal))
-        data.setdefault("hasil", []).append({
-            "siswa": u["siswa"], "tipe": "ujian", "mode": u["kategori"],
-            "level": u["materi"], "benar": benar, "total": total,
-            "skor": skor, "tanggal": tanggal,
-            "seed": u.get("seed") or "", "mulai": mulai_teks,
-            "selesai": tanggal,
-        })
-        u["tanggal"] = tanggal
-        kelas_peserta = ""
-        for s in data.get("siswa", []) or []:
-            if rapikan_nama(str(s.get("nama") or "")).lower() == u["siswa"].lower():
-                kelas_peserta = str(s.get("kelas") or "")
-                if u["kategori"] == "Tahfidz":
-                    s["nilai_tahfidz"] = skor
-                else:
-                    s["nilai_tahsin"] = skor
-                ok, err = update_student_score_supabase(
-                    u["siswa"], u["kategori"], skor)
-                if not ok:
-                    st.session_state["_siswa_warn"] = (
-                        "Nilai ujian tersimpan, tetapi Data Siswa gagal diperbarui: " + str(err))
-                break
-        papan = data.setdefault("papan", {})
-        papan[u["siswa"]] = max(int(papan.get(u["siswa"]) or 0), skor)
-        save_all_data()
-        simpan_hasil_ujian(
+        username = (st.session_state.get("user_username")
+                    or _username_siswa(u["siswa"]))
+        if not simpan_hasil_ujian(
             u["siswa"], u["kategori"], u["materi"],
             [{"soal": q.get("prompt", ""), "jawaban": p}
              for q, p in zip(u["soal"], jawaban)],
             skor, "Lulus" if skor >= BATAS_TUNTAS else "Belum lulus",
-            kelas_peserta,
-        )
+            kelas=_kelas_dari_nama(u["siswa"]), username=username,
+            is_tes=is_tes, level=str(u["materi"]), created_at=tanggal,
+        ):
+            u["gagal_simpan"] = (
+                "Hasil ujian gagal disimpan ke Supabase. Silakan coba kirim kembali.")
+            if auto:
+                u.update(selesai=True, auto=True)
+                st.rerun(scope="app")
+            return
+        u["tanggal"] = tanggal
         u["tersimpan"] = True
+        if not is_tes:
+            mulai_teks = (u["mulai"].strftime("%Y-%m-%d %H:%M")
+                          if isinstance(u.get("mulai"), datetime)
+                          else str(u.get("mulai") or tanggal))
+            data.setdefault("hasil", []).append({
+                "siswa": u["siswa"], "tipe": "ujian", "mode": u["kategori"],
+                "level": u["materi"], "benar": benar, "total": total,
+                "skor": skor, "tanggal": tanggal,
+                "seed": u.get("seed") or "", "mulai": mulai_teks,
+                "selesai": tanggal, "username": username, "is_tes": False,
+            })
+            for s in data.get("siswa", []) or []:
+                if rapikan_nama(str(s.get("nama") or "")).casefold() == u["siswa"].casefold():
+                    ok, err = update_student_score_supabase(
+                        u["siswa"], u["kategori"], skor)
+                    if not ok:
+                        st.error("Nilai ujian tersimpan, tetapi Data Siswa gagal "
+                                 f"diperbarui: {err}")
+                    break
+            papan = data.setdefault("papan", {})
+            papan[u["siswa"]] = max(int(papan.get(u["siswa"]) or 0), skor)
+            save_all_data()
+            st.session_state.pop("_nilai_riwayat_cache", None)
+    u.update(selesai=True, auto=auto)
     st.rerun(scope="app")
 
 
@@ -5095,7 +5201,7 @@ function putar() {
 
 
 def _ujian_riwayat():
-    recs = [h for h in (st.session_state.data.get("hasil") or [])
+    recs = [h for h in _riwayat_nilai()
             if str(h.get("tipe")) in ("ujian", "exam")]
     st.markdown('<div class="section-title">🕘 '
                 + T("Riwayat Ujian (5 Terakhir)", "Exam History (Last 5)",
@@ -5239,7 +5345,16 @@ def _ujian_render_hasil(u):
               f"{menit:02d}:{detik:02d}")
     k3.metric(T("Status", "Status", "الحالة"), "LULUS" if lulus else "REMEDIAL")
 
-    if u["mode"] == "asli" and u.get("tersimpan"):
+    if u.get("gagal_simpan"):
+        st.error(str(u["gagal_simpan"]))
+    elif u["mode"] == "asli" and u.get("tersimpan") and u.get("is_tes"):
+        st.success(T(f"Nilai {u['skor']} tersimpan sebagai Mode Tes dan tidak masuk "
+                     "Nilai & Hasil atau Leaderboard.",
+                     f"Score {u['skor']} saved in Test Mode and excluded from Scores & "
+                     "Results and the Leaderboard.",
+                     f"تم حفظ الدرجة {u['skor']} في وضع الاختبار ولا تظهر في الدرجات أو "
+                     "لوحة المتصدرين."))
+    elif u["mode"] == "asli" and u.get("tersimpan"):
         xp = u["benar"] * LB_XP["benar"] + (LB_XP["ujian"] if lulus else 0)
         st.success(T(f"Nilai {u['skor']} tersimpan ke Nilai & Hasil dan +{xp} XP "
                      "ke Leaderboard.",
@@ -5441,6 +5556,106 @@ def page_ujian():
 # ---------------------------------------------------------------------------
 # Nilai & Hasil
 # ---------------------------------------------------------------------------
+def _rpc_tipe_hasil(row):
+    tipe = str(row.get("tipe") or row.get("jenis") or "").strip().casefold()
+    if tipe == "exam":
+        tipe = "ujian"
+    if tipe == "mini":
+        tipe = "game"
+    if not tipe:
+        if "nama_siswa" in row or "jawaban" in row:
+            tipe = "ujian"
+        elif "poin" in row:
+            tipe = "game"
+    if str(row.get("level") or "").strip().casefold() == "input manual":
+        tipe = "manual"
+    return tipe
+
+
+def _rpc_mode_hasil(row):
+    mode = _rpc_mode(row)
+    if mode:
+        return mode
+    materi = str(row.get("materi") or "").strip()
+    if materi in MODE_LIST:
+        return materi
+    for kategori, daftar in UJIAN_MATERI.items():
+        if materi in daftar:
+            return kategori
+    return ""
+
+
+def _rpc_ke_hasil(row):
+    if not isinstance(row, dict) or _rpc_is_tes(row):
+        return None
+    tipe = _rpc_tipe_hasil(row)
+    if tipe == "materi":
+        return None
+    skor = _rpc_skor(row)
+    total = _lb_int(row.get("total_soal") or row.get("total"), 0)
+    if not total and tipe == "game":
+        total = _lb_int(row.get("benar"), 0) + _lb_int(row.get("salah"), 0)
+    if skor is None and total > 0:
+        skor = round(_lb_int(row.get("benar"), 0) / total * 100)
+    if skor is None:
+        return None
+    tanggal_mentah = row.get("tanggal") or row.get("created_at") or ""
+    tanggal_obj = _lb_parse_tanggal(tanggal_mentah)
+    tanggal = (tanggal_obj.strftime("%Y-%m-%d %H:%M") if tanggal_obj
+               else str(tanggal_mentah or ""))
+    return {
+        "siswa": _rpc_nama(row),
+        "tipe": tipe,
+        "mode": _rpc_mode_hasil(row),
+        "level": row.get("level") or row.get("materi") or "",
+        "benar": _lb_int(row.get("benar"), 0),
+        "total": total,
+        "skor": skor,
+        "tanggal": tanggal,
+        "seed": str(row.get("seed") or ""),
+        "mulai": str(row.get("mulai") or tanggal),
+        "selesai": str(row.get("selesai") or tanggal),
+        "username": str(row.get("username") or ""),
+        "is_tes": False,
+    }
+
+
+def _muat_riwayat_nilai():
+    role = st.session_state.get("user_role")
+    if role == "Siswa":
+        nama = st.session_state.get("user_name") or st.session_state.data.get("profil", {}).get("nama")
+        usernames = [st.session_state.get("user_username") or _username_siswa(nama)]
+    else:
+        usernames = [_username_siswa(d["nama"]) for d in LB_SISWA]
+        pengirim = str(st.session_state.get("user_username") or "").strip()
+        if pengirim:
+            usernames.append(pengirim)
+    rows = []
+    errors = []
+    for username in dict.fromkeys(u for u in usernames if u):
+        result, error = _rpc_users("qori_riwayat_load", {"p_username": username})
+        if error:
+            errors.append(error)
+            continue
+        if isinstance(result, dict):
+            result = [result]
+        for row in result or []:
+            record = _rpc_ke_hasil(row)
+            if record:
+                rows.append(record)
+    if errors:
+        st.error("Gagal memuat Nilai & Hasil dari Supabase: " + str(errors[0]))
+    st.session_state["_nilai_riwayat_cache"] = rows
+    return rows
+
+
+def _riwayat_nilai():
+    cache = st.session_state.get("_nilai_riwayat_cache")
+    if not isinstance(cache, list):
+        cache = _muat_riwayat_nilai()
+    return cache
+
+
 def _nilai_dari_h(h):
     try:
         if h.get("skor") is not None:
@@ -5454,7 +5669,7 @@ def _nilai_dari_h(h):
 
 def _nilai_hasil_nama(nama):
     kunci = str(nama or "").strip().lower()
-    return [h for h in st.session_state.data.get("hasil", []) or []
+    return [h for h in _riwayat_nilai()
             if str(h.get("siswa") or "").strip().lower() == kunci]
 
 
@@ -5688,6 +5903,8 @@ def page_nilai():
     """, unsafe_allow_html=True)
     if (pesan_nilai := st.session_state.pop("nilai_info", None)):
         st.success(pesan_nilai)
+    if (pesan_error := st.session_state.pop("nilai_error", None)):
+        st.error(pesan_error)
     data = st.session_state.data
     pengelola = st.session_state.user_role == "Pengelola"
     guru = st.session_state.user_role in ("Pengelola", "Guru")
@@ -5708,7 +5925,7 @@ def page_nilai():
     if not guru:
         rows = [r for r in rows if r["nama"].lower() == str(nama_saya).lower()]
 
-    hasil_semua = data.get("hasil", []) or []
+    hasil_semua = _riwayat_nilai()
     ada_rata = [r["rata"] for r in rows if r["rata"] is not None]
     rata_kelas = round(sum(ada_rata) / len(ada_rata)) if ada_rata else 0
     tertinggi = max(ada_rata) if ada_rata else 0
@@ -5899,10 +6116,43 @@ def page_nilai():
                      "هل أنت متأكد من حذف كل الدرجات؟ لا يمكن التراجع."))
         k_ya, k_batal, _ = st.columns([1, 1, 3])
         if k_ya.button(T("Ya", "Yes", "نعم"), key="btn_reset_ya", use_container_width=True):
-            data["hasil"] = []
-            data["papan"] = {}
+            st.session_state.pop("_nilai_riwayat_cache", None)
+            st.session_state.pop("lb_meta", None)
+            if not _reset_hasil_supabase():
+                st.session_state["nilai_error"] = (
+                    "Reset nilai di Supabase gagal. Data lokal dan Data Siswa "
+                    "tidak diubah.")
+                st.rerun()
+            gagal = []
+            nama_siswa = list(dict.fromkeys(
+                str(s.get("nama") or "").strip()
+                for s in data.get("siswa", []) or []
+                if str(s.get("nama") or "").strip()
+            ))
+            if not nama_siswa:
+                nama_siswa = [d["nama"] for d in LB_SISWA]
+            for nama in nama_siswa:
+                for mode in ("Tahsin", "Tahfidz"):
+                    ok, err = update_student_score_supabase(nama, mode, 0)
+                    if not ok:
+                        gagal.append(f"{nama} ({mode}): {err}")
             for kunci in ("aksi_reset", "aksi_edit_idx", "aksi_hapus_idx"):
                 st.session_state.pop(kunci, None)
+            if gagal:
+                st.session_state["nilai_error"] = (
+                    "Reset Supabase selesai sebagian, tetapi Data Siswa gagal direset: "
+                    + "; ".join(gagal[:3]))
+                st.rerun()
+
+            data["hasil"] = []
+            data["papan"] = {}
+            data["progress"] = {
+                mode: {"xp": 0, "level": 1, "skor_terakhir": 0,
+                       "jumlah_percobaan": 0}
+                for mode in MODE_LIST
+            }
+            for mode in MODE_LIST:
+                st.session_state.pop(f"belajar_level_{mode}", None)
             save_all_data()
             st.session_state["nilai_info"] = T("Semua nilai berhasil direset.",
                                                "All scores were reset.", "تمت إعادة تعيين كل الدرجات.")
@@ -5931,30 +6181,53 @@ def page_nilai():
                     disabled=not (boleh_ubah or st.session_state.user_role == "Guru"))
             if simpan_manual:
                 mode_manual = "Iqro'" if m_kat == "Iqro' Dasar" else m_kat
+                is_tes = _mode_tes_aktif()
+                username = (st.session_state.get("user_username") if is_tes
+                            else _username_siswa(m_nama))
+                tanggal = (m_tgl.strftime("%Y-%m-%d") + " "
+                           + datetime.now().strftime("%H:%M:%S"))
+                if not simpan_hasil_ujian(
+                    m_nama, mode_manual, mode_manual, [], int(m_nilai),
+                    "Lulus" if int(m_nilai) >= BATAS_TUNTAS else "Belum lulus",
+                    kelas=_kelas_dari_nama(m_nama), username=username,
+                    is_tes=is_tes, level="Input Manual", created_at=tanggal,
+                ):
+                    st.session_state["nilai_error"] = (
+                        "Nilai manual gagal disimpan ke Supabase. "
+                        "Data dan nilai siswa tidak diubah.")
+                    st.rerun()
+                if is_tes:
+                    st.session_state.pop("_nilai_riwayat_cache", None)
+                    st.session_state["nilai_info"] = T(
+                        f"Nilai {m_nama} ({m_kat}) tersimpan sebagai Mode Tes dan tidak "
+                        "mengubah nilai asli.",
+                        f"Score for {m_nama} ({m_kat}) saved in Test Mode without changing "
+                        "real scores.",
+                        f"تم حفظ درجة {m_nama} ({m_kat}) في وضع الاختبار دون تغيير الدرجات الحقيقية.")
+                    st.rerun()
+
+                ok, err = update_student_score_supabase(
+                    m_nama, mode_manual, int(m_nilai))
                 data.setdefault("hasil", []).append({
                     "siswa": m_nama, "tipe": "manual", "mode": mode_manual,
-                    "level": "-", "benar": 0, "total": 0, "skor": int(m_nilai),
-                    "tanggal": m_tgl.strftime("%Y-%m-%d") + " " + datetime.now().strftime("%H:%M"),
+                    "level": "Input Manual", "benar": 0, "total": 0,
+                    "skor": int(m_nilai), "tanggal": tanggal,
+                    "username": username, "is_tes": False,
                 })
-                for s in data.get("siswa", []) or []:
-                    if rapikan_nama(str(s.get("nama") or "")).lower() == m_nama.lower():
-                        if mode_manual == "Tahfidz":
-                            s["nilai_tahfidz"] = int(m_nilai)
-                        else:
-                            s["nilai_tahsin"] = int(m_nilai)
-                        ok, err = update_student_score_supabase(
-                            m_nama, mode_manual, int(m_nilai))
-                        if not ok:
-                            st.session_state["_siswa_warn"] = (
-                                "Nilai tersimpan, tetapi Data Siswa gagal diperbarui: " + str(err))
-                        break
-                papan = data.setdefault("papan", {})
-                papan[m_nama] = max(int(papan.get(m_nama) or 0), int(m_nilai))
+                if ok:
+                    papan = data.setdefault("papan", {})
+                    papan[m_nama] = max(int(papan.get(m_nama) or 0), int(m_nilai))
                 save_all_data()
-                st.session_state["nilai_info"] = T(
-                    f"Nilai {m_nama} ({m_kat}) berhasil disimpan dan masuk Leaderboard.",
-                    f"Score for {m_nama} ({m_kat}) saved and synced to the Leaderboard.",
-                    f"تم حفظ درجة {m_nama} ({m_kat}) ومزامنتها مع لوحة المتصدرين.")
+                st.session_state.pop("_nilai_riwayat_cache", None)
+                if ok:
+                    st.session_state["nilai_info"] = T(
+                        f"Nilai {m_nama} ({m_kat}) berhasil disimpan dan masuk Leaderboard.",
+                        f"Score for {m_nama} ({m_kat}) saved and synced to the Leaderboard.",
+                        f"تم حفظ درجة {m_nama} ({m_kat}) ومزامنتها مع لوحة المتصدرين.")
+                else:
+                    st.session_state["nilai_error"] = (
+                        "Riwayat nilai tersimpan di Supabase, tetapi Data Siswa gagal "
+                        f"diperbarui: {err}")
                 st.rerun()
 
     st.caption(T("Klik baris tabel untuk membuka detail siswa di bawah.",
@@ -6657,18 +6930,6 @@ def _selesaikan_materi(mat):
     dipelajari = k["dipelajari"].setdefault(nama, [])
     if mat["id"] in dipelajari:
         dipelajari.remove(mat["id"])
-    if st.session_state.user_role == "Siswa":
-        st.session_state.data.setdefault("hasil", []).append({
-            "siswa": nama or st.session_state.data["profil"]["nama"],
-            "tipe": "materi",
-            "mode": mat.get("kategori") or "Iqro'",
-            "level": int(mat.get("lv") or 1),
-            "benar": 5,
-            "total": 5,
-            "skor": 100,
-            "tanggal": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        })
-        save_all_data()
     _simpan_kurikulum()
     st.session_state["mat_flash"] = T(
         f"Selamat! Materi “{mat['judul']}” selesai. Level berikutnya terbuka.",
@@ -7089,9 +7350,11 @@ def page_materi():
     if st.session_state.user_role in ("Pengelola", "Guru"):
         _tambah_materi_guru()
     if st.session_state.user_role == "Siswa":
-        st.caption(T("Tandai Selesai pada materi akan menambahkan catatan ke Nilai & Hasil.",
-                     "Marking a material as completed adds a record to Scores & Results.",
-                     "وضع علامة مكتمل يضيف سجلًا إلى الدرجات والنتائج."))
+        st.caption(T("Tandai Selesai pada materi menyimpan progres kurikulum dan tidak "
+                     "mengubah Nilai & Hasil.",
+                     "Marking a material as completed saves curriculum progress without "
+                     "changing Scores & Results.",
+                     "إكمال المادة يحفظ تقدم المنهج دون تغيير الدرجات والنتائج."))
 
 # ---------------------------------------------------------------------------
 # Al-Qur'an Juz 30
